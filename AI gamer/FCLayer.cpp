@@ -6,8 +6,8 @@ FCLayer::FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bit
 																																			epsilon_(1e-6){
 	layerName_ = layerName;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bitchSize_, inC_, 1, 1));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bitchSize_, inC_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bitchSize_, outC_, 1, 1));
 	outSize_ = outC_*bitchSize_;
 	gradOutSize_ = inC_*bitchSize_*sizeof(__half);
@@ -51,14 +51,16 @@ __half* FCLayer::forward(__half* data){
 	inData_ = data;
 	checkCUBLAS(cublasSgemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, outC_, bitchSize_, inC_, &alpha, weights_, CUDA_R_16F, outC_, data, CUDA_R_16F, inC_, &beta1, outData_, CUDA_R_16F, outC_));
 	//std::cout << layerName_ << " ";
-	//printDataHalf(outData_, 10, "outData_");
+	printDataHalf(outData_, 10, "outData_");
 	return outData_;
 }
 __half* FCLayer::backward(__half* grad){
 	//clipGrads(grad, outC_*bitchSize_);
 	checkCUBLAS(cublasSgemmEx( cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, inC_, outC_, bitchSize_, &alpha, inData_, CUDA_R_16F, bitchSize_, grad, CUDA_R_16F, bitchSize_, &beta0, gradWeights_, CUDA_R_16F, inC_ ));
+	//gemmHFF(true, false, inC_, outC_, bitchSize_, inData_, bitchSize_, grad, bitchSize_, gradWeights_, inC_);
 	biasGradient(grad, gradBias_, outC_, bitchSize_);
 	checkCUBLAS(cublasSgemmEx( cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, inC_, bitchSize_, outC_, &alpha, weights_, CUDA_R_16F, inC_, grad, CUDA_R_16F, bitchSize_, &beta0, gradOut_, CUDA_R_16F, inC_ ));
+	//gemmHFF(false, true, inC_, bitchSize_, outC_, weights_, inC_, grad, bitchSize_, gradOut_, inC_);
 	std::cout << layerName_ << " ";
 	printDataHalf(gradOut_, 10, "gradOut_");
 	return gradOut_;

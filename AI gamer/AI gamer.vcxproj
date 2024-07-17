@@ -109,7 +109,6 @@
     <ClInclude Include="LeakyReLU.h" />
     <ClInclude Include="NvDisplayCap.h" />
     <ClInclude Include="NvFBCLibrary.h" />
-    <ClInclude Include="ScaleGrad.h" />
     <ClInclude Include="training.h" />
     <ClInclude Include="zstd.h" />
   </ItemGroup>
@@ -123,7 +122,6 @@
     <ClCompile Include="input_recorder.cpp" />
     <ClCompile Include="LeakyReLU.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="ScaleGrad.cpp" />
     <ClCompile Include="training.cpp" />
   </ItemGroup>
   <ItemGroup>

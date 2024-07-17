@@ -3,7 +3,6 @@
 #include "FCLayer.h"
 #include "BatchNorm.h"
 #include "LeakyReLU.h"
-#include "ScaleGrad.h"
 #include <chrono>
 #include <cuda.h>
 #include <iomanip>
@@ -27,16 +26,16 @@ void NeuralNetwork::initialize(int w, int h){
 	inHeight = h;
 	auto inputSize = w*h*3;
 	layers.push_back(new ConvLayer(cudnn, cublas, batchSize, 3, 16, 8, 4, 2, &w, &h, &inputSize, 0, 0, "Conv0")); // Input: RGB image
-	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, batchSize));
+	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize));
 	layers.push_back(new LeakyReLU(layers.back()->outDesc_));
 	layers.push_back(new ConvLayer(cudnn, cublas, batchSize, 32, 64, 4, 2, 1, &w, &h, &inputSize, 0, 0, "Conv1"));
-	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, batchSize));
+	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize));
 	layers.push_back(new LeakyReLU(layers.back()->outDesc_));
 	layers.push_back(new ConvLayer(cudnn, cublas, batchSize, 64, 64, 3, 1, 1, &w, &h, &inputSize, 0, 0, "Conv2"));
-	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, batchSize));
+	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize));
 	layers.push_back(new LeakyReLU(layers.back()->outDesc_));
 	layers.push_back(new FCLayer(cudnn, cublas, batchSize, inputSize, 256, "FC0"));
-	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, batchSize));
+	layers.push_back(new BatchNorm(cudnn, layers.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize));
 	layers.push_back(new LeakyReLU(layers.back()->outDesc_));
 	layers.push_back(new FCLayer(cudnn, cublas, batchSize, 256, 16, "FC1"));
 	layers.push_back(new Activate(cudnn, layers.back()->outDesc_, CUDNN_ACTIVATION_TANH, 1.0));
@@ -46,6 +45,7 @@ void NeuralNetwork::initialize(int w, int h){
 	cublasSetMathMode(cublas, CUBLAS_TENSOR_OP_MATH);
 }
 __half* NeuralNetwork::forward(__half* data, bool train){
+	printDataHalf(data, 10, "data");
 	for(const auto layer : layers){
 		data = layer->forward(data);
 	}

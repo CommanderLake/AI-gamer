@@ -7,12 +7,15 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int
 												outC_(outputChannels), inData_(nullptr), outData_(nullptr), weights_(nullptr){
 	layerName_ = layerName;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
+	checkCUDNN(cudnnCreateTensorDescriptor(&outGradDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
+	checkCUDNN(cudnnCreateTensorDescriptor(&inGradDesc_));
 	checkCUDNN(cudnnCreateFilterDescriptor(&filterDesc_));
 	checkCUDNN(cudnnCreateConvolutionDescriptor(&convDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&biasDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(biasDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, 1, outC_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bitchSize_, inC_, *height, *width));
+	checkCUDNN(cudnnSetTensor4dDescriptor(outGradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bitchSize_, inC_, *height, *width));
 	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, outC_, inC_, filterSize, filterSize));
 	checkCUDNN(cudnnSetConvolution2dDescriptor(convDesc_, padding, padding, stride, stride, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
 	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH));
@@ -21,6 +24,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int
 	if(outW > 0) *width = outW;
 	if(outH > 0) *height = outH;
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, n, c, *height, *width));
+	checkCUDNN(cudnnSetTensor4dDescriptor(inGradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, n, c, *height, *width));
 	outCHW_ = outC_ * *height * *width;
 	outSize_ = outCHW_*bitchSize_;
 	gradOutSize_ = inCHW_*bitchSize_*sizeof(__half);
@@ -41,7 +45,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int
 	checkCUDA(cudaMemset(gradWeights_, 0, weightCount_*sizeof(__half)));
 	checkCUDA(cudaMemset(bias_, 0, outC_*sizeof(__half)));
 	checkCUDA(cudaMemset(gradBias_, 0, outC_*sizeof(__half)));
-	checkCUDA(cudaMemset(gradOut_, 0, inCHW_*bitchSize_*sizeof(__half)));
+	checkCUDA(cudaMemset(gradOut_, 0, gradOutSize_));
 	checkCUDA(cudaMemset(m_weights_, 0, weightCount_*sizeof(float)));
 	checkCUDA(cudaMemset(v_weights_, 0, weightCount_*sizeof(float)));
 	checkCUDA(cudaMemset(m_bias_, 0, outC_*sizeof(float)));
@@ -85,7 +89,7 @@ __half* ConvLayer::forward(__half* data){
 	inData_ = data;
 	checkCUDNN(cudnnConvolutionForward(cudnnHandle_, &alpha, inDesc_, data, filterDesc_, weights_, convDesc_, fwdAlgo_, workspace_, workspaceSize_, &beta1, outDesc_, outData_));
 	//std::cout << layerName_ << " ";
-	//printDataHalf(outData_, 10, "outData_");
+	printDataHalf(outData_, 10, "outData_");
 	return outData_;
 }
 __half* ConvLayer::backward(__half* grad){
@@ -93,9 +97,9 @@ __half* ConvLayer::backward(__half* grad){
 	//printDataHalf(inGrad, 10, "inGrad");
 	//printDataHalf(weights_, 10, "weights_");
 	//clipGrads(grad, outCHW_*bitchSize_);
-	checkCUDNN(cudnnConvolutionBackwardFilter(cudnnHandle_, &alpha, inDesc_, inData_, outDesc_, grad, convDesc_, bwdFilterAlgo_, workspace_, workspaceSize_, &beta0, filterDesc_, gradWeights_));
-	checkCUDNN(cudnnConvolutionBackwardBias(cudnnHandle_, &alpha, outDesc_, grad, &beta0, biasDesc_, gradBias_));
-	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &alpha, filterDesc_, weights_, outDesc_, grad, convDesc_, bwdDataAlgo_, workspace_, workspaceSize_, &beta0, inDesc_, gradOut_));
+	checkCUDNN(cudnnConvolutionBackwardFilter(cudnnHandle_, &alpha, inDesc_, inData_, inGradDesc_, grad, convDesc_, bwdFilterAlgo_, workspace_, workspaceSize_, &beta0, filterDesc_, gradWeights_));
+	checkCUDNN(cudnnConvolutionBackwardBias(cudnnHandle_, &alpha, inGradDesc_, grad, &beta0, biasDesc_, gradBias_));
+	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &alpha, filterDesc_, weights_, inGradDesc_, grad, convDesc_, bwdDataAlgo_, workspace_, workspaceSize_, &beta0, outGradDesc_, gradOut_));
 	printDataHalf(gradOut_, 10, "gradOut_");
 	return gradOut_;
 }

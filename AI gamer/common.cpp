@@ -1,5 +1,7 @@
 #include "common.h"
-
+#include <cuda_runtime_api.h>
+#include <iostream>
+#include <vector>
 const char* cublasGetErrorString(cublasStatus_t status){
 	switch(status){
 		case CUBLAS_STATUS_SUCCESS:
@@ -174,6 +176,11 @@ void printDataFloat(const float* data, const size_t size, const char* label){
 	std::cout << "\r\n";
 }
 void printDataFloatHost(const float* data, const size_t size, const char* label){
+	std::cout << label << ": ";
+	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
+	std::cout << "\r\n";
+}
+void printDataCharHost(const unsigned char* data, const size_t size, const char* label){
 	std::cout << label << ": ";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
 	std::cout << "\r\n";

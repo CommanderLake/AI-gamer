@@ -1,9 +1,7 @@
 #pragma once
 #include <algorithm>
-#include <vector>
 #include <cstdint>
 #include <map>
-#include <cuda_runtime_api.h>
 #include <cublas_v2.h>
 #include <iostream>
 const char* cublasGetErrorString(cublasStatus_t status);
@@ -45,14 +43,15 @@ void h2f128asm(float* dst, __half* src, int num_elements);
 void printDataHalf(const __half* data, size_t size, const char* label);
 void printDataFloat(const float* data, size_t size, const char* label);
 void printDataFloatHost(const float* data, size_t size, const char* label);
+void printDataCharHost(const unsigned char* data, size_t size, const char* label);
 void checkData(const __half* data, size_t size, const char* label);
 extern "C" float mseLoss(const __half* d_predictions, const float* d_targets, int size);
 extern "C" void convertAndNormalize(unsigned char* input, __half* output, size_t size);
 extern "C" void convertFloatToHalf(float* src, __half* dst, size_t n);
 extern "C" void convertHalfToFloat(__half* src, float* dst, size_t n);
 extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn);
-extern "C" void Hgemv(const half *A, const half *B, half *C, int N, int K);
-extern "C" void SGDHalf(__half* param, float learningRate, const __half* gradParam, int size);
+extern "C" void gemmHFF(int M, int N, int K, bool transA, bool transB, const half *A, int lda, const float *B, int ldb, float *C, int ldc);
+extern "C" void SGDHalf(__half* param, float learningRate, const float* gradParam, int size);
 extern "C" void SGDFloat(float* param, float learningRate, const float* gradParam, int size);
 extern "C" void AdamHalf(__half* param, float* m, float* v, float learningRate, const __half* gradParam, int size, int t);
 extern "C" void AdamFloat(float* param, float* m, float* v, float learningRate, const float* gradParam, int size, int t);

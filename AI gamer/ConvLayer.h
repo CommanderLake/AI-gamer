@@ -18,6 +18,8 @@ public:
 	cudnnConvolutionBwdFilterAlgo_t bwdFilterAlgo_;
 	cudnnConvolutionBwdDataAlgo_t bwdDataAlgo_;
 	cudnnTensorDescriptor_t biasDesc_;
+	cudnnTensorDescriptor_t inGradDesc_;
+	cudnnTensorDescriptor_t outGradDesc_;
 	size_t bitchSize_;
 	size_t inC_;
 	const size_t inCHW_;
