@@ -1,1 +1,1 @@
-Please make this work I beg of you!
+Please make the training code work I beg of you!
