@@ -1,6 +1,6 @@
 #include "LeakyReLU.h"
 #include "common.h"
-LeakyReLU::LeakyReLU(cudnnTensorDescriptor_t outDesc, const char* layerName): slope_(1.0f/64.0f){
+LeakyReLU::LeakyReLU(cudnnTensorDescriptor_t outDesc, const char* layerName): slope_(1.0f/128.0f){
 	layerName_ = layerName;
 	outDesc_ = outDesc;
 	cudnnDataType_t dt;

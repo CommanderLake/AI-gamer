@@ -56,7 +56,6 @@ __half* FCLayer::Forward(__half* data){
 	return outData_;
 }
 __half* FCLayer::Backward(__half* grad){
-	//clipGrads(grad, outC_*bitchSize_);
 	checkCUBLAS(cublasSgemmEx( cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, inC_, outC_, bitchSize_, &alpha, inData_, CUDA_R_16F, bitchSize_, grad, CUDA_R_16F, bitchSize_, &beta0, gradWeights_, CUDA_R_16F, inC_ ));
 	BiasGradient(grad, gradBias_, outC_, bitchSize_);
 	cudaDeviceSynchronize();

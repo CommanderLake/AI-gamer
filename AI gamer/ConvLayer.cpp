@@ -18,7 +18,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int
 	checkCUDNN(cudnnSetTensor4dDescriptor(outGradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bitchSize_, inC_, *height, *width));
 	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, outC_, inC_, filterSize, filterSize));
 	checkCUDNN(cudnnSetConvolution2dDescriptor(convDesc_, padding, padding, stride, stride, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
-	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH));
+	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH));//S
 	int n, c;
 	checkCUDNN(cudnnGetConvolution2dForwardOutputDim(convDesc_, inDesc_, filterDesc_, &n, &c, height, width));
 	if(outW > 0) *width = outW;
@@ -92,7 +92,6 @@ __half* ConvLayer::Forward(__half* data){
 	return outData_;
 }
 __half* ConvLayer::Backward(__half* grad){
-	//clipGrads(grad, outCHW_*bitchSize_);
 	checkCUDNN(cudnnConvolutionBackwardFilter(cudnnHandle_, &alpha, inDesc_, inData_, inGradDesc_, grad, convDesc_, bwdFilterAlgo_, workspace_, workspaceSize_, &beta0, filterDesc_, gradWeights_));
 	checkCUDNN(cudnnConvolutionBackwardBias(cudnnHandle_, &alpha, inGradDesc_, grad, &beta0, biasDesc_, gradBias_));
 	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &alpha, filterDesc_, weights_, inGradDesc_, grad, convDesc_, bwdDataAlgo_, workspace_, workspaceSize_, &beta0, outGradDesc_, gradOut_));

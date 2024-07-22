@@ -11,7 +11,9 @@
 #include <iostream>
 #include <random>
 #include <string>
-NeuralNetwork::NeuralNetwork(): inWidth_(0), inHeight_(0){
+#include <thread>
+#include <atomic>
+NeuralNetwork::NeuralNetwork(): inWidth_(0), inHeight_(0), learningRate_(0.00001f){
 	cudnnCreate(&cudnn_);
 	cublasCreate(&cublas_);
 }
@@ -26,27 +28,26 @@ void NeuralNetwork::Initialize(int w, int h){
 	inWidth_ = w;
 	inHeight_ = h;
 	auto inputSize = w*h*3;
-	layers_.push_back(new ConvLayer(cudnn_, cublas_, batchSize_, 3, 16, 8, 4, 2, &w, &h, &inputSize, 0, 0, "Conv0")); // Input: RGB image
+	layers_.push_back(new ConvLayer(cudnn_, cublas_, batchSize_, 3, 32, 8, 4, 2, &w, &h, &inputSize, 0, 0, "Conv0")); // Input: RGB image
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize_, "Conv0 BatchNorm"));
-	//layers_.push_back(new LayerNorm(layers_.back()->outDesc_, batchSize_, "Conv0 LayerNorm"));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Conv0 LeakyReLU"));
 	layers_.push_back(new ConvLayer(cudnn_, cublas_, batchSize_, 32, 64, 4, 2, 1, &w, &h, &inputSize, 0, 0, "Conv1"));
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize_, "Conv1 BatchNorm"));
-	//layers_.push_back(new LayerNorm(layers_.back()->outDesc_, batchSize_, "Conv1 LayerNorm"));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Conv1 LeakyReLU"));
-	layers_.push_back(new ConvLayer(cudnn_, cublas_, batchSize_, 64, 64, 3, 1, 1, &w, &h, &inputSize, 0, 0, "Conv2"));
+	layers_.push_back(new ConvLayer(cudnn_, cublas_, batchSize_, 64, 128, 4, 2, 1, &w, &h, &inputSize, 0, 0, "Conv2"));
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize_, "Conv2 BatchNorm"));
-	//layers_.push_back(new LayerNorm(layers_.back()->outDesc_, batchSize_, "Conv2 LayerNorm"));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Conv2 LeakyReLU"));
+	layers_.push_back(new ConvLayer(cudnn_, cublas_, batchSize_, 128, 128, 3, 1, 0, &w, &h, &inputSize, 0, 0, "Conv3"));
+	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize_, "Conv3 BatchNorm"));
+	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Conv3 LeakyReLU"));
 	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inputSize, 512, "FC0"));
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "FC0 BatchNorm"));
-	//layers_.push_back(new LayerNorm(layers_.back()->outDesc_, batchSize_, "FC0 LayerNorm"));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "FC0 LeakyReLU"));
 	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 512, 256, "FC1"));
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "FC1 BatchNorm"));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "FC1 LeakyReLU"));
 	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, numCtrls_, "FC2"));
-	layers_.push_back(new Sigmoid(layers_.back()->outDesc_, numButs_, batchSize_, "FC2 Sigmoid"));
+	layers_.push_back(new Activate(cudnn_, layers_.back()->outDesc_, CUDNN_ACTIVATION_SIGMOID, 1.0, "FC2 Sigmoid"));
 	checkCUDA(cudaMalloc(&gradient_, ctrlBatchSize_*sizeof(__half)));
 	cudaMallocHost(reinterpret_cast<void**>(&ctrlBatchFloat_), ctrlBatchSize_*sizeof(float));
 	cudaMallocHost(reinterpret_cast<void**>(&ctrlBatchHalf_), ctrlBatchSize_*sizeof(__half));
@@ -63,11 +64,11 @@ __half* NeuralNetwork::Forward(__half* data, bool train){
 }
 void NeuralNetwork::Backward(const __half* d_predictions, const float* d_targets){
 	//printDataFloat(d_targets, numCtrls, "Targets");
-	Gradient(gradient_, d_predictions, d_targets, batchSize_, numCtrls_, 64.0f);
+	Gradient(gradient_, d_predictions, d_targets, batchSize_, numCtrls_, 128.0f);
 	auto outGrad = gradient_;
 	for(int i = layers_.size(); --i >= 0; ){
 		outGrad = layers_[i]->Backward(outGrad);
-		PrintDataHalf(outGrad, 1, "outGrad");
+		//PrintDataHalf(outGrad, 1, "outGrad");
 	}
 }
 void NeuralNetwork::UpdateParams(){
@@ -77,47 +78,66 @@ void NeuralNetwork::Train(InputRecord** data, size_t count){
 	std::random_device rd;
 	std::mt19937 gen(rd());
 	const std::uniform_int_distribution<> dis(0, count - 1);
-	const size_t inputSize = inWidth_*inHeight_*3;
-	const size_t totalInputSize = inputSize*batchSize_;
+	const size_t inputSize = inWidth_ * inHeight_ * 3;
+	const size_t totalInputSize = inputSize * batchSize_;
+	unsigned char* h_batchInputBytes = nullptr;
 	unsigned char* d_batchInputBytes = nullptr;
 	__half* d_batchInputHalf = nullptr;
-	checkCUDA(cudaMalloc(&d_batchInputBytes, totalInputSize*sizeof(unsigned char)));
-	checkCUDA(cudaMalloc(&d_batchInputHalf, totalInputSize*sizeof(__half)));
+	// Allocate memory on the device
+	checkCUDA(cudaMalloc(&d_batchInputBytes, totalInputSize * sizeof(unsigned char)));
+	checkCUDA(cudaMalloc(&d_batchInputHalf, totalInputSize * sizeof(__half)));
+	// Allocate pinned memory on the host
+	checkCUDA(cudaMallocHost(&h_batchInputBytes, totalInputSize * sizeof(unsigned char)));
 	float* h_ctrlBatch = nullptr;
-	cudaMallocHost(&h_ctrlBatch, ctrlBatchSize_*sizeof(float));
+	checkCUDA(cudaMallocHost(&h_ctrlBatch, ctrlBatchSize_ * sizeof(float)));
 	float* d_ctrlBatch;
-	checkCUDA(cudaMalloc(&d_ctrlBatch, ctrlBatchSize_*sizeof(float)));
-	//int max = 0;
+	checkCUDA(cudaMalloc(&d_ctrlBatch, ctrlBatchSize_ * sizeof(float)));
+	std::atomic<bool> batchReady(false);
+	std::atomic<bool> trainingComplete(false);
+	auto prepareBatch = [&](){
+		while(!trainingComplete){
+			if(!batchReady){
+				for(size_t i = 0; i < batchSize_; ++i){
+					const int index = dis(gen);
+					const InputRecord* record = data[index];
+					memcpy(h_batchInputBytes + i * inputSize, record->state_data, inputSize * sizeof(unsigned char));
+					for(const auto&[makeCode, bit] : keyMap){
+						if(record->keyStates & 1 << bit){
+							h_ctrlBatch[i * numCtrls_ + bit] = 1.0f;
+						} else{
+							h_ctrlBatch[i * numCtrls_ + bit] = 0.0f;
+						}
+					}
+					h_ctrlBatch[i * numCtrls_ + 14] = record->mouseDeltaX / 16384.0f + 0.5f;
+					h_ctrlBatch[i * numCtrls_ + 15] = record->mouseDeltaY / 16384.0f + 0.5f;
+				}
+				batchReady = true;
+			}
+		}
+	};
+	std::thread batchPreparationThread(prepareBatch);
 	for(size_t epoch = 0; epoch < 1000; ++epoch){
 		for(size_t batch = 0; batch < count / batchSize_; ++batch){
-			for(size_t i = 0; i < batchSize_; ++i){
-				const int index = dis(gen);
-				const InputRecord* record = data[index];
-				checkCUDA(cudaMemcpy(d_batchInputBytes + i*inputSize, record->state_data, inputSize*sizeof(unsigned char), cudaMemcpyHostToDevice));
-				for(const auto& [makeCode, bit] : keyMap){
-					if(record->keyStates & 1 << bit){
-						h_ctrlBatch[i*numCtrls_ + bit] = 1.0f;
-					} else h_ctrlBatch[i*numCtrls_ + bit] = 0.0f;
-				}
-				//max = std::max(max, std::max(std::abs(record->mouseDeltaX), std::abs(record->mouseDeltaY)));
-				h_ctrlBatch[i*numCtrls_ + 14] = record->mouseDeltaX/16384.0f;
-				h_ctrlBatch[i*numCtrls_ + 15] = record->mouseDeltaY/16384.0f;
+			while(!batchReady){
+				std::this_thread::yield();
 			}
+			checkCUDA(cudaMemcpy(d_batchInputBytes, h_batchInputBytes, totalInputSize*sizeof(unsigned char), cudaMemcpyHostToDevice));
 			checkCUDA(cudaMemcpy(d_ctrlBatch, h_ctrlBatch, numCtrls_*batchSize_*sizeof(float), cudaMemcpyHostToDevice));
+			batchReady = false;
 			ConvertAndNormalize(d_batchInputBytes, d_batchInputHalf, totalInputSize);
-			ClearScreen();
 			const auto output = Forward(d_batchInputHalf, true);
-			//printDataFloat(d_ctrlBatch, numCtrls_, "Target");
-			PrintDataHalf(output, numCtrls_, "Predicted");
+			//ClearScreen();
+			//PrintDataHalf(output, numCtrls_, "Predicted");
 			const float loss = MseLoss(output, d_ctrlBatch, batchSize_*numCtrls_);
-			std::cout << std::setprecision(10) << "Loss: " << loss << "\r\n\r\n";
-			//std::cout << "Max: " << max << "\r\n\r\n";
+			std::cout << std::setprecision(10) << "Loss: " << loss << "        \r";
 			Backward(output, d_ctrlBatch);
 			UpdateParams();
-			//std::cout << "\r\n\r\n";
 		}
 	}
+	trainingComplete = true;
+	batchPreparationThread.join();
 	cudaFreeHost(h_ctrlBatch);
+	cudaFreeHost(h_batchInputBytes);
 	cudaFree(d_ctrlBatch);
 	cudaFree(d_batchInputBytes);
 	cudaFree(d_batchInputHalf);

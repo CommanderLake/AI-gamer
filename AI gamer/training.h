@@ -25,5 +25,5 @@ private:
 	float* ctrlBatchFloat_ = nullptr;
 	__half* ctrlBatchHalf_ = nullptr;
 	int inWidth_, inHeight_;
-	float learningRate_ = 0.00001f;
+	float learningRate_;
 };

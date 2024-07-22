@@ -28,9 +28,9 @@ __global__ void cuARGBtoRGB(pixARGB* src, pixRGB* dst, int n){
 __global__ void cuARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += blockDim.x*gridDim.x){
 		const int srcIdx = i*4; // Each pixARGB has 4 bytes
-		dst[i] = src[srcIdx + 2]; // R plane
+		dst[i] = src[srcIdx]; // R plane
 		dst[i + n] = src[srcIdx + 1]; // G plane
-		dst[i + 2*n] = src[srcIdx]; // B plane
+		dst[i + 2*n] = src[srcIdx + 2]; // B plane
 	}
 }
 curandGenerator_t gen;
@@ -331,14 +331,22 @@ __global__ void clipGradsKernel(__half* grad, int size, float lower, float upper
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float gradValue = __half2float(grad[idx]);
-		if(gradValue < lower && gradValue >= 0.0f){ grad[idx] = __float2half(lower); } else if(gradValue > -lower && gradValue <= -0.0f){ grad[idx] = __float2half(-lower); } else if(gradValue > upper){
+		if(isnan(gradValue)){
+			grad[idx] = __float2half(1e-6f);
+		} else if(gradValue >= 0.0f && gradValue < lower){
+			grad[idx] = __float2half(lower);
+		} else if(gradValue <= -0.0f && gradValue > -lower){
+			grad[idx] = __float2half(-lower);
+		} else if(gradValue > upper){
 			grad[idx] = __float2half(upper);
-		} else if(gradValue < -upper){ grad[idx] = __float2half(-upper); } else if(isnan(gradValue)){ grad[idx] = __float2half(1e-6f); }
+		} else if(gradValue < -upper){
+			grad[idx] = __float2half(-upper);
+		}
 	}
 }
 extern "C" void ClipGrads(__half* grad, int size){
 	auto gridSize = div_ceil(size, BS);
-	clipGradsKernel<<<gridSize, BS>>>(grad, size, 1e-6f, 1.0f);
+	clipGradsKernel<<<gridSize, BS>>>(grad, size, 1e-6f, 128.0f);
 }
 __global__ void scaleKernel(__half* data, int size, float scale){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;

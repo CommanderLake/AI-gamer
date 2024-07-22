@@ -3,8 +3,7 @@
 #include "NvDisplayCap.h"
 #include <iomanip>
 #include <iostream>
-InputRecorder::InputRecorder(const HWND hwnd) : keyStates(0), mouseDeltaX(0), mouseDeltaY(0), hwnd(hwnd){
-}
+InputRecorder::InputRecorder(const HWND hwnd) : keyStates(0), mouseDeltaX(0), mouseDeltaY(0), hwnd(hwnd), frameSize(0){}
 InputRecorder::~InputRecorder(){
 	if(outputFile.is_open()){
 		outputFile.close();

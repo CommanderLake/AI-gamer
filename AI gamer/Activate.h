@@ -4,7 +4,7 @@
 #include <cudnn.h>
 class Activate final : public Layer{
 public:
-	Activate(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnActivationMode_t mode, double coef);
+	Activate(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnActivationMode_t mode, double coef, const char* layerName);
 	~Activate() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

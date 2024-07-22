@@ -59,9 +59,7 @@ BatchNorm::~BatchNorm(){
 }
 __half* BatchNorm::Forward(__half* data){
 	inData_ = data;
-	checkCUDNN(
-		cudnnBatchNormalizationForwardTraining(cudnnHandle_, bnMode_, &alpha, &beta0, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, 0.1, bnRunningMean_, bnRunningVar_, epsilon_,
-			bnSavedMean_, bnSavedInvVariance_));
+	checkCUDNN(cudnnBatchNormalizationForwardTraining(cudnnHandle_, bnMode_, &alpha, &beta0, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, 0.1, bnRunningMean_, bnRunningVar_, epsilon_, bnSavedMean_, bnSavedInvVariance_));
 	return outData_;
 }
 __half* BatchNorm::Backward(__half* grad){
@@ -81,6 +79,8 @@ __half* BatchNorm::Backward(__half* grad){
 	return grad;
 }
 void BatchNorm::UpdateParameters(float learningRate){
+	//SGDFloat(bnScale_, learningRate, gradBnScale_, outC_);
+	//SGDFloat(bnBias_, learningRate, gradBnBias_, outC_);
 	AdamWFloat(bnScale_, m_bnScale_, v_bnScale_, learningRate, gradBnScale_, outC_, t_, 0.001F);
 	AdamWFloat(bnBias_, m_bnBias_, v_bnBias_, learningRate, gradBnBias_, outC_, t_, 0.001F);
 	++t_;

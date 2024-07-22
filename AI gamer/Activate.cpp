@@ -1,7 +1,8 @@
 #include "Activate.h"
 #include "common.h"
-Activate::Activate(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnActivationMode_t mode, double coef): cudnnHandle_(cudnnHandle){
-	outDesc = outDesc;
+Activate::Activate(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnActivationMode_t mode, double coef, const char* layerName): cudnnHandle_(cudnnHandle){
+	layerName_ = layerName;
+	outDesc_ = outDesc;
 	cudnnDataType_t dt;
 	int n, c, h, w, ns, cs, hs, ws;
 	cudnnGetTensor4dDescriptor(outDesc, &dt, &n, &c, &h, &w, &ns, &cs, &hs, &ws);
