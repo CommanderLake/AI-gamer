@@ -4,9 +4,10 @@
 #include <cudnn.h>
 class LeakyReLU final : public Layer{
 public:
-	LeakyReLU(cudnnTensorDescriptor_t outDesc);
+	explicit LeakyReLU(cudnnTensorDescriptor_t outDesc, const char* layerName);
 	~LeakyReLU() override;
-	__half* forward(__half* data) override;
-	__half* backward(__half* grad) override;
+	__half* Forward(__half* data) override;
+	__half* Backward(__half* grad) override;
 	__half* data_ = nullptr;
+	float slope_;
 };

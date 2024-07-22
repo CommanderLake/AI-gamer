@@ -6,9 +6,9 @@ class ConvLayer final : public Layer{
 public:
 	ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bitchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* width, int* height, int* inputCHW, int outW, int outH, const char* layerName);
 	~ConvLayer() override;
-	__half* forward(__half* data) override;
-	__half* backward(__half* grad) override;
-	void updateParameters(float learningRate) override;
+	__half* Forward(__half* data) override;
+	__half* Backward(__half* grad) override;
+	void UpdateParameters(float learningRate) override;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	cudnnTensorDescriptor_t inDesc_;
@@ -36,8 +36,8 @@ public:
 	__half* gradBias_;
 	size_t workspaceSize_ = 0;
 	void* workspace_;
-	float *m_weights_, *v_weights_;
-	float *m_bias_, *v_bias_;
+	float *m_Weights_, *v_Weights_;
+	float *m_Bias_, *v_Bias_;
 	int t_ = 1;
 	const float alpha = 1.0f;
 	const float beta0 = 0.0f;

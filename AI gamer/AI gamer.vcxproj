@@ -78,7 +78,7 @@
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\inc\;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\samples\Util\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <Optimization>Disabled</Optimization>
+      <Optimization>MaxSpeedHighLevel</Optimization>
       <RecognizeRestrictKeyword>true</RecognizeRestrictKeyword>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
     </ClCompile>
@@ -106,11 +106,13 @@
     <ClInclude Include="GetError.h" />
     <ClInclude Include="input_recorder.h" />
     <ClInclude Include="Layer.h" />
+    <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="LeakyReLU.h" />
     <ClInclude Include="NvDisplayCap.h" />
     <ClInclude Include="NvFBCLibrary.h" />
+    <ClInclude Include="ScaleGrad.h" />
+    <ClInclude Include="Sigmoid.h" />
     <ClInclude Include="training.h" />
-    <ClInclude Include="zstd.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Activate.cpp" />
@@ -120,8 +122,11 @@
     <ClCompile Include="display.cpp" />
     <ClCompile Include="FCLayer.cpp" />
     <ClCompile Include="input_recorder.cpp" />
+    <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="LeakyReLU.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="ScaleGrad.cpp" />
+    <ClCompile Include="Sigmoid.cpp" />
     <ClCompile Include="training.cpp" />
   </ItemGroup>
   <ItemGroup>

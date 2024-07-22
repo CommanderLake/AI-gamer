@@ -8,21 +8,22 @@ class NeuralNetwork{
 public:
 	NeuralNetwork();
 	~NeuralNetwork();
-	void initialize(int w, int h);
-	__half* forward(__half* data, bool train);
-	void backward(const __half* d_predictions, const float* d_targets);
-	void updateParams();
-	void train(InputRecord** data, size_t count);
+	void Initialize(int w, int h);
+	__half* Forward(__half* data, bool train);
+	void Backward(const __half* d_predictions, const float* d_targets);
+	void UpdateParams();
+	void Train(InputRecord** data, size_t count);
 private:
-	cudnnHandle_t cudnn;
-	cublasHandle_t cublas;
-	std::vector<Layer*> layers;
+	cudnnHandle_t cudnn_;
+	cublasHandle_t cublas_;
+	std::vector<Layer*> layers_;
 	__half* gradient_ = nullptr;
-	const size_t batchSize = 64;
-	const int numCtrls = 16;
-	const int ctrlBatchSize = numCtrls*batchSize;
-	float* ctrlBatchFloat = nullptr;
-	__half* ctrlBatchHalf = nullptr;
-	int inWidth, inHeight;
-	float learningRate = 0.0001f;
+	const size_t batchSize_ = 64;
+	const int numCtrls_ = 16;
+	const int numButs_ = 14;
+	const int ctrlBatchSize_ = numCtrls_*batchSize_;
+	float* ctrlBatchFloat_ = nullptr;
+	__half* ctrlBatchHalf_ = nullptr;
+	int inWidth_, inHeight_;
+	float learningRate_ = 0.00001f;
 };

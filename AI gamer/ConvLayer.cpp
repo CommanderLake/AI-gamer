@@ -26,30 +26,30 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, n, c, *height, *width));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inGradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, n, c, *height, *width));
 	outCHW_ = outC_ * *height * *width;
-	outSize_ = outCHW_*bitchSize_;
+	outNCHW_ = outCHW_*bitchSize_;
 	gradOutSize_ = inCHW_*bitchSize_*sizeof(__half);
 	const auto fanIn = inC_*filterSize*filterSize;
 	weightCount_ = outC_ * fanIn;
-	checkCUDA(cudaMalloc(&outData_, outSize_*sizeof(__half)));
+	checkCUDA(cudaMalloc(&outData_, outNCHW_*sizeof(__half)));
 	checkCUDA(cudaMalloc(&weights_, weightCount_*sizeof(__half)));
 	checkCUDA(cudaMalloc(&gradWeights_, weightCount_*sizeof(__half)));
 	checkCUDA(cudaMalloc(&bias_, outC_*sizeof(__half)));
 	checkCUDA(cudaMalloc(&gradBias_, outC_*sizeof(__half)));
 	checkCUDA(cudaMalloc(&gradOut_, gradOutSize_));
-	checkCUDA(cudaMalloc(&m_weights_, weightCount_*sizeof(float)));
-	checkCUDA(cudaMalloc(&v_weights_, weightCount_*sizeof(float)));
-	checkCUDA(cudaMalloc(&m_bias_, outC_*sizeof(float)));
-	checkCUDA(cudaMalloc(&v_bias_, outC_*sizeof(float)));
-	checkCUDA(cudaMemset(outData_, 0, outSize_*sizeof(__half)));
+	checkCUDA(cudaMalloc(&m_Weights_, weightCount_*sizeof(float)));
+	checkCUDA(cudaMalloc(&v_Weights_, weightCount_*sizeof(float)));
+	checkCUDA(cudaMalloc(&m_Bias_, outC_*sizeof(float)));
+	checkCUDA(cudaMalloc(&v_Bias_, outC_*sizeof(float)));
+	checkCUDA(cudaMemset(outData_, 0, outNCHW_*sizeof(__half)));
 	HeInit(weights_, weightCount_, fanIn);
 	checkCUDA(cudaMemset(gradWeights_, 0, weightCount_*sizeof(__half)));
 	checkCUDA(cudaMemset(bias_, 0, outC_*sizeof(__half)));
 	checkCUDA(cudaMemset(gradBias_, 0, outC_*sizeof(__half)));
 	checkCUDA(cudaMemset(gradOut_, 0, gradOutSize_));
-	checkCUDA(cudaMemset(m_weights_, 0, weightCount_*sizeof(float)));
-	checkCUDA(cudaMemset(v_weights_, 0, weightCount_*sizeof(float)));
-	checkCUDA(cudaMemset(m_bias_, 0, outC_*sizeof(float)));
-	checkCUDA(cudaMemset(v_bias_, 0, outC_*sizeof(float)));
+	checkCUDA(cudaMemset(m_Weights_, 0, weightCount_*sizeof(float)));
+	checkCUDA(cudaMemset(v_Weights_, 0, weightCount_*sizeof(float)));
+	checkCUDA(cudaMemset(m_Bias_, 0, outC_*sizeof(float)));
+	checkCUDA(cudaMemset(v_Bias_, 0, outC_*sizeof(float)));
 	cudnnConvolutionFwdAlgoPerf_t fwdAlgoPerf[10];
 	cudnnConvolutionBwdFilterAlgoPerf_t bwdFilterAlgoPerf[10];
 	cudnnConvolutionBwdDataAlgoPerf_t bwdDataAlgoPerf[10];
@@ -75,39 +75,33 @@ ConvLayer::~ConvLayer(){
 	cudaFree(gradWeights_);
 	cudaFree(gradBias_);
 	cudaFree(workspace_);
-	cudaFree(m_weights_);
-	cudaFree(v_weights_);
-	cudaFree(m_bias_);
-	cudaFree(v_bias_);
+	cudaFree(m_Weights_);
+	cudaFree(v_Weights_);
+	cudaFree(m_Bias_);
+	cudaFree(v_Bias_);
 	checkCUDNN(cudnnDestroyTensorDescriptor(inDesc_));
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 	checkCUDNN(cudnnDestroyFilterDescriptor(filterDesc_));
 	checkCUDNN(cudnnDestroyConvolutionDescriptor(convDesc_));
 	checkCUDNN(cudnnDestroyTensorDescriptor(biasDesc_));
 }
-__half* ConvLayer::forward(__half* data){
+__half* ConvLayer::Forward(__half* data){
 	inData_ = data;
-	checkCUDNN(cudnnConvolutionForward(cudnnHandle_, &alpha, inDesc_, data, filterDesc_, weights_, convDesc_, fwdAlgo_, workspace_, workspaceSize_, &beta1, outDesc_, outData_));
-	//std::cout << layerName_ << " ";
-	printDataHalf(outData_, 10, "outData_");
+	checkCUDNN(cudnnConvolutionForward(cudnnHandle_, &alpha, inDesc_, data, filterDesc_, weights_, convDesc_, fwdAlgo_, workspace_, workspaceSize_, &beta0, outDesc_, outData_));
+	cudnnAddTensor(cudnnHandle_, &alpha, biasDesc_, bias_, &beta1, outDesc_, outData_);
 	return outData_;
 }
-__half* ConvLayer::backward(__half* grad){
-	std::cout << layerName_ << " ";
-	//printDataHalf(inGrad, 10, "inGrad");
-	//printDataHalf(weights_, 10, "weights_");
+__half* ConvLayer::Backward(__half* grad){
 	//clipGrads(grad, outCHW_*bitchSize_);
 	checkCUDNN(cudnnConvolutionBackwardFilter(cudnnHandle_, &alpha, inDesc_, inData_, inGradDesc_, grad, convDesc_, bwdFilterAlgo_, workspace_, workspaceSize_, &beta0, filterDesc_, gradWeights_));
 	checkCUDNN(cudnnConvolutionBackwardBias(cudnnHandle_, &alpha, inGradDesc_, grad, &beta0, biasDesc_, gradBias_));
 	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &alpha, filterDesc_, weights_, inGradDesc_, grad, convDesc_, bwdDataAlgo_, workspace_, workspaceSize_, &beta0, outGradDesc_, gradOut_));
-	printDataHalf(gradOut_, 10, "gradOut_");
 	return gradOut_;
 }
-void ConvLayer::updateParameters(float learningRate){
+void ConvLayer::UpdateParameters(float learningRate){
 	//SGDHalf(weights_, learningRate, gradWeights_, weightCount_);
 	//SGDHalf(bias_, learningRate, gradBias_, outC_);
-	AdamWHalf(weights_, m_weights_, v_weights_, learningRate, gradWeights_, weightCount_, t_, 0.001F);
-	AdamWHalf(bias_, m_bias_, v_bias_, learningRate, gradBias_, outC_, t_, 0.001F);
-	cudaMemcpy(outData_, bias_, outC_*sizeof(__half), cudaMemcpyDeviceToDevice);
+	AdamWHalf(weights_, m_Weights_, v_Weights_, learningRate, gradWeights_, weightCount_, t_, 0.001F);
+	AdamWHalf(bias_, m_Bias_, v_Bias_, learningRate, gradBias_, outC_, t_, 0.001F);
 	++t_;
 }

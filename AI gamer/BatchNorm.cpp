@@ -1,16 +1,20 @@
 #include "BatchNorm.h"
 #include "common.h"
-BatchNorm::BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, int bitchSize): cudnnHandle_(cudnnHandle), bitchSize_(bitchSize), inData_(nullptr){
+#include <vector>
+BatchNorm::BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName): cudnnHandle_(cudnnHandle), bnMode_(bnMode), bitchSize_(bitchSize), inData_(nullptr), epsilon_(1e-6){
+	layerName_ = layerName;
 	outDesc_ = outDesc;
 	cudnnDataType_t dt;
 	int n, c, h, w, ns, cs, hs, ws;
-	cudnnGetTensor4dDescriptor(outDesc_, &dt, &n, &c, &h, &w, &ns, &cs, &hs, &ws);
-	outSize_ = n*c*h*w;
+	cudnnGetTensor4dDescriptor(outDesc, &dt, &n, &c, &h, &w, &ns, &cs, &hs, &ws);
+	outNCHW_ = n*c*h*w;
 	outC_ = c;
+	checkCUDNN(cudnnCreateTensorDescriptor(&gradDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&bnScaleBiasDesc_));
-	checkCUDNN(cudnnDeriveBNTensorDescriptor(bnScaleBiasDesc_, outDesc_, CUDNN_BATCHNORM_SPATIAL));
-	checkCUDA(cudaMalloc(&outData_, outSize_*sizeof(__half)));
-	checkCUDA(cudaMemset(outData_, 0, outSize_*sizeof(__half)));
+	checkCUDNN(cudnnSetTensor4dDescriptor(gradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, n, c, h, w));
+	checkCUDNN(cudnnDeriveBNTensorDescriptor(bnScaleBiasDesc_, outDesc, bnMode_));
+	checkCUDA(cudaMalloc(&outData_, outNCHW_*sizeof(__half)));
+	checkCUDA(cudaMemset(outData_, 0, outNCHW_*sizeof(__half)));
 	const auto bnSizeBytes = outC_ * sizeof(float);
 	checkCUDA(cudaMalloc(&bnScale_, bnSizeBytes));
 	checkCUDA(cudaMalloc(&bnBias_, bnSizeBytes));
@@ -29,14 +33,14 @@ BatchNorm::BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc,
 	checkCUDA(cudaMemset(bnRunningVar_, 0, bnSizeBytes));
 	checkCUDA(cudaMemset(bnSavedMean_, 0, bnSizeBytes));
 	checkCUDA(cudaMemset(bnSavedInvVariance_, 0, bnSizeBytes));
-	checkCUDA(cudaMalloc(&m_bnScale_, outC_*sizeof(float)));
-	checkCUDA(cudaMalloc(&v_bnScale_, outC_*sizeof(float)));
-	checkCUDA(cudaMalloc(&m_bnBias_, outC_*sizeof(float)));
-	checkCUDA(cudaMalloc(&v_bnBias_, outC_*sizeof(float)));
-	checkCUDA(cudaMemset(m_bnScale_, 0, outC_*sizeof(float)));
-	checkCUDA(cudaMemset(v_bnScale_, 0, outC_*sizeof(float)));
-	checkCUDA(cudaMemset(m_bnBias_, 0, outC_*sizeof(float)));
-	checkCUDA(cudaMemset(v_bnBias_, 0, outC_*sizeof(float)));
+	checkCUDA(cudaMalloc(&m_bnScale_, bnSizeBytes));
+	checkCUDA(cudaMalloc(&v_bnScale_, bnSizeBytes));
+	checkCUDA(cudaMalloc(&m_bnBias_, bnSizeBytes));
+	checkCUDA(cudaMalloc(&v_bnBias_, bnSizeBytes));
+	checkCUDA(cudaMemset(m_bnScale_, 0, bnSizeBytes));
+	checkCUDA(cudaMemset(v_bnScale_, 0, bnSizeBytes));
+	checkCUDA(cudaMemset(m_bnBias_, 0, bnSizeBytes));
+	checkCUDA(cudaMemset(v_bnBias_, 0, bnSizeBytes));
 }
 BatchNorm::~BatchNorm(){
 	cudaFree(bnScale_);
@@ -53,21 +57,21 @@ BatchNorm::~BatchNorm(){
 	cudaFree(v_bnBias_);
 	checkCUDNN(cudnnDestroyTensorDescriptor(bnScaleBiasDesc_));
 }
-__half* BatchNorm::forward(__half* data){
+__half* BatchNorm::Forward(__half* data){
 	inData_ = data;
 	checkCUDNN(
-		cudnnBatchNormalizationForwardTraining(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, &alpha, &beta0, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, 1.0, bnRunningMean_, bnRunningVar_, epsilon_,
+		cudnnBatchNormalizationForwardTraining(cudnnHandle_, bnMode_, &alpha, &beta0, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, 0.1, bnRunningMean_, bnRunningVar_, epsilon_,
 			bnSavedMean_, bnSavedInvVariance_));
 	return outData_;
 }
-__half* BatchNorm::backward(__half* grad){
+__half* BatchNorm::Backward(__half* grad){
 	checkCUDNN(cudnnBatchNormalizationBackward(
 		cudnnHandle_,
-		CUDNN_BATCHNORM_SPATIAL,
+		bnMode_,
 		&alpha, &beta0, &alpha, &beta1,
 		outDesc_, inData_,	// x
-		outDesc_, grad,		// dy (backpropagated gradient input)
-		outDesc_, grad,		// dx (gradient output)
+		gradDesc_, grad,	// dy (backpropagated gradient input)
+		gradDesc_, grad,	// dx (gradient output)
 		bnScaleBiasDesc_,	// dBnScaleBiasDesc
 		bnScale_,			// bnScaleData (batch normalization scale parameter)
 		gradBnScale_,		// dBnScaleData (gradients of bnScaleData)
@@ -76,8 +80,8 @@ __half* BatchNorm::backward(__half* grad){
 		bnSavedMean_, bnSavedInvVariance_));
 	return grad;
 }
-void BatchNorm::updateParameters(float learningRate){
-	AdamWFloat(bnScale_, m_bnScale_, v_bnScale_, learningRate, gradBnScale_, outC_, t_, 0.01F);
-	AdamWFloat(bnBias_, m_bnBias_, v_bnBias_, learningRate, gradBnBias_, outC_, t_, 0.01F);
+void BatchNorm::UpdateParameters(float learningRate){
+	AdamWFloat(bnScale_, m_bnScale_, v_bnScale_, learningRate, gradBnScale_, outC_, t_, 0.001F);
+	AdamWFloat(bnBias_, m_bnBias_, v_bnBias_, learningRate, gradBnBias_, outC_, t_, 0.001F);
 	++t_;
 }

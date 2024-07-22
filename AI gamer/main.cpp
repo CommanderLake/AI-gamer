@@ -128,8 +128,8 @@ int main(){
 		ReadStateData();
 		InitCUDA();
 		auto nn = new NeuralNetwork();
-		nn->initialize(width, height);
-		nn->train(trainingData, trainingDataCount);
+		nn->Initialize(width, height);
+		nn->Train(trainingData, trainingDataCount);
 	} else if(mode == 'v' || mode == 'V'){
 		ReadStateData();
 		const auto display = new Display(width, height, WindowProc);

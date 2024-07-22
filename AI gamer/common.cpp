@@ -82,8 +82,8 @@ int _ConvertSMVer2Cores(int major, int minor){
 	printf("MapSMtoCores for SM %d.%d is undefined. Default to use %d Cores/SM\n", major, minor, nGpuArchCoresPerSM[index - 1].Cores);
 	return nGpuArchCoresPerSM[index - 1].Cores;
 }
-void h2f128asm(float* dst, __half* src, int num_elements){
-	int num_iterations = num_elements / 128;
+void H2F128Asm(float* dst, __half* src, int numElements){
+	int num_iterations = numElements / 128;
 	__asm {
 		mov rsi, src
 		mov rdi, dst
@@ -148,9 +148,9 @@ void printDataHalf2(const __half* data, const size_t size, const char* label){
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(__half), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << __half2float(h_data[i]) << "\r\n"; }
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 }
-void printDataHalf(const __half* data, const size_t size, const char* label){
+void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	const size_t truncatedSize = (size / 128) * 128;
 	if(truncatedSize == 0){
 		printDataHalf2(data, size, label);
@@ -159,37 +159,37 @@ void printDataHalf(const __half* data, const size_t size, const char* label){
 	auto h_data = static_cast<__half*>(_mm_malloc(truncatedSize*sizeof(__half), 32));
 	auto f_data = static_cast<float*>(_mm_malloc(truncatedSize*sizeof(float), 32));
 	checkCUDA(cudaMemcpy(h_data, data, truncatedSize * sizeof(__half), cudaMemcpyDeviceToHost));
-	h2f128asm(f_data, h_data, truncatedSize);
+	H2F128Asm(f_data, h_data, truncatedSize);
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < truncatedSize; ++i){
 		std::cout << f_data[i] << "\r\n";
 	}
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 	_mm_free(h_data);
 	_mm_free(f_data);
 }
-void printDataFloat(const float* data, const size_t size, const char* label){
+void PrintDataFloat(const float* data, const size_t size, const char* label){
 	std::vector<float> h_data(size);
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
-	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << h_data[i] << "\r\n"; }
-	std::cout << "\r\n";
+	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << h_data[i] << " "; }
+	std::cout << "\r\n\r\n";
 }
-void printDataFloatHost(const float* data, const size_t size, const char* label){
+void PrintDataFloatHost(const float* data, const size_t size, const char* label){
 	std::cout << label << ": ";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 }
-void printDataCharHost(const unsigned char* data, const size_t size, const char* label){
+void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
 	std::cout << label << ": ";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 }
-void checkData(const __half* data, const size_t size, const char* label){
+void CheckData(const __half* data, const size_t size, const char* label){
 	std::vector<__half> h_data(size);
 	std::vector<float> h_dataF(size);
 	checkCUDA(cudaMemcpy(h_data.data(), data, size * sizeof(__half), cudaMemcpyDeviceToHost));
-	h2f128asm(h_dataF.data(), h_data.data(), size);
+	H2F128Asm(h_dataF.data(), h_data.data(), size);
 	float min_val = std::numeric_limits<float>::max();
 	float max_val = std::numeric_limits<float>::lowest();
 	bool has_nan = false;
@@ -209,7 +209,7 @@ void checkData(const __half* data, const size_t size, const char* label){
 		<< ", Has Zero: " << (has_zero ? "Yes" : "No") << "\r\n\r\n";
 }
 #include <windows.h>
-void clear_screen(char fill){
+void ClearScreen(char fill){
 	COORD tl = {0, 0};
 	CONSOLE_SCREEN_BUFFER_INFO s;
 	HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);

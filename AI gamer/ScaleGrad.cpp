@@ -5,14 +5,14 @@ ScaleGrad::ScaleGrad(cudnnTensorDescriptor_t outDesc, float scale): scale_(scale
 	cudnnDataType_t dt;
 	int n, c, h, w, ns, cs, hs, ws;
 	cudnnGetTensor4dDescriptor(outDesc, &dt, &n, &c, &h, &w, &ns, &cs, &hs, &ws);
-	outSize_ = n*c*h*w;
+	outNCHW_ = n*c*h*w;
 }
 ScaleGrad::~ScaleGrad(){
 }
-__half* ScaleGrad::forward(__half* data){
+__half* ScaleGrad::Forward(__half* data){
 	return data;
 }
-__half* ScaleGrad::backward(__half* grad){
-	scale(grad, outSize_, scale_);
+__half* ScaleGrad::Backward(__half* grad){
+	Scale(grad, outNCHW_, scale_);
 	return grad;
 }

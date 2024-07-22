@@ -3,17 +3,19 @@
 #include <cudnn.h>
 class BatchNorm final : public Layer{
 public:
-	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, int bitchSize);
+	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName);
 	~BatchNorm() override;
-	__half* forward(__half* data) override;
-	__half* backward(__half* grad) override;
-	void updateParameters(float learningRate) override;
+	__half* Forward(__half* data) override;
+	__half* Backward(__half* grad) override;
+	void UpdateParameters(float learningRate) override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t bnScaleBiasDesc_;
+	cudnnTensorDescriptor_t gradDesc_;
+	cudnnBatchNormMode_t bnMode_;
 	size_t bitchSize_;
 	__half* inData_;
 	__half* outData_;
-	float epsilon_ = 1e-6;
+	float epsilon_;
 	float* bnScale_ = nullptr;
 	float* bnBias_ = nullptr;
 	float* gradBnScale_ = nullptr;
