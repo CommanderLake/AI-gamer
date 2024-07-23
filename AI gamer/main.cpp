@@ -43,7 +43,7 @@ void ReadStateData(){
 	while(file.peek() != EOF){
 		recordPositions.push_back(file.tellg());
 		file.seekg(10 + decompressedSize, std::ios::cur);
-		if(recordPositions.size() >= 1024) break; // LIMIT FOR DEBUGGING!
+		//if(recordPositions.size() >= 1024) break; // LIMIT FOR DEBUGGING!
 	}
 	file.close();
 	// Step 5: Create trainingData array
@@ -62,7 +62,7 @@ void ReadStateData(){
 			threadFile.read(reinterpret_cast<char*>(&record->keyStates), sizeof record->keyStates);
 			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaX), sizeof record->mouseDeltaX);
 			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaY), sizeof record->mouseDeltaY);
-			cudaMallocHost(&record->state_data, decompressedSize);
+			record->state_data = static_cast<unsigned char*>(_aligned_malloc(decompressedSize, 64));
 			threadFile.read(reinterpret_cast<char*>(record->state_data), decompressedSize);
 			std::lock_guard<std::mutex> guard(trainingDataMutex);
 			trainingData[i] = record;
@@ -79,6 +79,7 @@ void ReadStateData(){
 	for(auto& thread : threads){ thread.join(); }
 }
 int main(){
+	std::ios::sync_with_stdio(false);
 	std::cout << "R for record mode, T for train mode, V for view mode... ";
 	char mode;
 	std::cin >> mode;

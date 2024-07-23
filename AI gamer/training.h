@@ -18,9 +18,7 @@ private:
 	cublasHandle_t cublas_;
 	std::vector<Layer*> layers_;
 	__half* gradient_ = nullptr;
-	const size_t batchSize_ = 64;
-	const int numCtrls_ = 16;
-	const int numButs_ = 14;
+	const size_t batchSize_;
 	const int ctrlBatchSize_ = numCtrls_*batchSize_;
 	float* ctrlBatchFloat_ = nullptr;
 	__half* ctrlBatchHalf_ = nullptr;

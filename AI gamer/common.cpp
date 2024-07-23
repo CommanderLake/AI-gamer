@@ -28,23 +28,23 @@ const char* cublasGetErrorString(cublasStatus_t status){
 			return "Unknown cuBLAS error";
 	}
 }
-std::map<int, int> keyMap = {
-	{0x11, 0},  // W
-{0x1E, 1},  // A
-{0x1F, 2},  // S
-{0x20, 3},  // D
-{0x39, 4},  // Space
-{0x1D, 5},  // Ctrl
-{0x10, 6},  // Q
-{0x13, 7},  // R
-{0x12, 8},  // E
-{0x02, 9},  // 1
-{0x03, 10}, // 2
-{11, 11},   // Mouse button 1
-{12, 12},   // Mouse button 2
-{13, 13}    // Mouse button 3
+unsigned char keyMap[] = {
+	0x11, // W
+	0x1E, // A
+	0x1F, // S
+	0x20, // D
+	0x39, // Space
+	0x1D, // Ctrl
+	0x10, // Q
+	0x13, // R
+	0x12, // E
+	0x02, // 1
+	0x03, // 2
+	11,  // Mouse button 1
+	12,  // Mouse button 2
+	13   // Mouse button 3
 };
-int _ConvertSMVer2Cores(int major, int minor){
+int ConvertSmVer2Cores(int major, int minor){
 	// Defines for GPU Architecture types (using the SM version to determine the # of cores per SM
 	typedef struct{
 		int SM; // 0xMm (hexadecimal notation), M = SM Major version and m = SM minor version
@@ -52,24 +52,24 @@ int _ConvertSMVer2Cores(int major, int minor){
 	} sSMtoCores;
 	const sSMtoCores nGpuArchCoresPerSM[] = {
 		{0x10, 8}, // Tesla Generation (SM 1.0) G80 class
-	{0x11, 8}, // Tesla Generation (SM 1.1) G8x class
-	{0x12, 8}, // Tesla Generation (SM 1.2) G9x class
-	{0x13, 8}, // Tesla Generation (SM 1.3) GT200 class
-	{0x20, 32}, // Fermi Generation (SM 2.0) GF100 class
-	{0x21, 48}, // Fermi Generation (SM 2.1) GF10x class
-	{0x30, 192}, // Kepler Generation (SM 3.0) GK10x class
-	{0x35, 192}, // Kepler Generation (SM 3.5) GK11x class
-	{0x50, 128}, // Maxwell Generation (SM 5.0) GM10x class
-	{0x52, 128}, // Maxwell Generation (SM 5.2) GM20x class
-	{0x60, 64}, // Pascal Generation (SM 6.0) GP100 class
-	{0x61, 128}, // Pascal Generation (SM 6.1) GP10x class
-	{0x70, 64}, // Volta Generation (SM 7.0) GV100 class
-	{0x72, 64}, // Volta Generation (SM 7.2) GV10B class
-	{0x75, 64}, // Turing Generation (SM 7.5) TU10x class
-	{0x80, 64}, // Ampere Generation (SM 8.0) GA100 class
-	{0x86, 128}, // Ampere Generation (SM 8.6) GA10x class
-	{0x87, 128}, // Ampere Generation (SM 8.7) GA10x class
-	{0x89, 128}, // Ada Lovelace Generation (SM 8.9) AD10x class
+		{0x11, 8}, // Tesla Generation (SM 1.1) G8x class
+		{0x12, 8}, // Tesla Generation (SM 1.2) G9x class
+		{0x13, 8}, // Tesla Generation (SM 1.3) GT200 class
+		{0x20, 32}, // Fermi Generation (SM 2.0) GF100 class
+		{0x21, 48}, // Fermi Generation (SM 2.1) GF10x class
+		{0x30, 192}, // Kepler Generation (SM 3.0) GK10x class
+		{0x35, 192}, // Kepler Generation (SM 3.5) GK11x class
+		{0x50, 128}, // Maxwell Generation (SM 5.0) GM10x class
+		{0x52, 128}, // Maxwell Generation (SM 5.2) GM20x class
+		{0x60, 64}, // Pascal Generation (SM 6.0) GP100 class
+		{0x61, 128}, // Pascal Generation (SM 6.1) GP10x class
+		{0x70, 64}, // Volta Generation (SM 7.0) GV100 class
+		{0x72, 64}, // Volta Generation (SM 7.2) GV10B class
+		{0x75, 64}, // Turing Generation (SM 7.5) TU10x class
+		{0x80, 64}, // Ampere Generation (SM 8.0) GA100 class
+		{0x86, 128}, // Ampere Generation (SM 8.6) GA10x class
+		{0x87, 128}, // Ampere Generation (SM 8.7) GA10x class
+		{0x89, 128}, // Ada Lovelace Generation (SM 8.9) AD10x class
 	};
 	int index = 0;
 	while(nGpuArchCoresPerSM[index].SM != -1){
@@ -148,7 +148,7 @@ void printDataHalf2(const __half* data, const size_t size, const char* label){
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(__half), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << __half2float(h_data[i]) << "\r\n"; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	const size_t truncatedSize = (size / 128) * 128;
@@ -164,7 +164,7 @@ void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	for(size_t i = 0; i < truncatedSize; ++i){
 		std::cout << f_data[i] << "\r\n";
 	}
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 	_mm_free(h_data);
 	_mm_free(f_data);
 }
@@ -173,17 +173,17 @@ void PrintDataFloat(const float* data, const size_t size, const char* label){
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << h_data[i] << " "; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void PrintDataFloatHost(const float* data, const size_t size, const char* label){
-	std::cout << label << ": ";
+	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
-	std::cout << label << ": ";
+	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void CheckData(const __half* data, const size_t size, const char* label){
 	std::vector<__half> h_data(size);

@@ -81,13 +81,21 @@ void InputRecorder::ProcessRawInput(LPARAM lParam){
 	}
 }
 void InputRecorder::ProcessKeyStates(){
+	auto findBitPos = [](int keyCode) -> int{
+		for(int i = 0; i < numButs_; ++i){
+			if(keyMap[i] == keyCode){
+				return i;
+			}
+		}
+		return -1;
+	};
 	for(const auto& event : keyEvents){
 		int keyCode = event.first;
 		const bool isPressed = event.second;
-		if(keyMap.find(keyCode) != keyMap.end()){
-			const int bitPos = keyMap[keyCode];
+		const int bitPos = findBitPos(keyCode);
+		if(bitPos != -1){
 			if(isPressed){
-				keyStates |= (1 << bitPos);
+				keyStates |= 1 << bitPos;
 				nextFrameKeyEvents[keyCode] = true;
 			} else{
 				keyStates &= ~(1 << bitPos);
@@ -96,11 +104,15 @@ void InputRecorder::ProcessKeyStates(){
 		}
 	}
 	for(const auto& event : nextFrameKeyEvents){
-		int keyCode = event.first;
+		const int keyCode = event.first;
 		const bool isPressed = event.second;
-		if(keyMap.find(keyCode) != keyMap.end()){
-			const int bitPos = keyMap[keyCode];
-			if(isPressed){ keyStates |= (1 << bitPos); } else{ keyStates &= ~(1 << bitPos); }
+		const int bitPos = findBitPos(keyCode);
+		if(bitPos != -1){
+			if(isPressed){
+				keyStates |= 1 << bitPos;
+			} else{
+				keyStates &= ~(1 << bitPos);
+			}
 		}
 	}
 	keyEvents.clear();
@@ -108,9 +120,9 @@ void InputRecorder::ProcessKeyStates(){
 }
 void InputRecorder::WriteFrameData(){
 	ProcessKeyStates();
-	outputFile.write(reinterpret_cast<char*>(&keyStates), sizeof(keyStates));
-	outputFile.write(reinterpret_cast<char*>(&mouseDeltaX), sizeof(mouseDeltaX));
-	outputFile.write(reinterpret_cast<char*>(&mouseDeltaY), sizeof(mouseDeltaY));
+	outputFile.write(reinterpret_cast<char*>(&keyStates), sizeof keyStates);
+	outputFile.write(reinterpret_cast<char*>(&mouseDeltaX), sizeof mouseDeltaX);
+	outputFile.write(reinterpret_cast<char*>(&mouseDeltaY), sizeof mouseDeltaY);
 	mouseDeltaX = 0;
 	mouseDeltaY = 0;
 	int width;

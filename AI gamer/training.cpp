@@ -2,10 +2,8 @@
 #include "ConvLayer.h"
 #include "FCLayer.h"
 #include "LeakyReLU.h"
-#include "LayerNorm.h"
 #include "BatchNorm.h"
 #include "Sigmoid.h"
-#include <chrono>
 #include <cuda.h>
 #include <iomanip>
 #include <iostream>
@@ -13,7 +11,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
-NeuralNetwork::NeuralNetwork(): inWidth_(0), inHeight_(0), learningRate_(0.00001f){
+NeuralNetwork::NeuralNetwork(): batchSize_(32), inWidth_(0), inHeight_(0), learningRate_(0.0001f){
 	cudnnCreate(&cudnn_);
 	cublasCreate(&cublas_);
 }
@@ -47,7 +45,7 @@ void NeuralNetwork::Initialize(int w, int h){
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "FC1 BatchNorm"));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "FC1 LeakyReLU"));
 	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, numCtrls_, "FC2"));
-	layers_.push_back(new Activate(cudnn_, layers_.back()->outDesc_, CUDNN_ACTIVATION_SIGMOID, 1.0, "FC2 Sigmoid"));
+	layers_.push_back(new Sigmoid(layers_.back()->outDesc_, 16, batchSize_, "FC2 Sigmoid"));
 	checkCUDA(cudaMalloc(&gradient_, ctrlBatchSize_*sizeof(__half)));
 	cudaMallocHost(reinterpret_cast<void**>(&ctrlBatchFloat_), ctrlBatchSize_*sizeof(float));
 	cudaMallocHost(reinterpret_cast<void**>(&ctrlBatchHalf_), ctrlBatchSize_*sizeof(__half));
@@ -67,8 +65,8 @@ void NeuralNetwork::Backward(const __half* d_predictions, const float* d_targets
 	Gradient(gradient_, d_predictions, d_targets, batchSize_, numCtrls_, 128.0f);
 	auto outGrad = gradient_;
 	for(int i = layers_.size(); --i >= 0; ){
+		//PrintDataHalf(outGrad, 4, "Gradient");
 		outGrad = layers_[i]->Backward(outGrad);
-		//PrintDataHalf(outGrad, 1, "outGrad");
 	}
 }
 void NeuralNetwork::UpdateParams(){
@@ -83,10 +81,8 @@ void NeuralNetwork::Train(InputRecord** data, size_t count){
 	unsigned char* h_batchInputBytes = nullptr;
 	unsigned char* d_batchInputBytes = nullptr;
 	__half* d_batchInputHalf = nullptr;
-	// Allocate memory on the device
 	checkCUDA(cudaMalloc(&d_batchInputBytes, totalInputSize * sizeof(unsigned char)));
 	checkCUDA(cudaMalloc(&d_batchInputHalf, totalInputSize * sizeof(__half)));
-	// Allocate pinned memory on the host
 	checkCUDA(cudaMallocHost(&h_batchInputBytes, totalInputSize * sizeof(unsigned char)));
 	float* h_ctrlBatch = nullptr;
 	checkCUDA(cudaMallocHost(&h_ctrlBatch, ctrlBatchSize_ * sizeof(float)));
@@ -101,12 +97,8 @@ void NeuralNetwork::Train(InputRecord** data, size_t count){
 					const int index = dis(gen);
 					const InputRecord* record = data[index];
 					memcpy(h_batchInputBytes + i * inputSize, record->state_data, inputSize * sizeof(unsigned char));
-					for(const auto&[makeCode, bit] : keyMap){
-						if(record->keyStates & 1 << bit){
-							h_ctrlBatch[i * numCtrls_ + bit] = 1.0f;
-						} else{
-							h_ctrlBatch[i * numCtrls_ + bit] = 0.0f;
-						}
+					for(int j = 0; j < numButs_; ++j){
+						h_ctrlBatch[i*numCtrls_ + j] = static_cast<float>(record->keyStates>>j & 1);
 					}
 					h_ctrlBatch[i * numCtrls_ + 14] = record->mouseDeltaX / 16384.0f + 0.5f;
 					h_ctrlBatch[i * numCtrls_ + 15] = record->mouseDeltaY / 16384.0f + 0.5f;
@@ -116,6 +108,7 @@ void NeuralNetwork::Train(InputRecord** data, size_t count){
 		}
 	};
 	std::thread batchPreparationThread(prepareBatch);
+	batchPreparationThread.detach();
 	for(size_t epoch = 0; epoch < 1000; ++epoch){
 		for(size_t batch = 0; batch < count / batchSize_; ++batch){
 			while(!batchReady){
@@ -126,16 +119,16 @@ void NeuralNetwork::Train(InputRecord** data, size_t count){
 			batchReady = false;
 			ConvertAndNormalize(d_batchInputBytes, d_batchInputHalf, totalInputSize);
 			const auto output = Forward(d_batchInputHalf, true);
-			//ClearScreen();
-			//PrintDataHalf(output, numCtrls_, "Predicted");
+			ClearScreen();
+			PrintDataFloatHost(h_ctrlBatch, numCtrls_, "Targets");
+			PrintDataHalf(output, numCtrls_, "Predicted");
 			const float loss = MseLoss(output, d_ctrlBatch, batchSize_*numCtrls_);
-			std::cout << std::setprecision(10) << "Loss: " << loss << "        \r";
+			std::cout << std::setprecision(10) << "Loss: " << loss << "\r\n\r\n";
 			Backward(output, d_ctrlBatch);
 			UpdateParams();
 		}
 	}
 	trainingComplete = true;
-	batchPreparationThread.join();
 	cudaFreeHost(h_ctrlBatch);
 	cudaFreeHost(h_batchInputBytes);
 	cudaFree(d_ctrlBatch);

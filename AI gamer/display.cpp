@@ -32,16 +32,16 @@ void Display::ShowImage(const unsigned char* imageData) const{
 	const Gdiplus::Rect rect(0, 0, width, height);
 	bitmap.LockBits(&rect, Gdiplus::ImageLockModeWrite, PixelFormat24bppRGB, &bitmapData);
 	auto* pixels = static_cast<unsigned char*>(bitmapData.Scan0);
-	memcpy(pixels, imageData, width*height*3);
-	//const int planeSize = width * height; // Size of one color plane (R, G, or B)
-	//for(int y = 0; y < height; ++y){
-	//	for(int x = 0; x < width; ++x){
-	//		const int index = y * width + x;
-	//		pixels[(y * width + x) * 3] = imageData[index + 2 * planeSize]; // Blue
-	//		pixels[(y * width + x) * 3 + 1] = imageData[index + planeSize]; // Green
-	//		pixels[(y * width + x) * 3 + 2] = imageData[index]; // Red
-	//	}
-	//}
+	//memcpy(pixels, imageData, width*height*3);
+	const int planeSize = width * height; // Size of one color plane (R, G, or B)
+	for(int y = 0; y < height; ++y){
+		for(int x = 0; x < width; ++x){
+			const int index = y * width + x;
+			pixels[(y * width + x) * 3] = imageData[index + 2 * planeSize]; // Blue
+			pixels[(y * width + x) * 3 + 1] = imageData[index + planeSize]; // Green
+			pixels[(y * width + x) * 3 + 2] = imageData[index]; // Red
+		}
+	}
 	bitmap.UnlockBits(&bitmapData);
 	Gdiplus::Graphics graphics(hdc);
 	graphics.DrawImage(&bitmap, 0, 0, width, height);

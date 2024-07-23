@@ -48,7 +48,7 @@ extern "C" void InitCUDA(){
 	cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, 0);
 	int minor;
 	cuDeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, 0);
-	const auto TPM = _ConvertSMVer2Cores(major, minor);
+	const auto TPM = ConvertSmVer2Cores(major, minor);
 	const auto MP = prop.multiProcessorCount;
 	const auto warps = prop.warpSize;
 	maxTPB = prop.maxThreadsPerBlock;
@@ -137,7 +137,7 @@ extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn){
 }
 __global__ void sgdHalfKernel(__half* param, const float learningRate, const __half* gradParam, const int n){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < n){ param[idx] += __float2half(learningRate*__half2float(gradParam[idx])); }
+	if(idx < n){ param[idx] -= __float2half(learningRate*__half2float(gradParam[idx])); }
 }
 extern "C" void SGDHalf(__half* param, const float learningRate, const __half* gradParam, const int size){
 	auto gridSize = div_ceil(size, BS);
@@ -145,7 +145,7 @@ extern "C" void SGDHalf(__half* param, const float learningRate, const __half* g
 }
 __global__ void sgdFloatKernel(float* param, const float learningRate, const float* gradParam, const int n){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < n){ param[idx] += learningRate*gradParam[idx]; }
+	if(idx < n){ param[idx] -= learningRate*gradParam[idx]; }
 }
 extern "C" void SGDFloat(float* param, const float learningRate, const float* gradParam, const int size){
 	auto gridSize = div_ceil(size, BS);
@@ -197,7 +197,8 @@ __global__ void adamWKernelHalf(__half* param, float* m, float* v, const float l
 		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
 		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
 		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate*(m_hat/(sqrtf(v_hat) + epsilonF) + weightDecay*param_value);
+		param_value -= learningRate * (m_hat / (sqrtf(v_hat) + epsilonF));
+		param_value -= learningRate * weightDecay * param_value;
 		param[idx] = __float2half(param_value);
 	}
 }
@@ -214,7 +215,8 @@ __global__ void adamWKernelFloat(float* param, float* m, float* v, const float l
 		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
 		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
 		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate*(m_hat/(sqrtf(v_hat) + epsilonF) + weightDecay*param_value);
+		param_value -= learningRate * (m_hat / (sqrtf(v_hat) + epsilonF));
+		param_value -= learningRate * weightDecay * param_value;
 		param[idx] = param_value;
 	}
 }
@@ -295,7 +297,11 @@ __global__ void gradientKernel(__half* gradients, const __half* predictions, con
 	if(idx < size){
 		const float diff = __half2float(predictions[idx]) - targets[idx];
 		float gradient;
-		if(fabs(diff) <= delta){ gradient = diff; } else{ gradient = delta*((diff > 0) - (diff < 0)); }
+		if(fabs(diff) <= delta){
+			gradient = diff;
+		} else{
+			gradient = delta*((diff > 0) - (diff < 0));
+		}
 		gradients[idx] = __float2half(gradient*scale);
 	}
 }

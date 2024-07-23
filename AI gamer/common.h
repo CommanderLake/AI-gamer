@@ -35,10 +35,12 @@ struct InputRecord{
 		}
 	}
 };
-void ClearScreen(char fill = ' ');
 const std::string fileName("E:\\training_data.bin");
-extern std::map<int, int> keyMap;
-int _ConvertSMVer2Cores(int major, int minor);
+constexpr int numCtrls_ = 16;
+constexpr int numButs_ = 14;
+extern unsigned char keyMap[14];
+void ClearScreen(char fill = ' ');
+int ConvertSmVer2Cores(int major, int minor);
 void H2F128Asm(float* dst, __half* src, int numElements);
 void PrintDataHalf(const __half* data, size_t size, const char* label);
 void PrintDataFloat(const float* data, size_t size, const char* label);
