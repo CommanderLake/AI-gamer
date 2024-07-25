@@ -54,7 +54,7 @@
       <FloatingPointModel>Fast</FloatingPointModel>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\inc\;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\samples\Util\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -76,15 +76,13 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <GenerateAlternateCodePaths>AVX2</GenerateAlternateCodePaths>
       <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\inc\;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\samples\Util\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <Optimization>MaxSpeedHighLevel</Optimization>
+      <Optimization>Disabled</Optimization>
       <RecognizeRestrictKeyword>true</RecognizeRestrictKeyword>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
-      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
-      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <OptimizationDiagnosticsFile>stdout</OptimizationDiagnosticsFile>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

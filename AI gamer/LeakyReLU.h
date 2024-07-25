@@ -6,7 +6,7 @@ class LeakyReLU final : public Layer{
 public:
 	explicit LeakyReLU(cudnnTensorDescriptor_t outDesc, const char* layerName);
 	~LeakyReLU() override;
-	__half* Forward(__half* data) override;
+	__half* Forward(__half* data, bool train) override;
 	__half* Backward(__half* grad) override;
 	__half* data_ = nullptr;
 	float slope_;

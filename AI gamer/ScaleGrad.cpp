@@ -9,7 +9,7 @@ ScaleGrad::ScaleGrad(cudnnTensorDescriptor_t outDesc, float scale): scale_(scale
 }
 ScaleGrad::~ScaleGrad(){
 }
-__half* ScaleGrad::Forward(__half* data){
+__half* ScaleGrad::Forward(__half* data, bool train){
 	return data;
 }
 __half* ScaleGrad::Backward(__half* grad){

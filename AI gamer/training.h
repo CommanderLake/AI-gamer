@@ -4,24 +4,34 @@
 #include <cudnn.h>
 #include <cublas_v2.h>
 #include <vector>
+#include <atomic>
 class NeuralNetwork{
 public:
 	NeuralNetwork();
 	~NeuralNetwork();
-	void Initialize(int w, int h);
+	void Initialize(int w, int h, bool train);
 	__half* Forward(__half* data, bool train);
 	void Backward(const __half* d_predictions, const float* d_targets);
 	void UpdateParams();
-	void Train(InputRecord** data, size_t count);
+	void SaveModel(const std::string& filename);
+	void SaveOptimizerState(const std::string& filename);
+	void Train(InputRecord** data, size_t count, int epochs);
+	void Infer();
+	void ListenForKey();
+	void InferLoop();
+	static void ProcessOutput(const float* output);
+	std::atomic<bool> simInput = true;
+	std::atomic<bool> stopInfer = false;
 private:
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	std::vector<Layer*> layers_;
 	__half* gradient_ = nullptr;
-	const size_t batchSize_;
-	const int ctrlBatchSize_ = numCtrls_*batchSize_;
+	size_t batchSize_;
+	int ctrlBatchSize_ = numCtrls_*batchSize_;
 	float* ctrlBatchFloat_ = nullptr;
 	__half* ctrlBatchHalf_ = nullptr;
 	int inWidth_, inHeight_;
 	float learningRate_;
+	size_t maxBufferSize_;
 };

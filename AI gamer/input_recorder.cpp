@@ -18,9 +18,9 @@ void InputRecorder::StartCapture(){
 		AllocHost(fbSize);
 		int width;
 		int height;
-		GrabFrame(&width, &height, true);
-		frameSize = width * height * 3;
-		outputFile.open(fileName, std::ios::binary);
+		GrabFrame(&width, &height, true, false);
+		frameSize = width*height*3;
+		outputFile.open(trainDataFileName, std::ios::binary);
 		if(!outputFile.is_open()){ std::cerr << "Failed to open output file!" << std::endl; } else{ std::cout << "Output file opened successfully." << std::endl; }
 		outputFile.write(reinterpret_cast<char*>(&width), sizeof width);
 		outputFile.write(reinterpret_cast<char*>(&height), sizeof height);
@@ -36,20 +36,20 @@ void InputRecorder::StopCapture(){
 	capturing = false;
 	if(captureThread.joinable()){ captureThread.join(); }
 	WriteFrameData();
-	std::cout << "Capture stopped." << std::endl;
+	std::cout << "Capture paused." << std::endl;
 }
-void InputRecorder::ListenForKey() const{
-	std::cout << "Press ' to start recording and Esc to stop." << std::endl;
+void InputRecorder::ListenForKey(){
+	std::cout << "Press F9 to start recording and Escape to stop.\r\n";
 	while(true){
-		if(GetAsyncKeyState(0xC0) & 0x8000){
+		if(GetAsyncKeyState(VK_F9) & 0x8000){
 			if(!capturing){ PostMessage(hwnd, WM_USER_START_CAPTURE, 0, 0); }
-			while(GetAsyncKeyState(0xC0) & 0x8000){ std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+			while(GetAsyncKeyState(VK_F9) & 0x8000){ Sleep(10); }
 		}
 		if(GetAsyncKeyState(VK_ESCAPE) & 0x8000){
 			if(capturing){ PostMessage(hwnd, WM_USER_STOP_CAPTURE, 0, 0); }
-			while(GetAsyncKeyState(VK_ESCAPE) & 0x8000){ std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+			while(GetAsyncKeyState(VK_ESCAPE) & 0x8000){ Sleep(10); }
 		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		Sleep(10);
 	}
 }
 void InputRecorder::ProcessRawInput(LPARAM lParam){
@@ -127,10 +127,10 @@ void InputRecorder::WriteFrameData(){
 	mouseDeltaY = 0;
 	int width;
 	int height;
-	const auto buf = GrabFrame(&width, &height, true);
+	const auto buf = GrabFrame(&width, &height, true, true);
 	outputFile.write(reinterpret_cast<char*>(buf), frameSize);
 }
-void InputRecorder::FrameCaptureThread()const{
+void InputRecorder::FrameCaptureThread(){
 	using namespace std::chrono;
 	const microseconds frameDuration(33333);
 	auto nextFrameTime = high_resolution_clock::now();

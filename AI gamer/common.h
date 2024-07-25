@@ -1,26 +1,31 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
-#include <map>
 #include <cublas_v2.h>
+#include <string>
 #include <iostream>
+#define WM_USER_STOP_CAPTURE (WM_USER + 1)
+#define WM_USER_START_CAPTURE (WM_USER + 2)
+#define WM_USER_CAPTURE_FRAME (WM_USER + 3)
 const char* cublasGetErrorString(cublasStatus_t status);
 #define checkCUBLAS(status) { \
     if (status != CUBLAS_STATUS_SUCCESS) { \
-        std::cerr << "cuBLAS error: " << cublasGetErrorString(status) << " at line " << __LINE__ << std::endl; \
-        throw std::exception(); \
+        std::cerr << "cuBLAS error: " << cublasGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("cuBLAS error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cublasGetErrorString(status)); \
     } \
 }
+
 #define checkCUDNN(status) { \
     if (status != CUDNN_STATUS_SUCCESS) { \
-        std::cerr << "cuDNN error: " << cudnnGetErrorString(status) << " at line " << __LINE__ << std::endl; \
-        throw std::exception(); \
+        std::cerr << "cuDNN error: " << cudnnGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("cuDNN error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudnnGetErrorString(status)); \
     } \
 }
+
 #define checkCUDA(status) { \
     if (status != cudaSuccess) { \
-        std::cerr << "CUDA error: " << cudaGetErrorString(status) << " at line " << __LINE__ << std::endl; \
-        throw std::exception(); \
+        std::cerr << "CUDA error: " << cudaGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(status)); \
     } \
 }
 struct __half;
@@ -35,7 +40,9 @@ struct InputRecord{
 		}
 	}
 };
-const std::string fileName("E:\\training_data.bin");
+const std::string trainDataFileName("E:\\training_data.bin");
+const std::string ckptFileName("E:\\AIGamer.ckpt");
+const std::string optFileName("E:\\AIGamer.opt");
 constexpr int numCtrls_ = 16;
 constexpr int numButs_ = 14;
 extern unsigned char keyMap[14];
@@ -47,8 +54,9 @@ void PrintDataFloat(const float* data, size_t size, const char* label);
 void PrintDataFloatHost(const float* data, size_t size, const char* label);
 void PrintDataCharHost(const unsigned char* data, size_t size, const char* label);
 void CheckData(const __half* data, size_t size, const char* label);
+extern "C" void InitCUDA();
 extern "C" float MseLoss(const __half* d_predictions, const float* d_targets, int size);
-extern "C" void ConvertAndNormalize(unsigned char* input, __half* output, size_t size);
+extern "C" void ConvertAndNormalize(__half* output, unsigned char* input, size_t size);
 extern "C" void ConvertFloatToHalf(float* src, __half* dst, size_t n);
 extern "C" void ConvertHalfToFloat(__half* src, float* dst, size_t n);
 extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn);

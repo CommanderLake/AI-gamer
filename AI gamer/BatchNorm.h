@@ -3,11 +3,19 @@
 #include <cudnn.h>
 class BatchNorm final : public Layer{
 public:
-	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName);
+	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName, bool train);
 	~BatchNorm() override;
-	__half* Forward(__half* data) override;
+	__half* Forward(__half* data, bool train) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
+	void SaveParameters(std::ofstream& file, float* buffer) const override;
+	void LoadParameters(std::ifstream& file, float* buffer) override;
+	void SaveOptimizerState(std::ofstream& file, float* buffer) const override;
+	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
+	bool HasParameters() const override;
+	bool HasOptimizerState() const override;
+	size_t GetParameterSize() const override;
+	size_t GetOptimizerStateSize() const override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t bnScaleBiasDesc_;
 	cudnnTensorDescriptor_t gradDesc_;

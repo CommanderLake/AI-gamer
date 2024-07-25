@@ -15,7 +15,7 @@ Sigmoid::Sigmoid(cudnnTensorDescriptor_t outDesc, int numSigmoidOutputs, int bat
 Sigmoid::~Sigmoid() {
     cudnnDestroyTensorDescriptor(gradDesc_);
 }
-__half* Sigmoid::Forward(__half* data) {
+__half* Sigmoid::Forward(__half* data, bool train) {
 	data_ = data;
     SigmoidForward(data, numSigmoidOutputs_, batchSize_, outCHW_);
 	cudaDeviceSynchronize();

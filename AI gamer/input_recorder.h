@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <Windows.h>
 #include <fstream>
 #include <chrono>
@@ -7,23 +8,18 @@
 #include <cstdint>
 #include <map>
 
-#define WM_USER_STOP_CAPTURE (WM_USER + 1)
-#define WM_USER_START_CAPTURE (WM_USER + 2)
-#define WM_USER_CAPTURE_FRAME (WM_USER + 3)
-
 class InputRecorder{
 public:
 	explicit InputRecorder(HWND hwnd);
 	~InputRecorder();
 	void StartCapture();
 	void StopCapture();
-	void ListenForKey() const;
+	void ListenForKey();
 	void ProcessRawInput(LPARAM lParam);
 	void WriteFrameData();
-
 private:
 	void ProcessKeyStates();
-	void FrameCaptureThread() const;
+	void FrameCaptureThread();
 	std::ofstream outputFile;
 	uint16_t keyStates;
 	long mouseDeltaX;

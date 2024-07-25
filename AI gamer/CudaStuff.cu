@@ -4,8 +4,6 @@
 #include "common.h"
 #include <cuda.h>
 #include <curand.h>
-//#define COLS_PER_BLOCK 32    // COLS_PER_WARP*WARPS_PER_BLOCK
-//#define THREADS_PER_GROUP 4  // WARP_SIZE/COLS_PER_WARP
 __device__ __host__ int div_ceil(int a, int b){ return (a % b != 0) ? (a/b + 1) : (a/b); }
 struct pixARGB{
 	unsigned char B;
@@ -18,21 +16,6 @@ struct pixRGB{
 	unsigned char G;
 	unsigned char R;
 };
-__global__ void cuARGBtoRGB(pixARGB* src, pixRGB* dst, int n){
-	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += blockDim.x*gridDim.x){
-		dst[i].R = src[i].R;
-		dst[i].G = src[i].G;
-		dst[i].B = src[i].B;
-	}
-}
-__global__ void cuARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
-	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += blockDim.x*gridDim.x){
-		const int srcIdx = i*4; // Each pixARGB has 4 bytes
-		dst[i] = src[srcIdx]; // R plane
-		dst[i + n] = src[srcIdx + 1]; // G plane
-		dst[i + 2*n] = src[srcIdx + 2]; // B plane
-	}
-}
 curandGenerator_t gen;
 int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 extern "C" void InitCUDA(){
@@ -66,12 +49,27 @@ extern "C" void InitCUDA(){
 	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
 	curandSetPseudoRandomGeneratorSeed(gen, 1234ULL);
 }
-extern "C" cudaError ARGBtoRGB(CUdeviceptr src, CUdeviceptr dst, int n){
+__global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, int n){
+	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += blockDim.x*gridDim.x){
+		dst[i].R = src[i].R;
+		dst[i].G = src[i].G;
+		dst[i].B = src[i].B;
+	}
+}
+extern "C" cudaError ARGBtoRGB(unsigned char* src, unsigned char* dst, int n){
 	cuARGBtoRGB<<<GS, BS>>>(reinterpret_cast<pixARGB*>(src), reinterpret_cast<pixRGB*>(dst), n);
 	return cudaGetLastError();
 }
-extern "C" cudaError ARGBtoRGBplanar(CUdeviceptr src, CUdeviceptr dst, int n){
-	cuARGBtoRGBplanar<<<GS, BS>>>(reinterpret_cast<unsigned char*>(src), reinterpret_cast<unsigned char*>(dst), n);
+__global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, int n){
+	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += blockDim.x*gridDim.x){
+		const int srcIdx = i*4; // Each pixARGB has 4 bytes
+		dst[i] = src[srcIdx + 2]; // R plane
+		dst[i + n] = src[srcIdx + 1]; // G plane
+		dst[i + 2*n] = src[srcIdx]; // B plane
+	}
+}
+extern "C" cudaError ARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
+	cuARGBtoRGBplanar<<<GS, BS>>>(src, dst, n);
 	return cudaGetLastError();
 }
 __device__ float d_loss;
@@ -99,13 +97,13 @@ extern "C" float MseLoss(const __half* d_predictions, const float* d_targets, in
 	cudaMemcpyFromSymbol(&h_loss, d_loss, sizeof(float));
 	return h_loss/size;
 }
-__global__ void convertAndNormalizeKernel(unsigned char* input, __half* output, size_t size){
+__global__ void convertAndNormalizeKernel(__half* output, unsigned char* input, size_t size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){ output[idx] = __float2half(static_cast<float>(input[idx])/255.0f); }
 }
-extern "C" void ConvertAndNormalize(unsigned char* input, __half* output, size_t size){
+extern "C" void ConvertAndNormalize(__half* output, unsigned char* input, size_t size){
 	auto gridSize = div_ceil(size, BS);
-	convertAndNormalizeKernel<<<gridSize, BS>>>(input, output, size);
+	convertAndNormalizeKernel<<<gridSize, BS>>>(output, input, size);
 }
 __global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t n){
 	const int i = blockIdx.x*blockDim.x + threadIdx.x;

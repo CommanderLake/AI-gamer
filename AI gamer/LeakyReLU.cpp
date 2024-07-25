@@ -10,7 +10,7 @@ LeakyReLU::LeakyReLU(cudnnTensorDescriptor_t outDesc, const char* layerName): sl
 }
 LeakyReLU::~LeakyReLU(){
 }
-__half* LeakyReLU::Forward(__half* data){
+__half* LeakyReLU::Forward(__half* data, bool train){
 	data_ = data;
 	LeakyRelu(data, outNCHW_, slope_);
 	cudaDeviceSynchronize();

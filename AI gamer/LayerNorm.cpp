@@ -52,7 +52,7 @@ LayerNorm::~LayerNorm(){
 	cudaFree(vBeta_);
 	cudnnDestroyTensorDescriptor(gradDesc_);
 }
-__half* LayerNorm::Forward(__half* data){
+__half* LayerNorm::Forward(__half* data, bool train){
 	inData_ = data;
 	LayerNormForward(outData_, data, gamma_, beta_, mean_, variance_, batchSize_, outC_, outHW_, epsilon_);
 	cudaDeviceSynchronize();

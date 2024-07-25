@@ -4,12 +4,19 @@
 
 class FCLayer final : public Layer{
 public:
-	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, int outputSize, const char* layerName);
+	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, int outputSize, const char* layerName, bool train);
 	~FCLayer() override;
-	__half* Forward(__half* data) override;
+	__half* Forward(__half* data, bool train) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
-
+	void SaveParameters(std::ofstream& file, float* buffer) const override;
+	void LoadParameters(std::ifstream& file, float* buffer) override;
+	void SaveOptimizerState(std::ofstream& file, float* buffer) const override;
+	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
+	bool HasParameters() const override;
+	bool HasOptimizerState() const override;
+	size_t GetParameterSize() const override;
+	size_t GetOptimizerStateSize() const override;
 private:
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;

@@ -4,11 +4,19 @@
 #include <cublas_v2.h>
 class ConvLayer final : public Layer{
 public:
-	ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bitchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* width, int* height, int* inputCHW, int outW, int outH, const char* layerName);
+	ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bitchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* width, int* height, int* inputCHW, const char* layerName, bool train);
 	~ConvLayer() override;
-	__half* Forward(__half* data) override;
+	__half* Forward(__half* data, bool train) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
+	void SaveParameters(std::ofstream& file, float* buffer) const override;
+	void LoadParameters(std::ifstream& file, float* buffer) override;
+	void SaveOptimizerState(std::ofstream& file, float* buffer) const override;
+	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
+	bool HasParameters() const override;
+	bool HasOptimizerState() const override;
+	size_t GetParameterSize() const override;
+	size_t GetOptimizerStateSize() const override;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	cudnnTensorDescriptor_t inDesc_;
