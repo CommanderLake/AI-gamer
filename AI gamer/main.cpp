@@ -143,10 +143,7 @@ int main(){
 		ReadStateData();
 		nn = new NeuralNetwork();
 		nn->Initialize(width, height, true);
-		int epochs = 10;
-		std::cout << "How many epochs: ";
-		std::cin >> epochs;
-		nn->Train(trainingData, trainingDataCount, epochs);
+		nn->Train(trainingData, trainingDataCount);
 	} else if(mode == 'v' || mode == 'V'){
 		ReadStateData();
 		const auto display = new Display(width, height, WindowProc);
@@ -167,6 +164,15 @@ int main(){
 			//if(sleep_duration.count() > 0){ std::this_thread::sleep_until(nextFrameTime); } else{ nextFrameTime = end; }
 		}
 	} else if(mode == 'i' || mode == 'I'){
+		const auto hwnd = MakeWindow();
+		RAWINPUTDEVICE rid[1];
+		rid[0].usUsagePage = 0x01; // HID_USAGE_PAGE_GENERIC
+		rid[0].usUsage = 0x06;     // HID_USAGE_GENERIC_KEYBOARD
+		rid[0].dwFlags = RIDEV_INPUTSINK;
+		rid[0].hwndTarget = hwnd;
+		if(!RegisterRawInputDevices(rid, 1, sizeof(rid[0]))){
+			MessageBox(hwnd, "Failed to register raw input device.", "Error", MB_OK);
+		}
 		nn = new NeuralNetwork();
 		nn->Infer();
 	}

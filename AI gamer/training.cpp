@@ -12,7 +12,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
-NeuralNetwork::NeuralNetwork(): cudnn_(nullptr), cublas_(nullptr), batchSize_(32), inWidth_(0), inHeight_(0), learningRate_(0.0001f), maxBufferSize_(0){}
+NeuralNetwork::NeuralNetwork(): cudnn_(nullptr), cublas_(nullptr), batchSize_(32), inWidth_(0), inHeight_(0), learningRate_(0.00005f), maxBufferSize_(0){}
 NeuralNetwork::~NeuralNetwork(){
 	cudnnDestroy(cudnn_);
 	cublasDestroy(cublas_);
@@ -58,29 +58,32 @@ void NeuralNetwork::Initialize(int w, int h, bool train){
 	layers_.push_back(new ConvLayer(cudnn_, cublas_, batchSize_, 128, 128, 3, 1, 0, &modelWidth, &modelHeight, &inputSize, "Conv3", train));
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_SPATIAL, batchSize_, "Conv3 BatchNorm", train));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Conv3 LeakyReLU"));
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inputSize, 512, "FC0", train));
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inputSize, 1024, "FC0", train));
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "FC0 BatchNorm", train));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "FC0 LeakyReLU"));
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 512, 256, "FC1", train));
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 1024, 256, "FC1", train));
 	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "FC1 BatchNorm", train));
 	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "FC1 LeakyReLU"));
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, numCtrls_, "FC2", train));
-	layers_.push_back(new Sigmoid(layers_.back()->outDesc_, 16, batchSize_, "FC2 Sigmoid"));
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, 64, "FC2", train));
+	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "FC2 BatchNorm", train));
+	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "FC2 LeakyReLU"));
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 64, numCtrls_, "FC out", train));
+	layers_.push_back(new Sigmoid(layers_.back()->outDesc_, numButs_, batchSize_, "FC out Sigmoid"));
 	// Initialize memory for gradients and batch control
 	checkCUDA(cudaMalloc(&gradient_, ctrlBatchSize_*sizeof(__half)));
 	cudaMallocHost(reinterpret_cast<void**>(&ctrlBatchFloat_), ctrlBatchSize_*sizeof(float));
 	cudaMallocHost(reinterpret_cast<void**>(&ctrlBatchHalf_), ctrlBatchSize_*sizeof(__half));
 	cublasSetMathMode(cublas_, CUBLAS_TENSOR_OP_MATH);
-	if(fileOpen){
-		// Determine the maximum buffer size needed for loading parameters and optimizer state
-		for(const auto& layer : layers_){
-			if(layer->HasParameters()){
-				maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
-			}
-			if(layer->HasOptimizerState()){
-				maxBufferSize_ = max(maxBufferSize_, layer->GetOptimizerStateSize());
-			}
+	// Determine the maximum buffer size needed for loading parameters and optimizer state
+	for(const auto& layer : layers_){
+		if(layer->HasParameters()){
+			maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
 		}
+		if(layer->HasOptimizerState()){
+			maxBufferSize_ = max(maxBufferSize_, layer->GetOptimizerStateSize());
+		}
+	}
+	if(fileOpen){
 		std::cout << "Loading weights/bias...\r\n";
 		float* buffer = nullptr;
 		checkCUDA(cudaMallocHost(&buffer, maxBufferSize_));
@@ -117,7 +120,7 @@ __half* NeuralNetwork::Forward(__half* data, bool train){
 	return data;
 }
 void NeuralNetwork::Backward(const __half* d_predictions, const float* d_targets){
-	Gradient(gradient_, d_predictions, d_targets, batchSize_, numCtrls_, 128.0f);
+	Gradient(gradient_, d_predictions, d_targets, batchSize_, numCtrls_, 256.0f);
 	auto outGrad = gradient_;
 	for(int i = layers_.size(); --i >= 0; ){
 		//PrintDataHalf(outGrad, 4, "Gradient");
@@ -161,7 +164,10 @@ void NeuralNetwork::SaveOptimizerState(const std::string& filename){
 		std::cerr << "Unable to open file for saving optimizer state: " << filename << "\r\n";
 	}
 }
-void NeuralNetwork::Train(InputRecord** data, size_t count, int epochs){
+void NeuralNetwork::Train(InputRecord** data, size_t count){
+	int epochs = 10;
+	std::cout << "How many epochs: ";
+	std::cin >> epochs;
 	std::random_device rd;
 	std::mt19937 gen(rd());
 	const std::uniform_int_distribution<> dis(0, count - 1);
@@ -189,8 +195,8 @@ void NeuralNetwork::Train(InputRecord** data, size_t count, int epochs){
 					for(int j = 0; j < numButs_; ++j){
 						h_ctrlBatch[i*numCtrls_ + j] = static_cast<float>(record->keyStates>>j & 1);
 					}
-					h_ctrlBatch[i*numCtrls_ + 14] = record->mouseDeltaX / 16384.0f + 0.5f;
-					h_ctrlBatch[i*numCtrls_ + 15] = record->mouseDeltaY / 16384.0f + 0.5f;
+					h_ctrlBatch[i*numCtrls_ + 14] = static_cast<float>(record->mouseDeltaX)/128.0f;
+					h_ctrlBatch[i*numCtrls_ + 15] = static_cast<float>(record->mouseDeltaY)/128.0f;
 				}
 				batchReady = true;
 			}
@@ -198,6 +204,7 @@ void NeuralNetwork::Train(InputRecord** data, size_t count, int epochs){
 	};
 	std::thread batchPreparationThread(prepareBatch);
 	batchPreparationThread.detach();
+	std::cout << std::fixed << std::setprecision(8);
 	for(size_t epoch = 0; epoch < epochs; ++epoch){
 		ClearScreen();
 		std::cout << "Epoch: " << epoch << "\r\n";
@@ -214,7 +221,7 @@ void NeuralNetwork::Train(InputRecord** data, size_t count, int epochs){
 			//PrintDataFloatHost(h_ctrlBatch, numCtrls_, "Targets");
 			//PrintDataHalf(output, numCtrls_, "Predicted");
 			const float loss = MseLoss(output, d_ctrlBatch, batchSize_*numCtrls_);
-			std::cout << std::setprecision(10) << "Loss: " << loss << "\t\t\t\t\r";
+			std::cout << "Loss: " << loss << "\t\t\t\r";
 			Backward(output, d_ctrlBatch);
 			UpdateParams();
 		}
@@ -229,21 +236,57 @@ void NeuralNetwork::Train(InputRecord** data, size_t count, int epochs){
 	cudaFree(d_batchInputHalf);
 }
 void NeuralNetwork::ProcessOutput(const float* output){
-	for(int i = 0; i < 14; ++i){
+	INPUT inputs[numButs_ + 1] = {};  // +1 for the mouse movement
+	int inputIndex = 0;
+	// Simulate letter key inputs using scancodes (W, A, S, D, etc.)
+	for(int i = 0; i < 11; ++i){
+		inputs[inputIndex].type = INPUT_KEYBOARD;
+		inputs[inputIndex].ki.wScan = keyMap[i];
+		inputs[inputIndex].ki.dwFlags = KEYEVENTF_SCANCODE;
 		if(output[i] > 0.5){
-			keybd_event(keyMap[i], 0, 0, 0);
+			inputs[inputIndex].ki.dwFlags |= 0;  // Key press
 		} else{
-			keybd_event(keyMap[i], 0, KEYEVENTF_KEYUP, 0);
+			inputs[inputIndex].ki.dwFlags |= KEYEVENTF_KEYUP;  // Key release
 		}
+		inputIndex++;
 	}
-	const int mouseX = static_cast<int>((output[14] - 0.5f)*16384.0f);
-	const int mouseY = static_cast<int>((output[15] - 0.5f)*16384.0f);
-	INPUT input = {0};
-	input.type = INPUT_MOUSE;
-	input.mi.dx = mouseX;
-	input.mi.dy = mouseY;
-	input.mi.dwFlags = MOUSEEVENTF_MOVE;
-	SendInput(1, &input, sizeof(INPUT));
+	// Handle mouse buttons
+	if(output[11] > 0.5){
+		inputs[inputIndex].type = INPUT_MOUSE;
+		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+		inputIndex++;
+	} else{
+		inputs[inputIndex].type = INPUT_MOUSE;
+		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+		inputIndex++;
+	}
+	if(output[12] > 0.5){
+		inputs[inputIndex].type = INPUT_MOUSE;
+		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+		inputIndex++;
+	} else{
+		inputs[inputIndex].type = INPUT_MOUSE;
+		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
+		inputIndex++;
+	}
+	if(output[13] > 0.5){
+		inputs[inputIndex].type = INPUT_MOUSE;
+		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN;
+		inputIndex++;
+	} else{
+		inputs[inputIndex].type = INPUT_MOUSE;
+		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
+		inputIndex++;
+	}
+	// Handle mouse movement
+	const int mouseX = static_cast<int>(output[14]*128.0f);
+	const int mouseY = static_cast<int>(output[15]*128.0f);
+	inputs[inputIndex].type = INPUT_MOUSE;
+	inputs[inputIndex].mi.dx = mouseX;
+	inputs[inputIndex].mi.dy = mouseY;
+	inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MOVE;
+	// Send all inputs at once
+	SendInput(inputIndex + 1, inputs, sizeof(INPUT));
 }
 void NeuralNetwork::ListenForKey(){
 	std::cout << "Press F9 to start AI input and Escape to pause.\r\n";
@@ -259,10 +302,15 @@ void NeuralNetwork::ListenForKey(){
 		Sleep(10);
 	}
 }
-void NeuralNetwork::InferLoop(){
-	Initialize(0, 0, false);
+void NeuralNetwork::Infer(){
 	InitNvFBC();
 	AllocGPU();
+	Initialize(0, 0, false);
+	std::thread listenKey(&NeuralNetwork::ListenForKey, this);
+	listenKey.detach();
+	while(!simInput){
+		Sleep(1);
+	}
 	int capWidth = 0, capHeight = 0;
 	float* h_predictionsF;
 	checkCUDA(cudaMallocHost(&h_predictionsF, numCtrls_*sizeof(float)));
@@ -271,19 +319,23 @@ void NeuralNetwork::InferLoop(){
 	const auto inputSize = inWidth_*inHeight_*3;
 	__half* frameHalf = nullptr;
 	checkCUDA(cudaMalloc(&frameHalf, inputSize*sizeof(__half)));
+	checkCUDA(cudaMemset(frameHalf, 0, inputSize*sizeof(__half)));
+	constexpr std::chrono::microseconds frameDuration(33333);
+	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	while(!stopInfer){
 		while(!simInput){
 			Sleep(1);
 		}
+		nextFrameTime += frameDuration;
+		std::this_thread::sleep_until(nextFrameTime);
 		const auto frame = GrabFrame(&capWidth, &capHeight, true, false);
 		if(capWidth != inWidth_ || capHeight != inHeight_){
 			simInput = false;
 			std::cerr << "Capture resolution mismatch, pausing AI input.\r\n";
-			//continue;
+			continue;
 		}
 		ConvertAndNormalize(frameHalf, frame, inputSize);
 		checkCUDA(cudaDeviceSynchronize());
-		//PrintDataHalf(frameHalf, 100, "frameHalf");
 		const auto output = Forward(frameHalf, false);
 		ConvertHalfToFloat(output, d_predictionsF, numCtrls_);
 		checkCUDA(cudaMemcpy(h_predictionsF, d_predictionsF, numCtrls_*sizeof(float), cudaMemcpyDeviceToHost));
@@ -293,17 +345,4 @@ void NeuralNetwork::InferLoop(){
 	cudaFreeHost(h_predictionsF);
 	cudaFree(d_predictionsF);
 	cudaFree(frameHalf);
-}
-void NeuralNetwork::Infer(){
-	//std::thread inferThread(&NeuralNetwork::inferLoop, this);
-	//inferThread.detach();
-	std::thread listenKey(&NeuralNetwork::ListenForKey, this);
-	listenKey.detach();
-	InferLoop();
-	MSG msg = {};
-	while(GetMessage(&msg, nullptr, 0, 0)){
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
-	}
-	stopInfer = true;
 }

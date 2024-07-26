@@ -41,13 +41,25 @@ inline int InitNvFBC(){
 	nvfbc->load();
 	unsigned long maxw = 0, maxh = 0;
 	nvfbcCuda = static_cast<NvFBCCuda*>(nvfbc->create(NVFBC_SHARED_CUDA, &maxw, &maxh));
-	cuCtxPopCurrent(&cudaCtx);
-	cuCtxPushCurrent(cudaCtx);
+	// Save the current context
+	CUcontext originalCtx;
+	cuCtxGetCurrent(&originalCtx);
+	// Push and pop to ensure the context is managed correctly
+	cuCtxPushCurrent(originalCtx);
+	CUcontext pushedCtx;
+	cuCtxGetCurrent(&pushedCtx);
+	cuCtxPopCurrent(&pushedCtx);
+	// NVFBC CUDA setup
 	nvfbcCuda->NvFBCCudaGetMaxBufferSize(&maxBufferSize);
 	fbcCudaSetupParams.dwVersion = NVFBC_CUDA_SETUP_PARAMS_VER;
 	fbcCudaSetupParams.eFormat = NVFBC_TOCUDA_ARGB;
 	const auto fbcRes = nvfbcCuda->NvFBCCudaSetup(&fbcCudaSetupParams);
-	if(fbcRes != NVFBC_SUCCESS) throw std::runtime_error("NVFBC CUDA setup failed, result:\n\n" + NvFBCLibrary::NVFBCResultToString(fbcRes));
+	if(fbcRes != NVFBC_SUCCESS){
+		std::cerr << "NVFBC CUDA setup failed, result: " << NvFBCLibrary::NVFBCResultToString(fbcRes) << std::endl;
+		throw std::runtime_error("NVFBC CUDA setup failed.");
+	}
+	// Restore the original context
+	cuCtxPushCurrent(originalCtx);
 	return 0;
 }
 inline void* AllocHost(unsigned long long& buffersize){

@@ -106,8 +106,8 @@ __half* ConvLayer::Backward(__half* grad){
 void ConvLayer::UpdateParameters(float learningRate){
 	//SGDHalf(weights_, learningRate, gradWeights_, weightCount_);
 	//SGDHalf(bias_, learningRate, gradBias_, outC_);
-	AdamWHalf(weights_, m_Weights_, v_Weights_, learningRate, gradWeights_, weightCount_, t_, 0.0001F);
-	AdamWHalf(bias_, m_Bias_, v_Bias_, learningRate, gradBias_, outC_, t_, 0.0001F);
+	AdamWHalf(weights_, m_Weights_, v_Weights_, learningRate, gradWeights_, weightCount_, t_, 0.001F);
+	AdamWHalf(bias_, m_Bias_, v_Bias_, learningRate, gradBias_, outC_, t_, 0.001F);
 	++t_;
 }
 void ConvLayer::SaveParameters(std::ofstream& file, float* buffer) const{

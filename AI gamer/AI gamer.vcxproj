@@ -78,11 +78,12 @@
       <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\inc\;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\samples\Util\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <Optimization>Disabled</Optimization>
+      <Optimization>MaxSpeedHighLevel</Optimization>
       <RecognizeRestrictKeyword>true</RecognizeRestrictKeyword>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
       <OptimizationDiagnosticsFile>stdout</OptimizationDiagnosticsFile>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -101,6 +102,7 @@
   <ItemGroup>
     <ClInclude Include="Activate.h" />
     <ClInclude Include="BatchNorm.h" />
+    <ClInclude Include="BatchThreadPool.h" />
     <ClInclude Include="common.h" />
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="display.h" />
@@ -119,6 +121,7 @@
   <ItemGroup>
     <ClCompile Include="Activate.cpp" />
     <ClCompile Include="BatchNorm.cpp" />
+    <ClCompile Include="BatchThreadPool.cpp" />
     <ClCompile Include="common.cpp" />
     <ClCompile Include="ConvLayer.cpp" />
     <ClCompile Include="display.cpp" />

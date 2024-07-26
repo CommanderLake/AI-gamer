@@ -15,12 +15,11 @@ public:
 	void UpdateParams();
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
-	void Train(InputRecord** data, size_t count, int epochs);
+	void Train(InputRecord** data, size_t count);
 	void Infer();
 	void ListenForKey();
-	void InferLoop();
 	static void ProcessOutput(const float* output);
-	std::atomic<bool> simInput = true;
+	std::atomic<bool> simInput = false;
 	std::atomic<bool> stopInfer = false;
 private:
 	cudnnHandle_t cudnn_;

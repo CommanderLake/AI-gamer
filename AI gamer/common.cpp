@@ -2,6 +2,7 @@
 #include <cuda_runtime_api.h>
 #include <iostream>
 #include <vector>
+#include <windows.h>
 const char* cublasGetErrorString(cublasStatus_t status){
 	switch(status){
 		case CUBLAS_STATUS_SUCCESS:
@@ -43,6 +44,22 @@ unsigned char keyMap[] = {
 	11,  // Mouse button 1
 	12,  // Mouse button 2
 	13   // Mouse button 3
+};
+unsigned char keyReMap[] = {
+	VK_UP,       // Up arrow key (replaces W)
+	VK_LEFT,     // Left arrow key (replaces A)
+	VK_DOWN,     // Down arrow key (replaces S)
+	VK_RIGHT,    // Right arrow key (replaces D)
+	VK_SPACE,    // Space
+	VK_CONTROL,  // Ctrl
+	0x10,        // Q
+	0x13,        // R
+	0x12,        // E
+	0x02,        // 1
+	0x03,        // 2
+	VK_LBUTTON,  // Mouse button 1
+	VK_RBUTTON,  // Mouse button 2
+	VK_MBUTTON   // Mouse button 3
 };
 int ConvertSmVer2Cores(int major, int minor){
 	// Defines for GPU Architecture types (using the SM version to determine the # of cores per SM
@@ -185,30 +202,6 @@ void PrintDataCharHost(const unsigned char* data, const size_t size, const char*
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
 	std::cout << "\r\n";
 }
-void CheckData(const __half* data, const size_t size, const char* label){
-	std::vector<__half> h_data(size);
-	std::vector<float> h_dataF(size);
-	checkCUDA(cudaMemcpy(h_data.data(), data, size * sizeof(__half), cudaMemcpyDeviceToHost));
-	H2F128Asm(h_dataF.data(), h_data.data(), size);
-	float min_val = std::numeric_limits<float>::max();
-	float max_val = std::numeric_limits<float>::lowest();
-	bool has_nan = false;
-	bool has_inf = false;
-	bool has_zero = false;
-	for(size_t i = 0; i < size; ++i){
-		float val = h_dataF[i];
-		min_val = std::min(min_val, val);
-		max_val = std::max(max_val, val);
-		has_nan |= std::isnan(val);
-		has_inf |= std::isinf(val);
-		if(val == 0.0f) has_zero = true;
-	}
-	std::cout << label << ": Min: " << min_val << ", Max: " << max_val
-		<< ", Has NaN: " << (has_nan ? "Yes" : "No")
-		<< ", Has Inf: " << (has_inf ? "Yes" : "No")
-		<< ", Has Zero: " << (has_zero ? "Yes" : "No") << "\r\n\r\n";
-}
-#include <windows.h>
 void ClearScreen(char fill){
 	COORD tl = {0, 0};
 	CONSOLE_SCREEN_BUFFER_INFO s;

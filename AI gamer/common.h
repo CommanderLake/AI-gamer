@@ -1,6 +1,4 @@
 #pragma once
-#include <algorithm>
-#include <cstdint>
 #include <cublas_v2.h>
 #include <string>
 #include <iostream>
@@ -46,6 +44,7 @@ const std::string optFileName("E:\\AIGamer.opt");
 constexpr int numCtrls_ = 16;
 constexpr int numButs_ = 14;
 extern unsigned char keyMap[14];
+extern unsigned char keyReMap[14];
 void ClearScreen(char fill = ' ');
 int ConvertSmVer2Cores(int major, int minor);
 void H2F128Asm(float* dst, __half* src, int numElements);
@@ -53,7 +52,6 @@ void PrintDataHalf(const __half* data, size_t size, const char* label);
 void PrintDataFloat(const float* data, size_t size, const char* label);
 void PrintDataFloatHost(const float* data, size_t size, const char* label);
 void PrintDataCharHost(const unsigned char* data, size_t size, const char* label);
-void CheckData(const __half* data, size_t size, const char* label);
 extern "C" void InitCUDA();
 extern "C" float MseLoss(const __half* d_predictions, const float* d_targets, int size);
 extern "C" void ConvertAndNormalize(__half* output, unsigned char* input, size_t size);

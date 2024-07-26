@@ -90,8 +90,8 @@ __half* BatchNorm::Backward(__half* grad){
 void BatchNorm::UpdateParameters(float learningRate){
 	//SGDFloat(bnScale_, learningRate, gradBnScale_, outC_);
 	//SGDFloat(bnBias_, learningRate, gradBnBias_, outC_);
-	AdamWFloat(bnScale_, m_bnScale_, v_bnScale_, learningRate, gradBnScale_, outC_, t_, 0.0001F);
-	AdamWFloat(bnBias_, m_bnBias_, v_bnBias_, learningRate, gradBnBias_, outC_, t_, 0.0001F);
+	AdamWFloat(bnScale_, m_bnScale_, v_bnScale_, learningRate, gradBnScale_, outC_, t_, 0.001F);
+	AdamWFloat(bnBias_, m_bnBias_, v_bnBias_, learningRate, gradBnBias_, outC_, t_, 0.001F);
 	++t_;
 }
 void BatchNorm::SaveParameters(std::ofstream& file, float* buffer) const{

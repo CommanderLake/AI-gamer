@@ -131,9 +131,8 @@ void InputRecorder::WriteFrameData(){
 	outputFile.write(reinterpret_cast<char*>(buf), frameSize);
 }
 void InputRecorder::FrameCaptureThread(){
-	using namespace std::chrono;
-	const microseconds frameDuration(33333);
-	auto nextFrameTime = high_resolution_clock::now();
+	constexpr std::chrono::microseconds frameDuration(33333);
+	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	while(capturing){
 		nextFrameTime += frameDuration;
 		std::this_thread::sleep_until(nextFrameTime);
