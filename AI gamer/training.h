@@ -15,7 +15,7 @@ public:
 	void UpdateParams();
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
-	void Train(InputRecord** data, size_t count);
+	void Train(size_t count);
 	void Infer();
 	void ListenForKey();
 	static void ProcessOutput(const float* output);

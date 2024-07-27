@@ -1,8 +1,10 @@
 #include <cuda.h>
+#include <future>
 #include <iostream>
 #include <mutex>
+#include <random>
 #include <Windows.h>
-#include "display.h"
+#include "Viewer.h"
 #include "input_recorder.h"
 #include "training.h"
 InputRecorder* recorder = nullptr;
@@ -39,55 +41,80 @@ int height = 480;
 InputRecord** trainingData = nullptr;
 size_t trainingDataCount = 0;
 std::mutex trainingDataMutex;
+//void ReadStateData(){
+//	std::ifstream file(trainDataFileName, std::ios::binary | std::ios::in);
+//	if(!file.is_open()){
+//		std::cerr << "Failed to open training data file!" << std::endl;
+//		return;
+//	}
+//	// Read width and height
+//	file.read(reinterpret_cast<char*>(&width), sizeof width);
+//	file.read(reinterpret_cast<char*>(&height), sizeof height);
+//	const std::size_t decompressedSize = width*height*3;
+//	// Step 1-4: Store file positions of each record
+//	std::vector<std::streampos> recordPositions;
+//	while(file.peek() != EOF){
+//		recordPositions.push_back(file.tellg());
+//		file.seekg(10 + decompressedSize, std::ios::cur);
+//		//if(recordPositions.size() >= 1024) break; // LIMIT FOR DEBUGGING!
+//	}
+//	file.close();
+//	// Step 5: Create trainingData array
+//	trainingDataCount = recordPositions.size();
+//	trainingData = new InputRecord*[trainingDataCount];
+//	// Step 6: Parallel processing with 8 threads
+//	auto processRecords = [&](size_t start, size_t end){
+//		std::ifstream threadFile(trainDataFileName, std::ios::binary | std::ios::in);
+//		if(!threadFile.is_open()){
+//			std::cerr << "Thread failed to open training data file!" << std::endl;
+//			return;
+//		}
+//		for(size_t i = start; i < end; ++i){
+//			threadFile.seekg(recordPositions[i]);
+//			const auto record = new InputRecord();
+//			threadFile.read(reinterpret_cast<char*>(&record->keyStates), sizeof record->keyStates);
+//			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaX), sizeof record->mouseDeltaX);
+//			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaY), sizeof record->mouseDeltaY);
+//			record->state_data = static_cast<unsigned char*>(_aligned_malloc(decompressedSize, 64));
+//			threadFile.read(reinterpret_cast<char*>(record->state_data), decompressedSize);
+//			std::lock_guard<std::mutex> guard(trainingDataMutex);
+//			trainingData[i] = record;
+//		}
+//	};
+//	// Create and join 8 threads
+//	std::vector<std::thread> threads;
+//	const size_t recordsPerThread = trainingDataCount / 8;
+//	for(size_t i = 0; i < 8; ++i){
+//		size_t start = i * recordsPerThread;
+//		size_t end = i == 7 ? trainingDataCount : start + recordsPerThread;
+//		threads.emplace_back(processRecords, start, end);
+//	}
+//	for(auto& thread : threads){ thread.join(); }
+//}
+std::mutex fileRecordPositionsMutex;
+size_t totalStateCount = 0;
 void ReadStateData(){
-	std::ifstream file(trainDataFileName, std::ios::binary | std::ios::in);
-	if(!file.is_open()){
-		std::cerr << "Failed to open training data file!" << std::endl;
-		return;
-	}
-	// Read width and height
-	file.read(reinterpret_cast<char*>(&width), sizeof width);
-	file.read(reinterpret_cast<char*>(&height), sizeof height);
-	const std::size_t decompressedSize = width*height*3;
-	// Step 1-4: Store file positions of each record
-	std::vector<std::streampos> recordPositions;
-	while(file.peek() != EOF){
-		recordPositions.push_back(file.tellg());
-		file.seekg(10 + decompressedSize, std::ios::cur);
-		//if(recordPositions.size() >= 1024) break; // LIMIT FOR DEBUGGING!
-	}
-	file.close();
-	// Step 5: Create trainingData array
-	trainingDataCount = recordPositions.size();
-	trainingData = new InputRecord*[trainingDataCount];
-	// Step 6: Parallel processing with 8 threads
-	auto processRecords = [&](size_t start, size_t end){
-		std::ifstream threadFile(trainDataFileName, std::ios::binary | std::ios::in);
-		if(!threadFile.is_open()){
-			std::cerr << "Thread failed to open training data file!" << std::endl;
-			return;
+	for(const auto& fileName : trainingDataFiles){
+		std::ifstream file(fileName, std::ios::binary | std::ios::in);
+		if(!file.is_open()){
+			std::cerr << "Failed to open training data file: " << fileName << std::endl;
+			continue;
 		}
-		for(size_t i = start; i < end; ++i){
-			threadFile.seekg(recordPositions[i]);
-			const auto record = new InputRecord();
-			threadFile.read(reinterpret_cast<char*>(&record->keyStates), sizeof record->keyStates);
-			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaX), sizeof record->mouseDeltaX);
-			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaY), sizeof record->mouseDeltaY);
-			record->state_data = static_cast<unsigned char*>(_aligned_malloc(decompressedSize, 64));
-			threadFile.read(reinterpret_cast<char*>(record->state_data), decompressedSize);
-			std::lock_guard<std::mutex> guard(trainingDataMutex);
-			trainingData[i] = record;
+		// Read width and height
+		file.read(reinterpret_cast<char*>(&width), sizeof width);
+		file.read(reinterpret_cast<char*>(&height), sizeof height);
+		stateSize = width*height*3;
+		// Store file positions of each record
+		std::vector<std::streampos> recordPositions;
+		while(file.peek() != EOF){
+			recordPositions.push_back(file.tellg());
+			file.seekg(10 + stateSize, std::ios::cur);
 		}
-	};
-	// Create and join 8 threads
-	std::vector<std::thread> threads;
-	const size_t recordsPerThread = trainingDataCount / 8;
-	for(size_t i = 0; i < 8; ++i){
-		size_t start = i * recordsPerThread;
-		size_t end = i == 7 ? trainingDataCount : start + recordsPerThread;
-		threads.emplace_back(processRecords, start, end);
+		file.close();
+		std::lock_guard<std::mutex> lock(fileRecordPositionsMutex);
+		totalStateCount += recordPositions.size();
+		fileRecordIndex[fileName] = recordPositions;
 	}
-	for(auto& thread : threads){ thread.join(); }
 }
 HWND MakeWindow(){
 	const HINSTANCE hInstance = GetModuleHandle(nullptr);
@@ -143,26 +170,13 @@ int main(){
 		ReadStateData();
 		nn = new NeuralNetwork();
 		nn->Initialize(width, height, true);
-		nn->Train(trainingData, trainingDataCount);
+		nn->Train(totalStateCount);
 	} else if(mode == 'v' || mode == 'V'){
-		ReadStateData();
-		const auto display = new Display(width, height, WindowProc);
-		//const auto frameDuration = std::chrono::milliseconds(1000 / 30);
-		//auto nextFrameTime = std::chrono::steady_clock::now();
-		for(auto i = 0; i < trainingDataCount; ++i){
-			//nextFrameTime += frameDuration;
-			// Process Windows messages to keep the window responsive
-			MSG msg = {nullptr};
-			while(PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)){
-				TranslateMessage(&msg);
-				DispatchMessage(&msg);
-			}
-			display->ShowKeyState(trainingData[i]->keyStates, trainingData[i]->mouseDeltaX, trainingData[i]->mouseDeltaY);
-			display->ShowImage(trainingData[i]->state_data);
-			//auto end = std::chrono::steady_clock::now();
-			//auto sleep_duration = nextFrameTime - end;
-			//if(sleep_duration.count() > 0){ std::this_thread::sleep_until(nextFrameTime); } else{ nextFrameTime = end; }
-		}
+		std::cout << "Training data file: ";
+		std::string fileName;
+		std::cin >> fileName;
+		const auto viewer = new Viewer(WindowProc);
+		viewer->Play(fileName);
 	} else if(mode == 'i' || mode == 'I'){
 		const auto hwnd = MakeWindow();
 		RAWINPUTDEVICE rid[1];

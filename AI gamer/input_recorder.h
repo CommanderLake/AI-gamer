@@ -22,8 +22,8 @@ private:
 	void FrameCaptureThread();
 	std::ofstream outputFile;
 	uint16_t keyStates;
-	long mouseDeltaX;
-	long mouseDeltaY;
+	int mouseDeltaX;
+	int mouseDeltaY;
 	bool capturing = false;
 	std::chrono::steady_clock::time_point lastPacketTime;
 	unsigned long long fbSize = 0;

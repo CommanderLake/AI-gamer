@@ -173,8 +173,8 @@ void PrintDataHalf(const __half* data, const size_t size, const char* label){
 		printDataHalf2(data, size, label);
 		return;
 	}
-	auto h_data = static_cast<__half*>(_mm_malloc(truncatedSize*sizeof(__half), 32));
-	auto f_data = static_cast<float*>(_mm_malloc(truncatedSize*sizeof(float), 32));
+	const auto h_data = static_cast<__half*>(_mm_malloc(truncatedSize*sizeof(__half), 32));
+	const auto f_data = static_cast<float*>(_mm_malloc(truncatedSize*sizeof(float), 32));
 	checkCUDA(cudaMemcpy(h_data, data, truncatedSize * sizeof(__half), cudaMemcpyDeviceToHost));
 	H2F128Asm(f_data, h_data, truncatedSize);
 	std::cout << label << ":\r\n";
@@ -203,12 +203,57 @@ void PrintDataCharHost(const unsigned char* data, const size_t size, const char*
 	std::cout << "\r\n";
 }
 void ClearScreen(char fill){
-	COORD tl = {0, 0};
+	const COORD tl = {0, 0};
 	CONSOLE_SCREEN_BUFFER_INFO s;
-	HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+	const HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
 	GetConsoleScreenBufferInfo(console, &s);
-	DWORD written, cells = s.dwSize.X * s.dwSize.Y;
+	DWORD written;
+	const DWORD cells = s.dwSize.X * s.dwSize.Y;
 	FillConsoleOutputCharacter(console, fill, cells, tl, &written);
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
+}
+std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin"};
+std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
+std::size_t stateSize;
+ThreadPool threadPool(8);
+void LoadBatch(StateBatch* batch){
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::vector<std::future<void>> futures;
+	for(size_t i = 0; i < batch->size; ++i){
+		futures.push_back(threadPool.Enqueue([i, &gen, batch](){
+			const std::uniform_int_distribution<> fileDis(0, trainingDataFiles.size() - 1);
+			const std::string selectedFile = trainingDataFiles[fileDis(gen)];
+			const auto recordIndexIt = fileRecordIndex.find(selectedFile);
+			if(recordIndexIt == fileRecordIndex.end()){
+				std::cerr << "No records for file: " << selectedFile << std::endl;
+				return;
+			}
+			std::ifstream file(selectedFile, std::ios::binary | std::ios::in);
+			if(!file.is_open()){
+				std::cerr << "Failed to open training data file: " << selectedFile << std::endl;
+				return;
+			}
+			const std::uniform_int_distribution<> recordDis(0, recordIndexIt->second.size() - 1);
+			const size_t recordIndex = recordDis(gen);
+			file.seekg(recordIndexIt->second[recordIndex]);
+			if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i]), sizeof(unsigned short))){
+				std::cerr << "Failed to read keyStates from file: " << selectedFile << std::endl;
+				return;
+			}
+			if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i]), sizeof(int))){
+				std::cerr << "Failed to read mouseDeltaX from file: " << selectedFile << std::endl;
+				return;
+			}
+			if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i]), sizeof(int))){
+				std::cerr << "Failed to read mouseDeltaY from file: " << selectedFile << std::endl;
+				return;
+			}
+			if(!file.read(reinterpret_cast<char*>(batch->stateData + i*stateSize), stateSize)){
+				std::cerr << "Failed to read stateData from file: " << selectedFile << std::endl;
+			}
+		}));
+	}
+	for(auto& future : futures){ future.get(); }
 }

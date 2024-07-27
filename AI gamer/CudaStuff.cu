@@ -151,7 +151,7 @@ extern "C" void SGDFloat(float* param, const float learningRate, const float* gr
 }
 __device__ const float beta1F = 0.9f;
 __device__ const float beta2F = 0.999f;
-__device__ const float epsilonF = 1e-6f;
+__device__ const float epsilonF = 1e-8f;
 __global__ void adamKernelHalf(__half* param, float* m, float* v, const float learningRate, const __half* gradParam, const int n, const int t){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < n){

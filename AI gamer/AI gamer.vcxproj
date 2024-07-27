@@ -102,10 +102,9 @@
   <ItemGroup>
     <ClInclude Include="Activate.h" />
     <ClInclude Include="BatchNorm.h" />
-    <ClInclude Include="BatchThreadPool.h" />
     <ClInclude Include="common.h" />
     <ClInclude Include="ConvLayer.h" />
-    <ClInclude Include="display.h" />
+    <ClInclude Include="Viewer.h" />
     <ClInclude Include="FCLayer.h" />
     <ClInclude Include="GetError.h" />
     <ClInclude Include="input_recorder.h" />
@@ -116,15 +115,15 @@
     <ClInclude Include="NvFBCLibrary.h" />
     <ClInclude Include="ScaleGrad.h" />
     <ClInclude Include="Sigmoid.h" />
+    <ClInclude Include="ThreadPool.h" />
     <ClInclude Include="training.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Activate.cpp" />
     <ClCompile Include="BatchNorm.cpp" />
-    <ClCompile Include="BatchThreadPool.cpp" />
     <ClCompile Include="common.cpp" />
     <ClCompile Include="ConvLayer.cpp" />
-    <ClCompile Include="display.cpp" />
+    <ClCompile Include="Viewer.cpp" />
     <ClCompile Include="FCLayer.cpp" />
     <ClCompile Include="input_recorder.cpp" />
     <ClCompile Include="LayerNorm.cpp" />
@@ -132,6 +131,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="ScaleGrad.cpp" />
     <ClCompile Include="Sigmoid.cpp" />
+    <ClCompile Include="ThreadPool.cpp" />
     <ClCompile Include="training.cpp" />
   </ItemGroup>
   <ItemGroup>

@@ -1,7 +1,12 @@
 #pragma once
+#include "ThreadPool.h"
 #include <cublas_v2.h>
+#include <cuda_runtime_api.h>
 #include <string>
+#include <fstream>
 #include <iostream>
+#include <random>
+#include <unordered_map>
 #define WM_USER_STOP_CAPTURE (WM_USER + 1)
 #define WM_USER_START_CAPTURE (WM_USER + 2)
 #define WM_USER_CAPTURE_FRAME (WM_USER + 3)
@@ -28,16 +33,43 @@ const char* cublasGetErrorString(cublasStatus_t status);
 }
 struct __half;
 struct InputRecord{
-	uint16_t keyStates; // Bitmask for key states
-	int32_t mouseDeltaX; // Total mouse delta X movement
-	int32_t mouseDeltaY; // Total mouse delta Y movement
-	unsigned char* state_data = nullptr;
+	unsigned short keyStates;
+	int mouseDeltaX;
+	int mouseDeltaY;
+	unsigned char* stateData = nullptr;
 	~InputRecord(){
-		if(state_data){
-			_mm_free(state_data);
+		if(stateData){
+			_mm_free(stateData);
 		}
 	}
 };
+struct StateBatch{
+	int size;
+	unsigned short* keyStates;
+	int* mouseDeltaX;
+	int* mouseDeltaY;
+	unsigned char* stateData = nullptr;
+	explicit StateBatch(const int batchSize, int stateSize): size(batchSize){
+		keyStates = static_cast<unsigned short*>(malloc(batchSize*sizeof(unsigned short)));
+		mouseDeltaX = static_cast<int*>(malloc(batchSize*sizeof(int)));
+		mouseDeltaY = static_cast<int*>(malloc(batchSize*sizeof(int)));
+		if(!keyStates || !mouseDeltaX || !mouseDeltaY){
+			throw std::bad_alloc();
+		}
+		checkCUDA(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*batchSize));
+	}
+	~StateBatch(){
+		free(keyStates);
+		free(mouseDeltaX);
+		free(mouseDeltaY);
+		cudaFreeHost(stateData);
+	}
+};
+extern std::vector<std::string> trainingDataFiles;
+extern std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
+extern std::size_t stateSize;
+extern ThreadPool threadPool;
+void LoadBatch(StateBatch* batch);
 const std::string trainDataFileName("E:\\training_data.bin");
 const std::string ckptFileName("E:\\AIGamer.ckpt");
 const std::string optFileName("E:\\AIGamer.opt");
