@@ -1,1 +1,1 @@
-I FIXED IT! ITS LEARNING!
+I started getting into AI when I saw the OpenAI hide-and-seek video and since then I've wondered if I could get AI to play my favourite FPS game Halo, but without using libraries such as torch or tensorflow. So eventually I learned enough that I could start a project in C++ using cuDNN directly and here we are.
