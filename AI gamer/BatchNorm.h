@@ -3,19 +3,20 @@
 #include <cudnn.h>
 class BatchNorm final : public Layer{
 public:
+	const bool useAdamW_ = false;
 	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName, bool train);
 	~BatchNorm() override;
 	__half* Forward(__half* data, bool train) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
-	void SaveParameters(std::ofstream& file, float* buffer) const override;
+	void SaveParameters(std::ofstream& file, float* buffer) override;
 	void LoadParameters(std::ifstream& file, float* buffer) override;
-	void SaveOptimizerState(std::ofstream& file, float* buffer) const override;
+	void SaveOptimizerState(std::ofstream& file, float* buffer) override;
 	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
-	bool HasParameters() const override;
-	bool HasOptimizerState() const override;
-	size_t GetParameterSize() const override;
-	size_t GetOptimizerStateSize() const override;
+	bool HasParameters() override;
+	bool HasOptimizerState() override;
+	size_t GetParameterSize() override;
+	size_t GetOptimizerStateSize() override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t bnScaleBiasDesc_;
 	cudnnTensorDescriptor_t gradDesc_;
@@ -32,8 +33,8 @@ public:
 	float* bnRunningVar_ = nullptr;
 	float* bnSavedMean_ = nullptr;
 	float* bnSavedInvVariance_ = nullptr;
-	float *m_bnScale_, *v_bnScale_;
-	float *m_bnBias_, *v_bnBias_;
+	float *m_BnScale_, *v_BnScale_;
+	float *m_BnBias_, *v_BnBias_;
 	int t_ = 1;
 	int outC_;
 	const float alpha = 1.0f;

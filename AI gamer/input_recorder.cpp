@@ -13,12 +13,13 @@ InputRecorder::~InputRecorder(){
 }
 void InputRecorder::StartCapture(){
 	if(!inited){
+		InitCUDA();
 		InitNvFBC();
 		AllocGPU();
 		AllocHost(fbSize);
 		int width;
 		int height;
-		GrabFrame(&width, &height, true, false);
+		GrabFrameInt8(&width, &height, true, false);
 		frameSize = width*height*3;
 		outputFile.open(trainDataFileName, std::ios::binary);
 		if(!outputFile.is_open()){ std::cerr << "Failed to open output file!" << std::endl; } else{ std::cout << "Output file opened successfully." << std::endl; }
@@ -127,7 +128,7 @@ void InputRecorder::WriteFrameData(){
 	mouseDeltaY = 0;
 	int width;
 	int height;
-	const auto buf = GrabFrame(&width, &height, true, true);
+	const auto buf = GrabFrameInt8(&width, &height, true, true);
 	outputFile.write(reinterpret_cast<char*>(buf), frameSize);
 }
 void InputRecorder::FrameCaptureThread(){

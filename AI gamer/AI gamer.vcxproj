@@ -104,6 +104,9 @@
     <ClInclude Include="BatchNorm.h" />
     <ClInclude Include="common.h" />
     <ClInclude Include="ConvLayer.h" />
+    <ClInclude Include="ConvScale.h" />
+    <ClInclude Include="Dropout.h" />
+    <ClInclude Include="LSTMLayer.h" />
     <ClInclude Include="Viewer.h" />
     <ClInclude Include="FCLayer.h" />
     <ClInclude Include="GetError.h" />
@@ -123,6 +126,9 @@
     <ClCompile Include="BatchNorm.cpp" />
     <ClCompile Include="common.cpp" />
     <ClCompile Include="ConvLayer.cpp" />
+    <ClCompile Include="ConvScale.cpp" />
+    <ClCompile Include="Dropout.cpp" />
+    <ClCompile Include="LSTMLayer.cpp" />
     <ClCompile Include="Viewer.cpp" />
     <ClCompile Include="FCLayer.cpp" />
     <ClCompile Include="input_recorder.cpp" />

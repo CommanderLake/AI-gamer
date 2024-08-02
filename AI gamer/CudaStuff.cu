@@ -105,6 +105,14 @@ extern "C" void ConvertAndNormalize(__half* output, unsigned char* input, size_t
 	auto gridSize = div_ceil(size, BS);
 	convertAndNormalizeKernel<<<gridSize, BS>>>(output, input, size);
 }
+__global__ void UnConvertAndUnNormalizeKernel(unsigned char* output, const __half* input, size_t size){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx < size){ output[idx] = static_cast<unsigned char>(__half2float(input[idx])*255.0f); }
+}
+extern "C" void UnConvertAndUnNormalize(unsigned char* output, const __half* input, size_t size){
+	auto gridSize = div_ceil(size, BS);
+	UnConvertAndUnNormalizeKernel<<<gridSize, BS>>>(output, input, size);
+}
 __global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t n){
 	const int i = blockIdx.x*blockDim.x + threadIdx.x;
 	if(i < n){ dst[i] = __float2half(src[i]); }
@@ -195,8 +203,8 @@ __global__ void adamWKernelHalf(__half* param, float* m, float* v, const float l
 		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
 		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
 		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate * (m_hat / (sqrtf(v_hat) + epsilonF));
-		param_value -= learningRate * weightDecay * param_value;
+		param_value -= learningRate*(m_hat / (sqrtf(v_hat) + epsilonF));
+		param_value -= learningRate*weightDecay*param_value;
 		param[idx] = __float2half(param_value);
 	}
 }
@@ -213,8 +221,8 @@ __global__ void adamWKernelFloat(float* param, float* m, float* v, const float l
 		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
 		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
 		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate * (m_hat / (sqrtf(v_hat) + epsilonF));
-		param_value -= learningRate * weightDecay * param_value;
+		param_value -= learningRate*(m_hat / (sqrtf(v_hat) + epsilonF));
+		param_value -= learningRate*weightDecay*param_value;
 		param[idx] = param_value;
 	}
 }
@@ -522,4 +530,22 @@ extern "C" void LayerNormBackward(__half* gradIn, const __half* gradOut, const _
 	dim3 blockDim(TPG, 1, 1);
 	int sharedMemSize = 2*TPG*sizeof(float);
 	layerNormBackwardKernel<<<gridDim, blockDim, sharedMemSize>>>(gradIn, gradOut, data, gamma, gradGamma, gradBeta, mean, variance, N, C, HW, epsilon);
+}
+__device__ bool deviceResult;
+__global__ void isNaNKernel(__half* data, int size){
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	__shared__ bool foundNaN;
+	if(threadIdx.x == 0){ foundNaN = false; }
+	__syncthreads();
+	if(idx < size && __hisnan(data[idx])){ foundNaN = true; }
+	__syncthreads();
+	if(threadIdx.x == 0 && foundNaN){ deviceResult = true; }
+}
+extern "C" bool isnanHalf(__half* data, int size){
+	bool h_result = false;
+	cudaMemcpyToSymbol(deviceResult, &h_result, sizeof(bool));
+	auto gridSize = div_ceil(size, BS);
+	isNaNKernel<<<gridSize, BS>>>(data, size);
+	cudaMemcpyFromSymbol(&h_result, deviceResult, sizeof(bool));
+	return h_result;
 }

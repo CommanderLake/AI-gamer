@@ -1,7 +1,9 @@
 #include "ThreadPool.h"
-ThreadPool::ThreadPool(size_t numThreads) : stop(false){
+ThreadPool::ThreadPool(size_t numThreads) : stop(false), generators(numThreads){
+	std::random_device rd;
 	for(size_t i = 0; i < numThreads; ++i){
-		workers.emplace_back([this]{
+		generators[i].seed(rd());
+		workers.emplace_back([this, i]{
 			while(true){
 				std::function<void()> task;
 				{
@@ -26,5 +28,14 @@ ThreadPool::~ThreadPool(){
 }
 void ThreadPool::WaitAll(){
 	for(auto& future : futures){ future.wait(); }
-	futures.clear(); // Clear the futures after waiting
+	futures.clear();
+}
+std::mt19937& ThreadPool::GetThreadGenerator(){
+	// Get the thread index based on the current thread id
+	auto it = std::find_if(workers.begin(), workers.end(), [](const std::thread& t){ return t.get_id() == std::this_thread::get_id(); });
+	if(it != workers.end()){
+		size_t index = std::distance(workers.begin(), it);
+		return generators[index];
+	}
+	throw std::runtime_error("Thread not found in thread pool");
 }

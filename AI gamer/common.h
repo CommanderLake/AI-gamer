@@ -44,18 +44,17 @@ struct InputRecord{
 	}
 };
 struct StateBatch{
-	int size;
+	int batchSize;
+	int stateSize;
 	unsigned short* keyStates;
 	int* mouseDeltaX;
 	int* mouseDeltaY;
 	unsigned char* stateData = nullptr;
-	explicit StateBatch(const int batchSize, int stateSize): size(batchSize){
-		keyStates = static_cast<unsigned short*>(malloc(batchSize*sizeof(unsigned short)));
-		mouseDeltaX = static_cast<int*>(malloc(batchSize*sizeof(int)));
-		mouseDeltaY = static_cast<int*>(malloc(batchSize*sizeof(int)));
-		if(!keyStates || !mouseDeltaX || !mouseDeltaY){
-			throw std::bad_alloc();
-		}
+	explicit StateBatch(const int batchSize, int stateSize): batchSize(batchSize), stateSize(stateSize){
+		keyStates = static_cast<unsigned short*>(malloc(batchSize * sizeof(unsigned short)));
+		mouseDeltaX = static_cast<int*>(malloc(batchSize * sizeof(int)));
+		mouseDeltaY = static_cast<int*>(malloc(batchSize * sizeof(int)));
+		if(!keyStates || !mouseDeltaX || !mouseDeltaY){ throw std::bad_alloc(); }
 		checkCUDA(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*batchSize));
 	}
 	~StateBatch(){
@@ -69,7 +68,7 @@ extern std::vector<std::string> trainingDataFiles;
 extern std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
 extern std::size_t stateSize;
 extern ThreadPool threadPool;
-void LoadBatch(StateBatch* batch);
+void LoadBatch(StateBatch* batch, int seqLength, int numSequences);
 const std::string trainDataFileName("E:\\training_data.bin");
 const std::string ckptFileName("E:\\AIGamer.ckpt");
 const std::string optFileName("E:\\AIGamer.opt");
@@ -87,6 +86,7 @@ void PrintDataCharHost(const unsigned char* data, size_t size, const char* label
 extern "C" void InitCUDA();
 extern "C" float MseLoss(const __half* d_predictions, const float* d_targets, int size);
 extern "C" void ConvertAndNormalize(__half* output, unsigned char* input, size_t size);
+extern "C" void UnConvertAndUnNormalize(unsigned char* output, const __half* input, size_t size);
 extern "C" void ConvertFloatToHalf(float* src, __half* dst, size_t n);
 extern "C" void ConvertHalfToFloat(__half* src, float* dst, size_t n);
 extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn);
@@ -108,3 +108,4 @@ extern "C" void SigmoidBackward(__half* grad, const __half* data, int numSigmoid
 extern "C" void LayerNormForward(__half* output, const __half* data, const float* gamma, const float* beta, float* mean, float* variance, int N, int C, int HW, float epsilon);
 extern "C" void LayerNormBackward(__half* gradIn, const __half* gradOut, const __half* data, const float* gamma, float* gradGamma, float* gradBeta, const float* mean, const float* variance, int N, int C, int HW, float epsilon);
 extern "C" void SimpleLayerNormForward(__half* output, const __half* data, const float* gamma, const float* beta, float* mean, float* variance, int N, int C, int HW, float epsilon);
+extern "C" bool isnanHalf(__half* data, int size);

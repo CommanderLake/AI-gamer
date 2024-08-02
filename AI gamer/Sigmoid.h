@@ -8,8 +8,6 @@ public:
     ~Sigmoid() override;
     __half* Forward(__half* data, bool train) override;
     __half* Backward(__half* grad) override;
-
-private:
     cudnnTensorDescriptor_t gradDesc_;
 	size_t numSigmoidOutputs_;
 	int outCHW_;

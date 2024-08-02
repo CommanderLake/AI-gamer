@@ -16,13 +16,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 		case WM_USER_START_CAPTURE: 
 			if(recorder != nullptr){
 				recorder->StartCapture();
-				std::cout << "Capture enabled";
+				std::cout << "Capture enabled\r\n";
 			}
 			break;
 		case WM_USER_STOP_CAPTURE: 
 			if(recorder != nullptr){
 				recorder->StopCapture();
-				std::cout << "Capture disabled";
+				std::cout << "Capture disabled\r\n";
 			}
 			break;
 		case WM_USER_CAPTURE_FRAME: 
@@ -36,11 +36,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 	}
 	return 0;
 }
-int width = 640;
-int height = 480;
-InputRecord** trainingData = nullptr;
-size_t trainingDataCount = 0;
-std::mutex trainingDataMutex;
+//int width = 640;
+//int height = 480;
+//InputRecord** trainingData = nullptr;
+//size_t trainingDataCount = 0;
+//std::mutex trainingDataMutex;
 //void ReadStateData(){
 //	std::ifstream file(trainDataFileName, std::ios::binary | std::ios::in);
 //	if(!file.is_open()){
@@ -85,7 +85,7 @@ std::mutex trainingDataMutex;
 //	std::vector<std::thread> threads;
 //	const size_t recordsPerThread = trainingDataCount / 8;
 //	for(size_t i = 0; i < 8; ++i){
-//		size_t start = i * recordsPerThread;
+//		size_t start = i*recordsPerThread;
 //		size_t end = i == 7 ? trainingDataCount : start + recordsPerThread;
 //		threads.emplace_back(processRecords, start, end);
 //	}
@@ -93,7 +93,7 @@ std::mutex trainingDataMutex;
 //}
 std::mutex fileRecordPositionsMutex;
 size_t totalStateCount = 0;
-void ReadStateData(){
+void ReadStateData(int *width, int *height){
 	for(const auto& fileName : trainingDataFiles){
 		std::ifstream file(fileName, std::ios::binary | std::ios::in);
 		if(!file.is_open()){
@@ -101,9 +101,9 @@ void ReadStateData(){
 			continue;
 		}
 		// Read width and height
-		file.read(reinterpret_cast<char*>(&width), sizeof width);
-		file.read(reinterpret_cast<char*>(&height), sizeof height);
-		stateSize = width*height*3;
+		file.read(reinterpret_cast<char*>(width), sizeof *width);
+		file.read(reinterpret_cast<char*>(height), sizeof *height);
+		stateSize = *width**height*3;
 		// Store file positions of each record
 		std::vector<std::streampos> recordPositions;
 		while(file.peek() != EOF){
@@ -157,7 +157,6 @@ int main(){
 		if(RegisterRawInputDevices(rid, 2, sizeof rid[0]) == FALSE){
 			return 0; // Registration failed
 		}
-		InitCUDA();
 		recorder = new InputRecorder(hwnd);
 		std::thread listenThread(&InputRecorder::ListenForKey, recorder);
 		listenThread.detach();
@@ -167,10 +166,11 @@ int main(){
 			DispatchMessage(&msg);
 		}
 	} else if(mode == 't' || mode == 'T'){
-		ReadStateData();
+		int width, height;
+		ReadStateData(&width, &height);
 		nn = new NeuralNetwork();
-		nn->Initialize(width, height, true);
-		nn->Train(totalStateCount);
+		//auto viewer = new Viewer(WindowProc);
+		nn->Train(totalStateCount, width, height, nullptr);
 	} else if(mode == 'v' || mode == 'V'){
 		std::cout << "Training data file: ";
 		std::string fileName;

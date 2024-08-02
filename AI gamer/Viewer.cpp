@@ -1,13 +1,14 @@
 #include "Viewer.h"
 #include <iostream>
 #include <chrono>
-Viewer::Viewer(WNDPROC windowProc) : windowProc(windowProc){}
+Viewer::Viewer(WNDPROC windowProc) : hwnd(nullptr), hdc(nullptr), gdiplusToken(0), windowProc(windowProc){}
 Viewer::~Viewer(){
 	Gdiplus::GdiplusShutdown(gdiplusToken);
 	ReleaseDC(hwnd, hdc);
 	DestroyWindow(hwnd);
 }
 void Viewer::InitializeWindow(int width, int height){
+	GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
 	const char CLASS_NAME[] = "ImageDisplayWindowClass";
 	WNDCLASS wc = {};
 	wc.lpfnWndProc = windowProc;
@@ -42,7 +43,7 @@ void Viewer::ShowImage(const unsigned char* imageData, int width, int height) co
 	Gdiplus::Graphics graphics(hdc);
 	graphics.DrawImage(&bitmap, 0, 0, width, height);
 }
-void Viewer::ShowKeyState(uint16_t keyStates, int32_t mouseDeltaX, int32_t mouseDeltaY){
+void Viewer::ShowKeyState(const unsigned short keyStates, const int mouseDeltaX, const int mouseDeltaY){
 	// Clear the console
 	ClearScreen();
 	// Viewer the key states
@@ -77,7 +78,6 @@ void Viewer::Play(std::string fileName){
 	file.read(reinterpret_cast<char*>(&height), sizeof height);
 	const std::size_t stateSize = width*height*3;
 	InitializeWindow(width, height);
-	GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
 	uint16_t keyStates;
 	int32_t mouseDeltaX;
 	int32_t mouseDeltaY;

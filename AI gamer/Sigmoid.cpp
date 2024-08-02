@@ -18,17 +18,11 @@ Sigmoid::~Sigmoid() {
 __half* Sigmoid::Forward(__half* data, bool train) {
 	data_ = data;
     SigmoidForward(data, numSigmoidOutputs_, batchSize_, outCHW_);
-	cudaDeviceSynchronize();
-	if(const cudaError_t err = cudaGetLastError(); err != cudaSuccess){
-		printf("CUDA error in Forward: %s\n", cudaGetErrorString(err));
-	}
+	checkCUDA(cudaDeviceSynchronize());
     return data;
 }
 __half* Sigmoid::Backward(__half* grad) {
     SigmoidBackward(grad, data_, numSigmoidOutputs_, batchSize_, outCHW_);
-	cudaDeviceSynchronize();
-	if(const cudaError_t err = cudaGetLastError(); err != cudaSuccess){
-		printf("CUDA error in Backward: %s\n", cudaGetErrorString(err));
-	}
+	checkCUDA(cudaDeviceSynchronize());
     return grad;
 }

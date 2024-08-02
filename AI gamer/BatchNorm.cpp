@@ -35,14 +35,16 @@ BatchNorm::BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc,
 		checkCUDA(cudaMalloc(&gradBnBias_, bnSizeBytes));
 		checkCUDA(cudaMemset(gradBnScale_, 0, bnSizeBytes));
 		checkCUDA(cudaMemset(gradBnBias_, 0, bnSizeBytes));
-		checkCUDA(cudaMalloc(&m_bnScale_, bnSizeBytes));
-		checkCUDA(cudaMalloc(&v_bnScale_, bnSizeBytes));
-		checkCUDA(cudaMalloc(&m_bnBias_, bnSizeBytes));
-		checkCUDA(cudaMalloc(&v_bnBias_, bnSizeBytes));
-		checkCUDA(cudaMemset(m_bnScale_, 0, bnSizeBytes));
-		checkCUDA(cudaMemset(v_bnScale_, 0, bnSizeBytes));
-		checkCUDA(cudaMemset(m_bnBias_, 0, bnSizeBytes));
-		checkCUDA(cudaMemset(v_bnBias_, 0, bnSizeBytes));
+		if(useAdamW_){
+			checkCUDA(cudaMalloc(&m_BnScale_, bnSizeBytes));
+			checkCUDA(cudaMalloc(&v_BnScale_, bnSizeBytes));
+			checkCUDA(cudaMalloc(&m_BnBias_, bnSizeBytes));
+			checkCUDA(cudaMalloc(&v_BnBias_, bnSizeBytes));
+			checkCUDA(cudaMemset(m_BnScale_, 0, bnSizeBytes));
+			checkCUDA(cudaMemset(v_BnScale_, 0, bnSizeBytes));
+			checkCUDA(cudaMemset(m_BnBias_, 0, bnSizeBytes));
+			checkCUDA(cudaMemset(v_BnBias_, 0, bnSizeBytes));
+		}
 	}
 }
 BatchNorm::~BatchNorm(){
@@ -56,10 +58,12 @@ BatchNorm::~BatchNorm(){
 	if(train_){
 		cudaFree(gradBnScale_);
 		cudaFree(gradBnBias_);
-		cudaFree(m_bnScale_);
-		cudaFree(v_bnScale_);
-		cudaFree(m_bnBias_);
-		cudaFree(v_bnBias_);
+		if(useAdamW_){
+			cudaFree(m_BnScale_);
+			cudaFree(v_BnScale_);
+			cudaFree(m_BnBias_);
+			cudaFree(v_BnBias_);
+		}
 	}
 }
 __half* BatchNorm::Forward(__half* data, bool train){
@@ -88,13 +92,16 @@ __half* BatchNorm::Backward(__half* grad){
 	return grad;
 }
 void BatchNorm::UpdateParameters(float learningRate){
-	//SGDFloat(bnScale_, learningRate, gradBnScale_, outC_);
-	//SGDFloat(bnBias_, learningRate, gradBnBias_, outC_);
-	AdamWFloat(bnScale_, m_bnScale_, v_bnScale_, learningRate, gradBnScale_, outC_, t_, 0.0001F);
-	AdamWFloat(bnBias_, m_bnBias_, v_bnBias_, learningRate, gradBnBias_, outC_, t_, 0.0001F);
-	++t_;
+	if(useAdamW_){
+		AdamWFloat(bnScale_, m_BnScale_, v_BnScale_, learningRate, gradBnScale_, outC_, t_, 0.0001F);
+		AdamWFloat(bnBias_, m_BnBias_, v_BnBias_, learningRate, gradBnBias_, outC_, t_, 0.0001F);
+		++t_;
+	} else{
+		SGDFloat(bnScale_, learningRate, gradBnScale_, outC_);
+		SGDFloat(bnBias_, learningRate, gradBnBias_, outC_);
+	}
 }
-void BatchNorm::SaveParameters(std::ofstream& file, float* buffer) const{
+void BatchNorm::SaveParameters(std::ofstream& file, float* buffer){
 	cudaMemcpy(buffer, bnScale_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(buffer, bnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
@@ -108,7 +115,6 @@ void BatchNorm::SaveParameters(std::ofstream& file, float* buffer) const{
 	cudaMemcpy(buffer, bnSavedInvVariance_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 }
-
 void BatchNorm::LoadParameters(std::ifstream& file, float* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(bnScale_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
@@ -123,37 +129,35 @@ void BatchNorm::LoadParameters(std::ifstream& file, float* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(bnSavedInvVariance_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 }
-
-void BatchNorm::SaveOptimizerState(std::ofstream& file, float* buffer) const{
-	cudaMemcpy(buffer, m_bnScale_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+void BatchNorm::SaveOptimizerState(std::ofstream& file, float* buffer){
+	cudaMemcpy(buffer, m_BnScale_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(buffer, v_bnScale_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(buffer, v_BnScale_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(buffer, m_bnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(buffer, m_BnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(buffer, v_bnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(buffer, v_BnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 }
-
 void BatchNorm::LoadOptimizerState(std::ifstream& file, float* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(m_bnScale_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(m_BnScale_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(v_bnScale_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(v_BnScale_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(m_bnBias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(m_BnBias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(v_bnBias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(v_BnBias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 }
-bool BatchNorm::HasParameters() const{
+bool BatchNorm::HasParameters(){
 	return true;
 }
-bool BatchNorm::HasOptimizerState() const{
-	return true;
+bool BatchNorm::HasOptimizerState(){
+	return useAdamW_;
 }
-size_t BatchNorm::GetParameterSize() const{
+size_t BatchNorm::GetParameterSize(){
 	return outC_*sizeof(float);
 }
-size_t BatchNorm::GetOptimizerStateSize() const{
+size_t BatchNorm::GetOptimizerStateSize(){
 	return outC_*sizeof(float);
 }
