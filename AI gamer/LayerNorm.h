@@ -6,7 +6,7 @@ class LayerNorm final : public Layer{
 public:
 	LayerNorm(cudnnTensorDescriptor_t outDesc, int batchSize, const char* layerName);
 	~LayerNorm() override;
-	__half* Forward(__half* data, bool train) override;
+	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
 

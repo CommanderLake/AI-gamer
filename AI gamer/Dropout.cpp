@@ -15,8 +15,8 @@ Dropout::~Dropout(){
 	checkCUDA(cudaFree(dropoutStates_));
 	checkCUDA(cudaFree(reserveSpace_));
 }
-__half* Dropout::Forward(__half* data, bool train){
-	if(train){
+__half* Dropout::Forward(__half* data){
+	if(train_){
 		checkCUDNN(cudnnDropoutForward(cudnnHandle_, dropoutDesc_, outDesc_, data, outDesc_, data, reserveSpace_, reserveSpaceSize_));
 	}
 	return data;

@@ -12,7 +12,7 @@ LayerNorm::LayerNorm(cudnnTensorDescriptor_t outDesc, int batchSize, const char*
 	outCHW_ = c*outHW_;
 	outNCHW_ = n*outCHW_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&gradDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(gradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, n, c, h, w));
+	checkCUDNN(cudnnSetTensor4dDescriptor(gradDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, n, h, w, c));
 	checkCUDA(cudaMalloc(&outData_, outNCHW_*sizeof(__half)));
 	checkCUDA(cudaMemset(outData_, 0, outNCHW_*sizeof(__half)));
 	const auto paramSizeBytes = c*sizeof(float);
@@ -52,10 +52,9 @@ LayerNorm::~LayerNorm(){
 	cudaFree(vBeta_);
 	cudnnDestroyTensorDescriptor(gradDesc_);
 }
-__half* LayerNorm::Forward(__half* data, bool train){
+__half* LayerNorm::Forward(__half* data){
 	inData_ = data;
 	LayerNormForward(outData_, data, gamma_, beta_, mean_, variance_, batchSize_, outC_, outHW_, epsilon_);
-	cudaDeviceSynchronize();
 	if(const cudaError_t err = cudaGetLastError(); err != cudaSuccess){
 		printf("CUDA error in Forward: %s\n", cudaGetErrorString(err));
 	}
@@ -63,7 +62,6 @@ __half* LayerNorm::Forward(__half* data, bool train){
 }
 __half* LayerNorm::Backward(__half* grad){
 	LayerNormBackward(grad, grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, batchSize_, outC_, outHW_, epsilon_);
-	cudaDeviceSynchronize();
 	if(const cudaError_t err = cudaGetLastError(); err != cudaSuccess){
 		printf("CUDA error in Backward: %s\n", cudaGetErrorString(err));
 	}

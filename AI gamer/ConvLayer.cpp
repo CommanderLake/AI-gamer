@@ -2,8 +2,9 @@
 #include "common.h"
 #include <iostream>
 #include <algorithm>
-ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bitchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* width, int* height, int* inputCHW, const char* layerName, bool train) : cudnnHandle_(cudnnHandle),
-					cublasHandle_(cublasHandle), fwdAlgo_(), bwdFilterAlgo_(), bwdDataAlgo_(), bitchSize_(bitchSize), inC_(inputChannels), inCHW_(*inputCHW), outC_(outputChannels), inData_(nullptr), outData_(nullptr), weights_(nullptr){
+ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bitchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* width, int* height, int* inputCHW, const char* layerName, bool train, float weightDecay) : cudnnHandle_(
+		cudnnHandle), cublasHandle_(cublasHandle), fwdAlgo_(), bwdFilterAlgo_(), bwdDataAlgo_(), bitchSize_(bitchSize), inC_(inputChannels), inCHW_(*inputCHW), outC_(outputChannels), inData_(nullptr), outData_(nullptr), weights_(nullptr),
+	weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	int inWidth = *width, inHeight = *height, outWidth, outHeight;
@@ -95,9 +96,13 @@ ConvLayer::~ConvLayer(){
 		checkCUDNN(cudnnDestroyTensorDescriptor(outGradDesc_));
 	}
 }
-__half* ConvLayer::Forward(__half* data, bool train){
+__half* ConvLayer::Forward(__half* data){
 	inData_ = data;
+	//std::cout << layerName_ << ":\r\n";
+	//PrintDataHalf(data, 8, "Input data");
 	checkCUDNN(cudnnConvolutionForward(cudnnHandle_, &alpha, inDesc_, data, filterDesc_, weights_, convDesc_, fwdAlgo_, workspace_, workspaceSize_, &beta0, outDesc_, outData_));
+	//PrintDataHalf(weights_, 8, "Weights");
+	//PrintDataHalf(outData_, 8, "Pre bias conv out data");
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha, biasDesc_, bias_, &beta1, outDesc_, outData_));
 	return outData_;
 }
@@ -109,8 +114,8 @@ __half* ConvLayer::Backward(__half* grad){
 }
 void ConvLayer::UpdateParameters(float learningRate){
 	if(useAdamW_){
-		AdamWHalf(weights_, m_Weights_, v_Weights_, learningRate, gradWeights_, weightCount_, t_, 0.0001F);
-		AdamWHalf(bias_, m_Bias_, v_Bias_, learningRate, gradBias_, outC_, t_, 0.0001F);
+		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightCount_);
+		AdamWHalf(bias_, gradBias_, m_Bias_, v_Bias_, learningRate, t_, weightDecay_, outC_);
 		++t_;
 	} else{
 		SGDHalf(weights_, learningRate, gradWeights_, weightCount_);
@@ -130,6 +135,7 @@ void ConvLayer::LoadParameters(std::ifstream& file, float* buffer){
 	cudaMemcpy(bias_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
 }
 void ConvLayer::SaveOptimizerState(std::ofstream& file, float* buffer){
+	if(!useAdamW_) return;
 	cudaMemcpy(buffer, m_Weights_, weightCount_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(float));
 	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(float), cudaMemcpyDeviceToHost);
@@ -140,6 +146,7 @@ void ConvLayer::SaveOptimizerState(std::ofstream& file, float* buffer){
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 }
 void ConvLayer::LoadOptimizerState(std::ifstream& file, float* buffer){
+	if(!useAdamW_) return;
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(float));
 	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(float));
@@ -149,8 +156,6 @@ void ConvLayer::LoadOptimizerState(std::ifstream& file, float* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(v_Bias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 }
-bool ConvLayer::HasParameters(){ return true; }
-bool ConvLayer::HasOptimizerState(){ return useAdamW_; }
 size_t ConvLayer::GetParameterSize(){
 	return weightCount_*sizeof(__half);
 }

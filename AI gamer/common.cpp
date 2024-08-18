@@ -160,17 +160,17 @@ void H2F128Asm(float* dst, __half* src, int numElements){
 		jnz loop_start
 	}
 }
-void printDataHalf2(const __half* data, const size_t size, const char* label){
+void PrintDataHalf2(const __half* data, const size_t size, const char* label){
 	std::vector<__half> h_data(size);
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(__half), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << __half2float(h_data[i]) << " "; }
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 }
 void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	const size_t truncatedSize = (size / 128)*128;
 	if(truncatedSize == 0){
-		printDataHalf2(data, size, label);
+		PrintDataHalf2(data, size, label);
 		return;
 	}
 	const auto h_data = static_cast<__half*>(_mm_malloc(truncatedSize*sizeof(__half), 32));
@@ -181,7 +181,7 @@ void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	for(size_t i = 0; i < truncatedSize; ++i){
 		std::cout << f_data[i] << " ";
 	}
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 	_mm_free(h_data);
 	_mm_free(f_data);
 }
@@ -190,17 +190,17 @@ void PrintDataFloat(const float* data, const size_t size, const char* label){
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << h_data[i] << " "; }
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 }
 void PrintDataFloatHost(const float* data, const size_t size, const char* label){
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 }
 void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n";
+	std::cout << "\r\n\r\n";
 }
 void ClearScreen(char fill){
 	const COORD tl = {0, 0};
@@ -213,17 +213,16 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin", "E:\\TrainingData\\training_data4.bin", "E:\\TrainingData\\training_data5.bin"};
+std::vector<std::string> trainDataInFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin", "E:\\TrainingData\\training_data4.bin", "E:\\TrainingData\\training_data5.bin"};
 std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
 std::size_t stateSize;
 ThreadPool threadPool(8);
 void LoadBatch(StateBatch* batch, int seqLength, int numSequences){
-	std::vector<std::future<void>> futures;
 	for(size_t i = 0; i < numSequences; ++i){
-		futures.push_back(threadPool.Enqueue([i, batch, seqLength](){
+		threadPool.Enqueue([i, batch, seqLength](){
 			std::mt19937& gen = threadPool.GetThreadGenerator();
-			std::uniform_int_distribution<> fileDis(0, trainingDataFiles.size() - 1);
-			const std::string selectedFile = trainingDataFiles[fileDis(gen)];
+			const std::uniform_int_distribution<> fileDis(0, trainDataInFiles.size() - 1);
+			const std::string selectedFile = trainDataInFiles[fileDis(gen)];
 			const auto recordIndexIt = fileRecordIndex.find(selectedFile);
 			if(recordIndexIt == fileRecordIndex.end()){
 				std::cerr << "No records for file: " << selectedFile << std::endl;
@@ -255,9 +254,6 @@ void LoadBatch(StateBatch* batch, int seqLength, int numSequences){
 					return;
 				}
 			}
-			}));
-	}
-	for(auto &future : futures){
-		future.get();
+			});
 	}
 }

@@ -4,18 +4,16 @@
 
 class FCLayer final : public Layer{
 public:
-	const bool useAdamW_ = false;
-	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, int outputSize, const char* layerName, bool train);
+	const bool useAdamW_ = true;
+	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, int outputSize, const char* layerName, bool train, float weightDecay);
 	~FCLayer() override;
-	__half* Forward(__half* data, bool train) override;
+	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
 	void SaveParameters(std::ofstream& file, float* buffer) override;
 	void LoadParameters(std::ifstream& file, float* buffer) override;
 	void SaveOptimizerState(std::ofstream& file, float* buffer) override;
 	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
-	bool HasParameters() override;
-	bool HasOptimizerState() override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	cudnnHandle_t cudnnHandle_;
@@ -27,7 +25,7 @@ public:
 	__half* weights_;
 	__half* bias_;
 	__half* outData_;
-	__half* gradIn_;
+	__half* gradOut_;
 	__half* gradWeights_;
 	__half* gradBias_;
 	const __half* inData_;
@@ -39,4 +37,5 @@ public:
 	const float alpha = 1.0f;
 	const float beta0 = 0.0f;
 	const float beta1 = 1.0f;
+	float weightDecay_;
 };

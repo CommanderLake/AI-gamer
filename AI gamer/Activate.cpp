@@ -13,9 +13,10 @@ Activate::Activate(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, c
 	checkCUDNN(cudnnSetActivationDescriptor(activDesc_, mode, CUDNN_NOT_PROPAGATE_NAN, coef));
 }
 Activate::~Activate(){
+	cudnnDestroyTensorDescriptor(gradDesc_);
 	cudnnDestroyActivationDescriptor(activDesc_);
 }
-__half* Activate::Forward(__half* data, bool train){
+__half* Activate::Forward(__half* data){
 	data_ = data;
 	checkCUDNN(cudnnActivationForward(cudnnHandle_, activDesc_, &alpha, outDesc_, data, &beta0, outDesc_, data));
 	return data;

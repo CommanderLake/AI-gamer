@@ -10,7 +10,7 @@ LeakyReLU::LeakyReLU(cudnnTensorDescriptor_t outDesc, const char* layerName): sl
 }
 LeakyReLU::~LeakyReLU(){
 }
-__half* LeakyReLU::Forward(__half* data, bool train){
+__half* LeakyReLU::Forward(__half* data){
 	data_ = data;
 	LeakyRelu(data, outNCHW_, slope_);
 	return data;

@@ -5,7 +5,7 @@ class Dropout : public Layer{
 public:
 	Dropout(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, float dropoutRate, const char* layerName);
 	~Dropout() override;
-	__half* Forward(__half* data, bool train) override;
+	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnDropoutDescriptor_t dropoutDesc_;

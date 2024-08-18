@@ -4,7 +4,7 @@
 #include "common.h"
 #include <cuda.h>
 #include <curand.h>
-__device__ __host__ int div_ceil(int a, int b){ return (a % b != 0) ? (a/b + 1) : (a/b); }
+__device__ __host__ int div_ceil(int a, int b){ return a % b != 0 ? a/b + 1 : a/b; }
 struct pixARGB{
 	unsigned char B;
 	unsigned char G;
@@ -80,38 +80,44 @@ __global__ void mseLossKernel(const __half* predictions, const float* targets, i
 	float diff = 0.0f;
 	if(idx < size){
 		diff = __half2float(predictions[idx]) - targets[idx];
-		diff *= diff; // squared error
+		diff *= diff;
 	}
 	sdata[tid] = diff;
-	__syncwarp();
-	for(int i = 16; i > 0; i >>= 1){
-		if(tid < i){ sdata[tid] += sdata[tid + i]; }
-		__syncwarp();
+	__syncthreads();
+	for(int i = blockDim.x/2; i > 0; i >>= 1){
+		if(tid < i){
+			sdata[tid] += sdata[tid + i];
+		}
+		__syncthreads();
 	}
-	if(tid == 0){ d_loss = sdata[0]; }
+	if(tid == 0){
+		atomicAdd(&d_loss, sdata[0]);
+	}
 }
-extern "C" float MseLoss(const __half* d_predictions, const float* d_targets, int size){
-	auto gridSize = div_ceil(size, BS);
-	mseLossKernel<<<gridSize, BS, BS*sizeof(float)>>>(d_predictions, d_targets, size);
+extern "C" float MseLoss(const __half* dPredictions, const float* dTargets, int size){
+	constexpr auto zero = 0.0f;
+	cudaMemcpyToSymbol(d_loss, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
+	int gridSize = div_ceil(size, BS);
+	mseLossKernel<<<gridSize, BS, BS*sizeof(float)>>>(dPredictions, dTargets, size);
 	float h_loss;
 	cudaMemcpyFromSymbol(&h_loss, d_loss, sizeof(float));
 	return h_loss/size;
 }
 __global__ void convertAndNormalizeKernel(__half* output, unsigned char* input, size_t size){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < size){ output[idx] = __float2half(static_cast<float>(input[idx])/255.0f); }
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += blockDim.x*gridDim.x){
+		output[idx] = __float2half(static_cast<float>(input[idx])/255.0f);
+	}
 }
 extern "C" void ConvertAndNormalize(__half* output, unsigned char* input, size_t size){
-	auto gridSize = div_ceil(size, BS);
-	convertAndNormalizeKernel<<<gridSize, BS>>>(output, input, size);
+	convertAndNormalizeKernel<<<GS, BS>>>(output, input, size);
 }
 __global__ void UnConvertAndUnNormalizeKernel(unsigned char* output, const __half* input, size_t size){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < size){ output[idx] = static_cast<unsigned char>(__half2float(input[idx])*255.0f); }
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += blockDim.x*gridDim.x){
+		output[idx] = static_cast<unsigned char>(__half2float(input[idx])*255.0f);
+	}
 }
 extern "C" void UnConvertAndUnNormalize(unsigned char* output, const __half* input, size_t size){
-	auto gridSize = div_ceil(size, BS);
-	UnConvertAndUnNormalizeKernel<<<gridSize, BS>>>(output, input, size);
+	UnConvertAndUnNormalizeKernel<<<BS, BS>>>(output, input, size);
 }
 __global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t n){
 	const int i = blockIdx.x*blockDim.x + threadIdx.x;
@@ -129,7 +135,7 @@ extern "C" void ConvertHalfToFloat(__half* src, float* dst, size_t n){
 	auto gridSize = div_ceil(n, BS);
 	convertHalfToFloatKernel<<<gridSize, BS>>>(src, dst, n);
 }
-__global__ void HeInitKernel(__half* halfWeights, float* weights, int n, float scale){
+__global__ void HeInitKernel(__half* halfWeights, const float* weights, int n, float scale){
 	const int i = blockIdx.x*blockDim.x + threadIdx.x;
 	if(i < n){ halfWeights[i] = __float2half(weights[i]*scale); }
 }
@@ -143,7 +149,7 @@ extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn){
 }
 __global__ void sgdHalfKernel(__half* param, const float learningRate, const __half* gradParam, const int n){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < n){ param[idx] -= __float2half(learningRate*__half2float(gradParam[idx])); }
+	if(idx < n) param[idx] = __float2half(__half2float(param[idx]) - learningRate*__half2float(gradParam[idx]));
 }
 extern "C" void SGDHalf(__half* param, const float learningRate, const __half* gradParam, const int size){
 	auto gridSize = div_ceil(size, BS);
@@ -157,162 +163,95 @@ extern "C" void SGDFloat(float* param, const float learningRate, const float* gr
 	auto gridSize = div_ceil(size, BS);
 	sgdFloatKernel<<<gridSize, BS>>>(param, learningRate, gradParam, size);
 }
-__device__ const float beta1F = 0.9f;
-__device__ const float beta2F = 0.999f;
-__device__ const float epsilonF = 1e-8f;
-__global__ void adamKernelHalf(__half* param, float* m, float* v, const float learningRate, const __half* gradParam, const int n, const int t){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < n){
-		const float grad = __half2float(gradParam[idx]);
-		float param_value = __half2float(param[idx]);
-		m[idx] = beta1F*m[idx] + (1.0f - beta1F)*grad;
-		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
-		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
-		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate*m_hat/(sqrtf(v_hat) + epsilonF);
-		param[idx] = __float2half(param_value);
+#define BETA1_F 0.9f
+#define BETA2_F 0.999f
+#define EPSILON_F 1e-6f
+#define CLIP 1024.0f
+__global__ void AdamwKernelFloat(float* params, const float* grads, float* m, float* v, const float lr, const int t, const float wd, const int n){
+	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	if(idx<n){
+		const float grad = fmaxf(fminf(grads[idx], CLIP), -CLIP);
+		m[idx] = BETA1_F*m[idx]+(1.0f-BETA1_F)*grad;
+		v[idx] = BETA2_F*v[idx]+(1.0f-BETA2_F)*grad*grad;
+		params[idx] *= 1.0f - lr*wd;
+		params[idx] -= lr*static_cast<float>(m[idx]/(1.0 - pow(BETA1_F, t))/(sqrt(v[idx]/(1.0 - pow(BETA2_F, t))) + EPSILON_F));
 	}
 }
-void AdamHalf(__half* param, float* m, float* v, const float learningRate, const __half* gradParam, const int size, const int t){
+extern "C" void AdamWFloat(float* params, const float* grads, float* m, float* v, const float learningRate, const int t, const float weightDecay, const int size){
 	auto gridSize = div_ceil(size, BS);
-	adamKernelHalf<<<gridSize, BS>>>(param, m, v, learningRate, gradParam, size, t);
+	AdamwKernelFloat<<<gridSize, BS>>>(params, grads, m, v, learningRate, t, weightDecay, size);
 }
-__global__ void adamKernelFloat(float* param, float* m, float* v, const float learningRate, const float* gradParam, const int n, const int t){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < n){
-		const float grad = gradParam[idx];
-		float param_value = param[idx];
-		m[idx] = beta1F*m[idx] + (1.0f - beta1F)*grad;
-		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
-		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
-		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate*m_hat/(sqrtf(v_hat) + epsilonF);
-		param[idx] = param_value;
+__global__ void AdamwKernelHalf(__half* params, const __half* grads, float* m, float* v, const float lr, const int t, const float wd, const int n){
+	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	if(idx<n){
+		const auto grad = fmaxf(fminf(__half2float(grads[idx]), CLIP), -CLIP);
+		m[idx] = BETA1_F*m[idx]+(1.0f-BETA1_F)*grad;
+		v[idx] = BETA2_F*v[idx]+(1.0f-BETA2_F)*grad*grad;
+		const auto param = __half2float(params[idx])*(1.0f - lr*wd);
+		params[idx] = __float2half(param - lr*static_cast<float>(m[idx]/(1.0 - pow(BETA1_F, t))/(sqrt(v[idx]/(1.0 - pow(BETA2_F, t))) + EPSILON_F)));
 	}
 }
-void AdamFloat(float* param, float* m, float* v, const float learningRate, const float* gradParam, const int size, const int t){
+extern "C" void AdamWHalf(__half* params, const __half* grads, float* m, float* v, const float lr, const int t, const float weightDecay, const int size){
 	auto gridSize = div_ceil(size, BS);
-	adamKernelFloat<<<gridSize, BS>>>(param, m, v, learningRate, gradParam, size, t);
+	AdamwKernelHalf<<<gridSize, BS>>>(params, grads, m, v, lr, t, weightDecay, size);
 }
-__global__ void adamWKernelHalf(__half* param, float* m, float* v, const float learningRate, const __half* gradParam, const int n, const int t, const float weightDecay){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < n){
-		const float grad = __half2float(gradParam[idx]);
-		float param_value = __half2float(param[idx]);
-		m[idx] = beta1F*m[idx] + (1.0f - beta1F)*grad;
-		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
-		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
-		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate*(m_hat / (sqrtf(v_hat) + epsilonF));
-		param_value -= learningRate*weightDecay*param_value;
-		param[idx] = __float2half(param_value);
-	}
-}
-void AdamWHalf(__half* param, float* m, float* v, const float learningRate, const __half* gradParam, const int size, const int t, const float weightDecay){
-	auto gridSize = div_ceil(size, BS);
-	adamWKernelHalf<<<gridSize, BS>>>(param, m, v, learningRate, gradParam, size, t, weightDecay);
-}
-__global__ void adamWKernelFloat(float* param, float* m, float* v, const float learningRate, const float* gradParam, const int n, const int t, const float weightDecay){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < n){
-		const float grad = gradParam[idx];
-		float param_value = param[idx];
-		m[idx] = beta1F*m[idx] + (1.0f - beta1F)*grad;
-		v[idx] = beta2F*v[idx] + (1.0f - beta2F)*grad*grad;
-		const float m_hat = m[idx]/(1.0f - powf(beta1F, t));
-		const float v_hat = v[idx]/(1.0f - powf(beta2F, t));
-		param_value -= learningRate*(m_hat / (sqrtf(v_hat) + epsilonF));
-		param_value -= learningRate*weightDecay*param_value;
-		param[idx] = param_value;
-	}
-}
-void AdamWFloat(float* param, float* m, float* v, const float learningRate, const float* gradParam, const int size, const int t, const float weightDecay){
-	auto gridSize = div_ceil(size, BS);
-	adamWKernelFloat<<<gridSize, BS>>>(param, m, v, learningRate, gradParam, size, t, weightDecay);
-}
-__global__ void warp8SmemKernel(int N, int K, const half*__restrict__ A, const half*__restrict__ B, half*__restrict__ C, int BS, int TPG, int CPB){
-	extern __shared__ half A_smem[];
-	const int A_smem_iters = div_ceil(K, BS);
-#pragma unroll
-	for(int i = 0; i < A_smem_iters; ++i){
-		const int idx = i*BS + threadIdx.x;
-		A_smem[idx] = A[idx];
-	}
-	__syncthreads();
-	const int group_id = threadIdx.x/TPG;
-	const int group_col = blockIdx.x*CPB + group_id;
-	if(group_col >= N){ return; }
-	const int K_iters = div_ceil(K, TPG);
-	const int group_lane_id = threadIdx.x % TPG;
-	float tmp = 0.0;
-#pragma unroll
-	for(int i = 0; i < K_iters; ++i){
-		const int A_idx = i*TPG + group_lane_id;
-		const int B_idx = i*TPG + group_lane_id + group_col*K;
-		tmp += __half2float(A_smem[A_idx])*__half2float(B[B_idx]);
-	}
-	constexpr unsigned int mask = 0xffffffff;
-#pragma unroll
-	for(int i = TPG/2; i >= 1; i /= 2){ tmp += __shfl_xor_sync(mask, tmp, i); }
-	if(group_lane_id == 0){ C[group_col] = __float2half(tmp); }
-}
-extern "C" void Hgemv(const half* A, const half* B, half* C, int N, int K){
-	static int smem_max_size = K*sizeof(half);
-	dim3 block(BS);
-	dim3 grid(div_ceil(N, CPB));
-	warp8SmemKernel<<<grid, block, smem_max_size>>>(N, K, A, B, C, BS, TPG, CPB);
-}
-__global__ void gemmHFFKernel(bool transA, bool transB, int M, int N, int K, const half*__restrict__ A, int lda, const float*__restrict__ B, int ldb, float*__restrict__ C, int ldc, int BS, int TPG, int RPB, int CPB){
-	extern __shared__ half A_smem[];
-	const int A_smem_iters = div_ceil(transA ? M : K, BS);
-#pragma unroll
-	for(int i = 0; i < A_smem_iters; ++i){
-		const int idx = i*BS + threadIdx.x;
-		if(idx < (transA ? M : K)){ A_smem[idx] = A[transA ? (idx*lda) : (idx)]; }
-	}
-	__syncthreads();
-	const int group_id = threadIdx.x/TPG;
-	const int group_row = blockIdx.y*RPB + group_id;
-	const int group_col = blockIdx.x*CPB + group_id;
-	if(group_row >= M || group_col >= N){ return; }
-	const int K_iters = div_ceil(K, TPG);
-	const int group_lane_id = threadIdx.x % TPG;
-	float tmp = 0.0f;
-#pragma unroll
-	for(int i = 0; i < K_iters; ++i){
-		const int k = i*TPG + group_lane_id;
-		if(k < K){
-			const int A_idx = transA ? (k*M + group_row) : (group_row*K + k);
-			const int B_idx = transB ? (group_col*ldb + k) : (k*ldb + group_col);
-			tmp += __half2float(A_smem[A_idx])*B[B_idx];
-		}
-	}
-	constexpr unsigned int mask = 0xffffffff;
-#pragma unroll
-	for(int i = TPG/2; i >= 1; i /= 2){ tmp += __shfl_xor_sync(mask, tmp, i); }
-	if(group_lane_id == 0){ C[group_row*ldc + group_col] = tmp; }
-}
-extern "C" void GemmHff(int M, int N, int K, bool transA, bool transB, const half* A, int lda, const float* B, int ldb, float* C, int ldc){
-	int smem_size = (transA ? M : K)*sizeof(half);
-	dim3 block(BS);
-	dim3 grid(div_ceil(N, CPB), div_ceil(M, RPB));
-	gemmHFFKernel<<<grid, block, smem_size>>>(transA, transB, M, N, K, A, lda, B, ldb, C, ldc, BS, TPG, RPB, CPB);
-}
-__global__ void gradientKernel(__half* gradients, const __half* predictions, const float* targets, float delta, int size, float scale){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+__global__ void gradientKernel(__half* gradients, const __half* predictions, const __half* targets, int size, float scale, float clip){
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < size){
-		const float diff = __half2float(predictions[idx]) - targets[idx];
-		float gradient;
-		if(fabs(diff) <= delta){
-			gradient = diff;
-		} else{
-			gradient = delta*((diff > 0) - (diff < 0));
-		}
-		gradients[idx] = __float2half(gradient*scale);
+		const float diff = (__half2float(predictions[idx]) - __half2float(targets[idx]))*scale;
+		const float clippedDiff = fminf(fmaxf(diff, -clip), clip);
+		gradients[idx] = __float2half(fmaxf(fabs(clippedDiff), 1e-7f)*(clippedDiff >= 0.0f ? 1.0f : -1.0f));
 	}
 }
-extern "C" void Gradient(__half* d_gradient, const __half* d_predictions, const float* d_targets, int batchSize, int n, float scale){
-	gradientKernel<<<n, batchSize>>>(d_gradient, d_predictions, d_targets, 1.0f, n*batchSize, scale);
+extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale, float clip){
+	auto gridSize = div_ceil(size, BS);
+	gradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale, clip);
+}
+__global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, int size, float scale){
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if(idx < size){
+		const float y = __half2float(targets[idx]);
+		constexpr float epsilon = 1e-7f;
+		const float pClamped = fminf(fmaxf(__half2float(predictions[idx]), epsilon), 1.0f - epsilon);
+		float gradient = 0.0f;
+		if(y == 1.0f){
+			gradient = (pClamped - 1.0f)/pClamped;
+		} else{
+			gradient = pClamped/(1.0f - pClamped);
+		}
+		gradient *= scale;
+		gradients[idx] = __float2half(gradient);
+	}
+}
+extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale){
+	auto gridSize = div_ceil(size, BS);
+	BCEGradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale);
+}
+__global__ void GAILGradientKernel(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, int size, int numCtrls, int numButs, float lambda, float entropyCoeff, float scale, float clip){
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if(idx < size){
+		const int batchIdx = idx/numCtrls;
+		const float pred = __half2float(predictions[idx]);
+		const float expert = expertActions[idx];
+		const float discOut = __half2float(discOutput[batchIdx]);
+		float imitationGrad, adversarialGrad, entropyGrad;
+		if(idx < numButs){
+			imitationGrad = (pred - expert)/(pred*(1.0f - pred) + 1e-8f);
+			adversarialGrad = -1.0f/(pred + 1e-8f);
+			entropyGrad = -logf(pred/(1.0f - pred + 1e-8f));
+		} else{
+			imitationGrad = 2.0f*(pred - expert);
+			adversarialGrad = -1.0f/(fabsf(pred) + 1e-8f);
+			entropyGrad = 0.0f;
+		}
+		const float combinedGrad = imitationGrad + lambda*adversarialGrad*discOut + entropyCoeff*entropyGrad;
+		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad))*scale);
+	}
+}
+extern "C" void GAILGradient(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, int batchSize, int numCtrls, int numButs, float lambda, float entropyCoeff, float scale, float clip){
+	const auto size = numCtrls*batchSize;
+	auto gridSize = div_ceil(size, BS);
+	GAILGradientKernel<<<gridSize, BS>>>(gradients, predictions, discOutput, expertActions, size, numCtrls, numButs*batchSize, lambda, entropyCoeff, scale, clip);
 }
 __global__ void biasGradientsKernel(const __half* gradInput, __half* gradBias, int c, int batchSize){
 	extern __shared__ float sharedGrad[];
@@ -370,11 +309,12 @@ extern "C" void Scale(__half* data, int size, float scale){
 }
 __global__ void leakyReluKernel(__half* data, int size, __half negativeSlope){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < size){ if(data[idx] < __half(0)){ data[idx] *= negativeSlope; } }
+	if(idx >= size) return;
+	if(data[idx] < __half(0.0f)) data[idx] *= negativeSlope;
 }
 extern "C" void LeakyRelu(__half* data, int size, float negativeSlope){
 	auto gridSize = div_ceil(size, BS);
-	leakyReluKernel<<<gridSize, BS>>>(data, size, __float2half(negativeSlope));
+	leakyReluKernel<<<gridSize, BS>>>(data, size, negativeSlope);
 }
 __global__ void leakyReluBackwardKernel(__half* gradient, const __half* inData, int size, __half negativeSlope){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -386,13 +326,10 @@ extern "C" void LeakyReluBackward(__half* gradient, const __half* inData, int si
 }
 __global__ void sigmoidForwardKernel(__half* data, int numSigmoidOutputs, int batchSize, int outputSize){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < batchSize*outputSize){
-		if(idx % outputSize < numSigmoidOutputs){
-			const float val = __half2float(data[idx]);
-			const float sigmoid = 1.0f/(1.0f + expf(-val));
-			data[idx] = __float2half(sigmoid);
-		}
-	}
+	if(idx >= batchSize*outputSize || idx % outputSize >= numSigmoidOutputs) return;
+	const float val = __half2float(data[idx]);
+	const float sigmoid = 1.0f/(1.0f + expf(-val));
+	data[idx] = __float2half(sigmoid);
 }
 extern "C" void SigmoidForward(__half* data, int numSigmoidOutputs, int batchSize, int outputSize){
 	int numBlocks = div_ceil(batchSize*outputSize, BS);
@@ -400,12 +337,9 @@ extern "C" void SigmoidForward(__half* data, int numSigmoidOutputs, int batchSiz
 }
 __global__ void sigmoidBackwardKernel(__half* grad, const __half* data, int numSigmoidOutputs, int batchSize, int outputSize){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < batchSize*outputSize){
-		if(idx % outputSize < numSigmoidOutputs){
-			const float val = __half2float(data[idx]);
-			grad[idx] = __float2half(__half2float(grad[idx])*val*(1.0f - val));
-		}
-	}
+	if(idx >= batchSize*outputSize || idx % outputSize >= numSigmoidOutputs) return;
+	const float val = __half2float(data[idx]);
+	grad[idx] = __float2half(__half2float(grad[idx])*val*(1.0f - val));
 }
 extern "C" void SigmoidBackward(__half* grad, const __half* data, int numSigmoidOutputs, int batchSize, int outputSize){
 	int numBlocks = div_ceil(batchSize*outputSize, BS);
@@ -415,17 +349,17 @@ __global__ void computeMeanVarianceKernel(const __half* data, float* mean, float
 	extern __shared__ float sdata[];
 	float* s_sum = sdata;
 	float* s_sq_sum = &sdata[blockDim.x];
-	int tid = threadIdx.x;
-	int cid = blockIdx.x; // Changed from blockIdx.y to blockIdx.x
+	const int tid = threadIdx.x;
+	const int cid = blockIdx.x; // Changed from blockIdx.y to blockIdx.x
 	if(cid >= C) return; // Guard against excessive blocks
 	float thread_sum = 0.0f;
 	float thread_sq_sum = 0.0f;
 	for(int n = 0; n < N; ++n){
 		for(int i = tid; i < HW; i += blockDim.x){
-			int idx = (n*C + cid)*HW + i;
+			const int idx = (n*C + cid)*HW + i;
 			if(idx < N*C*HW){
 				// Boundary check
-				float val = __half2float(data[idx]);
+				const float val = __half2float(data[idx]);
 				thread_sum += val;
 				thread_sq_sum += val*val;
 			}
@@ -443,21 +377,21 @@ __global__ void computeMeanVarianceKernel(const __half* data, float* mean, float
 		__syncthreads();
 	}
 	if(tid == 0){
-		int total_elements = N*HW;
+		const int total_elements = N*HW;
 		mean[cid] = s_sum[0]/total_elements;
 		variance[cid] = fmaxf(s_sq_sum[0]/total_elements - mean[cid]*mean[cid], 0.0f);
 	}
 }
 __global__ void layerNormForwardKernel(__half* output, const __half* data, const float* gamma, const float* beta, const float* mean, const float* variance, int N, int C, int HW, float epsilon){
-	int tid = blockIdx.x*blockDim.x + threadIdx.x;
-	int cid = blockIdx.y;
+	const int tid = blockIdx.x*blockDim.x + threadIdx.x;
+	const int cid = blockIdx.y;
 	if(cid >= C) return; // Guard against excessive blocks
 	if(tid < N*HW){
-		int idx = (cid*N + tid/HW)*HW + tid % HW;
+		const int idx = (cid*N + tid/HW)*HW + tid % HW;
 		if(idx < N*C*HW){
 			// Boundary check
-			float x = __half2float(data[idx]);
-			float norm = (x - mean[cid])/sqrtf(variance[cid] + epsilon);
+			const float x = __half2float(data[idx]);
+			const float norm = (x - mean[cid])/sqrtf(variance[cid] + epsilon);
 			output[idx] = __float2half(norm*gamma[cid] + beta[cid]);
 		}
 	}
@@ -481,8 +415,6 @@ extern "C" void LayerNormForward(__half* output, const __half* data, const float
 		printf("layerNormForwardKernel launch failed: %s\n", cudaGetErrorString(err));
 		return;
 	}
-	// Synchronize to catch any errors during kernel execution
-	cudaDeviceSynchronize();
 	err = cudaGetLastError();
 	if(err != cudaSuccess){ printf("Kernel execution failed: %s\n", cudaGetErrorString(err)); }
 }
@@ -531,21 +463,19 @@ extern "C" void LayerNormBackward(__half* gradIn, const __half* gradOut, const _
 	int sharedMemSize = 2*TPG*sizeof(float);
 	layerNormBackwardKernel<<<gridDim, blockDim, sharedMemSize>>>(gradIn, gradOut, data, gamma, gradGamma, gradBeta, mean, variance, N, C, HW, epsilon);
 }
-__device__ bool deviceResult;
+
+__device__ int deviceResult;
 __global__ void isNaNKernel(__half* data, int size){
-	int idx = blockIdx.x * blockDim.x + threadIdx.x;
-	__shared__ bool foundNaN;
-	if(threadIdx.x == 0){ foundNaN = false; }
-	__syncthreads();
-	if(idx < size && __hisnan(data[idx])){ foundNaN = true; }
-	__syncthreads();
-	if(threadIdx.x == 0 && foundNaN){ deviceResult = true; }
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx < size && __hisnan(data[idx])){
+		atomicExch(&deviceResult, 1);
+	}
 }
-extern "C" bool isnanHalf(__half* data, int size){
-	bool h_result = false;
-	cudaMemcpyToSymbol(deviceResult, &h_result, sizeof(bool));
+extern "C" bool IsnanHalf(__half* data, int size){
+	int h_result = 0;
+	cudaMemcpyToSymbol(deviceResult, &h_result, sizeof(int));
 	auto gridSize = div_ceil(size, BS);
 	isNaNKernel<<<gridSize, BS>>>(data, size);
-	cudaMemcpyFromSymbol(&h_result, deviceResult, sizeof(bool));
-	return h_result;
+	cudaMemcpyFromSymbol(&h_result, deviceResult, sizeof(int));
+	return h_result != 0;
 }

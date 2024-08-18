@@ -21,7 +21,7 @@ void InputRecorder::StartCapture(){
 		int height;
 		GrabFrameInt8(&width, &height, true, false);
 		frameSize = width*height*3;
-		outputFile.open(trainDataFileName, std::ios::binary);
+		outputFile.open(trainDataOutFileName, std::ios::binary);
 		if(!outputFile.is_open()){ std::cerr << "Failed to open output file!" << std::endl; } else{ std::cout << "Output file opened successfully." << std::endl; }
 		outputFile.write(reinterpret_cast<char*>(&width), sizeof width);
 		outputFile.write(reinterpret_cast<char*>(&height), sizeof height);

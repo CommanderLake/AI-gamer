@@ -3,18 +3,16 @@
 #include <cudnn.h>
 class BatchNorm final : public Layer{
 public:
-	const bool useAdamW_ = false;
-	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName, bool train);
+	const bool useAdamW_ = true;
+	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName, bool train, float weightDecay);
 	~BatchNorm() override;
-	__half* Forward(__half* data, bool train) override;
+	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
 	void SaveParameters(std::ofstream& file, float* buffer) override;
 	void LoadParameters(std::ifstream& file, float* buffer) override;
 	void SaveOptimizerState(std::ofstream& file, float* buffer) override;
 	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
-	bool HasParameters() override;
-	bool HasOptimizerState() override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	cudnnHandle_t cudnnHandle_;
@@ -40,4 +38,5 @@ public:
 	const float alpha = 1.0f;
 	const float beta0 = 0.0f;
 	const float beta1 = 1.0f;
+	float weightDecay_;
 };

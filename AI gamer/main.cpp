@@ -1,14 +1,14 @@
-#include <cuda.h>
+#include "Train.h"
+#include "Infer.h"
+#include "Viewer.h"
+#include "input_recorder.h"
 #include <future>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <random>
 #include <Windows.h>
-#include "Viewer.h"
-#include "input_recorder.h"
-#include "training.h"
 InputRecorder* recorder = nullptr;
-NeuralNetwork* nn = nullptr;
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 	switch(uMsg){
 		case WM_INPUT: if(recorder != nullptr) recorder->ProcessRawInput(lParam);
@@ -36,65 +36,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 	}
 	return 0;
 }
-//int width = 640;
-//int height = 480;
-//InputRecord** trainingData = nullptr;
-//size_t trainingDataCount = 0;
-//std::mutex trainingDataMutex;
-//void ReadStateData(){
-//	std::ifstream file(trainDataFileName, std::ios::binary | std::ios::in);
-//	if(!file.is_open()){
-//		std::cerr << "Failed to open training data file!" << std::endl;
-//		return;
-//	}
-//	// Read width and height
-//	file.read(reinterpret_cast<char*>(&width), sizeof width);
-//	file.read(reinterpret_cast<char*>(&height), sizeof height);
-//	const std::size_t decompressedSize = width*height*3;
-//	// Step 1-4: Store file positions of each record
-//	std::vector<std::streampos> recordPositions;
-//	while(file.peek() != EOF){
-//		recordPositions.push_back(file.tellg());
-//		file.seekg(10 + decompressedSize, std::ios::cur);
-//		//if(recordPositions.size() >= 1024) break; // LIMIT FOR DEBUGGING!
-//	}
-//	file.close();
-//	// Step 5: Create trainingData array
-//	trainingDataCount = recordPositions.size();
-//	trainingData = new InputRecord*[trainingDataCount];
-//	// Step 6: Parallel processing with 8 threads
-//	auto processRecords = [&](size_t start, size_t end){
-//		std::ifstream threadFile(trainDataFileName, std::ios::binary | std::ios::in);
-//		if(!threadFile.is_open()){
-//			std::cerr << "Thread failed to open training data file!" << std::endl;
-//			return;
-//		}
-//		for(size_t i = start; i < end; ++i){
-//			threadFile.seekg(recordPositions[i]);
-//			const auto record = new InputRecord();
-//			threadFile.read(reinterpret_cast<char*>(&record->keyStates), sizeof record->keyStates);
-//			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaX), sizeof record->mouseDeltaX);
-//			threadFile.read(reinterpret_cast<char*>(&record->mouseDeltaY), sizeof record->mouseDeltaY);
-//			record->state_data = static_cast<unsigned char*>(_aligned_malloc(decompressedSize, 64));
-//			threadFile.read(reinterpret_cast<char*>(record->state_data), decompressedSize);
-//			std::lock_guard<std::mutex> guard(trainingDataMutex);
-//			trainingData[i] = record;
-//		}
-//	};
-//	// Create and join 8 threads
-//	std::vector<std::thread> threads;
-//	const size_t recordsPerThread = trainingDataCount / 8;
-//	for(size_t i = 0; i < 8; ++i){
-//		size_t start = i*recordsPerThread;
-//		size_t end = i == 7 ? trainingDataCount : start + recordsPerThread;
-//		threads.emplace_back(processRecords, start, end);
-//	}
-//	for(auto& thread : threads){ thread.join(); }
-//}
 std::mutex fileRecordPositionsMutex;
 size_t totalStateCount = 0;
 void ReadStateData(int *width, int *height){
-	for(const auto& fileName : trainingDataFiles){
+	for(const auto& fileName : trainDataInFiles){
 		std::ifstream file(fileName, std::ios::binary | std::ios::in);
 		if(!file.is_open()){
 			std::cerr << "Failed to open training data file: " << fileName << std::endl;
@@ -139,6 +84,7 @@ HWND MakeWindow(){
 }
 int main(){
 	std::ios::sync_with_stdio(false);
+	std::cout << std::fixed << std::setprecision(8);
 	std::cout << "R for record mode, T for train mode, V for view mode, I for Infer mode... ";
 	char mode;
 	std::cin >> mode;
@@ -168,9 +114,9 @@ int main(){
 	} else if(mode == 't' || mode == 'T'){
 		int width, height;
 		ReadStateData(&width, &height);
-		nn = new NeuralNetwork();
+		const auto nn = new Train();
 		//auto viewer = new Viewer(WindowProc);
-		nn->Train(totalStateCount, width, height, nullptr);
+		nn->TrainModel(totalStateCount, width, height, nullptr);
 	} else if(mode == 'v' || mode == 'V'){
 		std::cout << "Training data file: ";
 		std::string fileName;
@@ -187,8 +133,8 @@ int main(){
 		if(!RegisterRawInputDevices(rid, 1, sizeof(rid[0]))){
 			MessageBox(hwnd, "Failed to register raw input device.", "Error", MB_OK);
 		}
-		nn = new NeuralNetwork();
-		nn->Infer();
+		const auto nn = new Infer();
+		nn->Inference();
 	}
 	return 0;
 }
