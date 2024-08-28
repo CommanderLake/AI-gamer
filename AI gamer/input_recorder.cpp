@@ -130,6 +130,7 @@ void InputRecorder::WriteFrameData(){
 	int height;
 	const auto buf = GrabFrameInt8(&width, &height, true, true);
 	outputFile.write(reinterpret_cast<char*>(buf), frameSize);
+	outputFile.flush();
 }
 void InputRecorder::FrameCaptureThread(){
 	constexpr std::chrono::microseconds frameDuration(33333);

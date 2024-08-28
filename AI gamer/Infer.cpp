@@ -44,8 +44,8 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
 		inputIndex++;
 	}
-	const int mouseX = static_cast<int>(predictions[14]*1024.0f);
-	const int mouseY = static_cast<int>(predictions[15]*1024.0f);
+	const int mouseX = static_cast<int>(predictions[14]*256.0f);
+	const int mouseY = static_cast<int>(predictions[15]*256.0f);
 	if(mouseX != 0 || mouseY != 0){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dx = mouseX;

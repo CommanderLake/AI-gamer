@@ -90,7 +90,7 @@ int ConvertSmVer2Cores(int major, int minor){
 	};
 	int index = 0;
 	while(nGpuArchCoresPerSM[index].SM != -1){
-		if(nGpuArchCoresPerSM[index].SM == ((major << 4) + minor)){
+		if(nGpuArchCoresPerSM[index].SM == (major << 4) + minor){
 			return nGpuArchCoresPerSM[index].Cores;
 		}
 		index++;
@@ -165,10 +165,10 @@ void PrintDataHalf2(const __half* data, const size_t size, const char* label){
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(__half), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << __half2float(h_data[i]) << " "; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void PrintDataHalf(const __half* data, const size_t size, const char* label){
-	const size_t truncatedSize = (size / 128)*128;
+	const size_t truncatedSize = size / 128*128;
 	if(truncatedSize == 0){
 		PrintDataHalf2(data, size, label);
 		return;
@@ -181,7 +181,7 @@ void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	for(size_t i = 0; i < truncatedSize; ++i){
 		std::cout << f_data[i] << " ";
 	}
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 	_mm_free(h_data);
 	_mm_free(f_data);
 }
@@ -190,17 +190,17 @@ void PrintDataFloat(const float* data, const size_t size, const char* label){
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << h_data[i] << " "; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void PrintDataFloatHost(const float* data, const size_t size, const char* label){
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
-	std::cout << "\r\n\r\n";
+	std::cout << "\r\n";
 }
 void ClearScreen(char fill){
 	const COORD tl = {0, 0};
@@ -213,47 +213,65 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-std::vector<std::string> trainDataInFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin", "E:\\TrainingData\\training_data4.bin", "E:\\TrainingData\\training_data5.bin"};
+std::vector<std::string> trainDataInFiles = {"E:\\TrainingData\\training_data_extra.bin", "E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin", "E:\\TrainingData\\training_data4.bin", "E:\\TrainingData\\training_data5.bin"};
 std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
 std::size_t stateSize;
 ThreadPool threadPool(8);
+void ReportStreamState(std::ifstream& file){
+	if(file.eof()){ std::cerr<<"End of file reached prematurely.\r\n"; } else if(file.fail()){ std::cerr<<"Logical error on i/o operation.\r\n"; } else if(file.bad()){ std::cerr<<"Read/writing error on i/o operation.\r\n"; } else{
+		std::cerr<<"Unknown error occurred.\r\n";
+	}
+	std::cerr<<"Current stream position: "<<file.tellg()<<"\r\n";
+}
 void LoadBatch(StateBatch* batch, int seqLength, int numSequences){
-	for(size_t i = 0; i < numSequences; ++i){
+	for(size_t i = 0; i<numSequences; ++i){
 		threadPool.Enqueue([i, batch, seqLength](){
 			std::mt19937& gen = threadPool.GetThreadGenerator();
-			const std::uniform_int_distribution<> fileDis(0, trainDataInFiles.size() - 1);
+			const std::uniform_int_distribution<> fileDis(0, trainDataInFiles.size()-1);
 			const std::string selectedFile = trainDataInFiles[fileDis(gen)];
 			const auto recordIndexIt = fileRecordIndex.find(selectedFile);
-			if(recordIndexIt == fileRecordIndex.end()){
-				std::cerr << "No records for file: " << selectedFile << std::endl;
+			if(recordIndexIt==fileRecordIndex.end()){
+				std::cerr<<"No records for file: "<<selectedFile<<"\r\n";
 				return;
 			}
-			std::ifstream file(selectedFile, std::ios::binary | std::ios::in);
+			std::ifstream file(selectedFile, std::ios::binary|std::ios::in);
 			if(!file.is_open()){
-				std::cerr << "Failed to open training data file: " << selectedFile << std::endl;
+				std::cerr<<"Failed to open training data file: "<<selectedFile<<"\r\n";
 				return;
 			}
-			const std::uniform_int_distribution<> recordDis(0, recordIndexIt->second.size() - seqLength);
+			const std::uniform_int_distribution<> recordDis(0, recordIndexIt->second.size()-seqLength);
 			const size_t recordIndex = recordDis(gen);
-			for(int j = 0; j < seqLength; ++j){
-				file.seekg(recordIndexIt->second[recordIndex + j]);
-				if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i*seqLength + j]), sizeof(unsigned short))){
-					std::cerr << "Failed to read keyStates from file: " << selectedFile << std::endl;
+			if(recordIndex+seqLength>recordIndexIt->second.size()){
+				std::cerr<<"Record index out of bounds in file: "<<selectedFile<<"\r\n";
+				return;
+			}
+			for(int j = 0; j<seqLength; ++j){
+				file.seekg(recordIndexIt->second[recordIndex+j]);
+				if(file.fail()){
+					std::cerr<<"seekg failed for recordIndex: "<<recordIndex+j<<" in file: "<<selectedFile<<" at position: "<<recordIndexIt->second[recordIndex+j]<<"\r\n";
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i*seqLength + j]), sizeof(int))){
-					std::cerr << "Failed to read mouseDeltaX from file: " << selectedFile << std::endl;
+				if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i*seqLength+j]), sizeof(unsigned short))){
+					std::cerr<<"Failed to read keyStates at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
+					ReportStreamState(file);
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i*seqLength + j]), sizeof(int))){
-					std::cerr << "Failed to read mouseDeltaY from file: " << selectedFile << std::endl;
+				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i*seqLength+j]), sizeof(int))){
+					std::cerr<<"Failed to read mouseDeltaX at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
+					ReportStreamState(file);
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData + (i*seqLength + j)*stateSize), stateSize)){
-					std::cerr << "Failed to read stateData from file: " << selectedFile << std::endl;
+				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i*seqLength+j]), sizeof(int))){
+					std::cerr<<"Failed to read mouseDeltaY at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
+					ReportStreamState(file);
+					return;
+				}
+				if(!file.read(reinterpret_cast<char*>(batch->stateData+(i*seqLength+j)*stateSize), stateSize)){
+					std::cerr<<"Failed to read stateData at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
+					ReportStreamState(file);
 					return;
 				}
 			}
-			});
+		});
 	}
 }

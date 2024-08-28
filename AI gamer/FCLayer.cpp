@@ -24,14 +24,14 @@ FCLayer::FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bat
 		checkCUDA(cudaMemset(gradBias_, 0, outC_*sizeof(__half)));
 		checkCUDA(cudaMemset(gradOut_, 0, batchSize_*inC_*sizeof(__half)));
 		if(useAdamW_){
-			checkCUDA(cudaMalloc(&m_Weights_, weightCount_*sizeof(float)));
-			checkCUDA(cudaMalloc(&v_Weights_, weightCount_*sizeof(float)));
-			checkCUDA(cudaMalloc(&m_Bias_, outC_*sizeof(float)));
-			checkCUDA(cudaMalloc(&v_Bias_, outC_*sizeof(float)));
-			checkCUDA(cudaMemset(m_Weights_, 0, weightCount_*sizeof(float)));
-			checkCUDA(cudaMemset(v_Weights_, 0, weightCount_*sizeof(float)));
-			checkCUDA(cudaMemset(m_Bias_, 0, outC_*sizeof(float)));
-			checkCUDA(cudaMemset(v_Bias_, 0, outC_*sizeof(float)));
+			checkCUDA(cudaMalloc(&m_Weights_, weightCount_*sizeof(__half)));
+			checkCUDA(cudaMalloc(&v_Weights_, weightCount_*sizeof(__half)));
+			checkCUDA(cudaMalloc(&m_Bias_, outC_*sizeof(__half)));
+			checkCUDA(cudaMalloc(&v_Bias_, outC_*sizeof(__half)));
+			checkCUDA(cudaMemset(m_Weights_, 0, weightCount_*sizeof(__half)));
+			checkCUDA(cudaMemset(v_Weights_, 0, weightCount_*sizeof(__half)));
+			checkCUDA(cudaMemset(m_Bias_, 0, outC_*sizeof(__half)));
+			checkCUDA(cudaMemset(v_Bias_, 0, outC_*sizeof(__half)));
 		}
 	}
 }
@@ -67,6 +67,12 @@ __half* FCLayer::Backward(__half* grad){
 }
 void FCLayer::UpdateParameters(float learningRate){
 	if(useAdamW_){
+		//std::cout << layerName_ << ":\r\n";
+		//PrintDataHalf(m_Weights_, 8, "m_Weights_");
+		//PrintDataHalf(v_Weights_, 8, "v_Weights_");
+		//PrintDataHalf(m_Bias_, std::min(8, outC_), "m_Bias_");
+		//PrintDataHalf(v_Bias_, std::min(8, outC_), "v_Bias_");
+		//std::cout << "\r\n";
 		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightCount_);
 		AdamWHalf(bias_, gradBias_, m_Bias_, v_Bias_, learningRate, t_, weightDecay_, outC_);
 		++t_;
@@ -75,43 +81,43 @@ void FCLayer::UpdateParameters(float learningRate){
 		SGDHalf(bias_, learningRate, gradBias_, outC_);
 	}
 }
-void FCLayer::SaveParameters(std::ofstream& file, float* buffer){
+void FCLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	cudaMemcpy(buffer, weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(buffer, bias_, outC_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(__half));
 }
-void FCLayer::LoadParameters(std::ifstream& file, float* buffer){
+void FCLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(__half));
 	cudaMemcpy(bias_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
 }
-void FCLayer::SaveOptimizerState(std::ofstream& file, float* buffer){
+void FCLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
-	cudaMemcpy(buffer, m_Weights_, weightCount_*sizeof(float), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(float));
-	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(float), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(float));
-	cudaMemcpy(buffer, m_Bias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(buffer, v_Bias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(buffer, m_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(buffer, m_Bias_, outC_*sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(__half));
+	cudaMemcpy(buffer, v_Bias_, outC_*sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(__half));
 }
-void FCLayer::LoadOptimizerState(std::ifstream& file, float* buffer){
+void FCLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
-	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(float));
-	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(float));
-	cudaMemcpy(v_Weights_, buffer, weightCount_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(m_Bias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
-	cudaMemcpy(v_Bias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(v_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(__half));
+	cudaMemcpy(m_Bias_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(__half));
+	cudaMemcpy(v_Bias_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
 }
 size_t FCLayer::GetParameterSize(){
 	return weightCount_*sizeof(__half);
 }
 size_t FCLayer::GetOptimizerStateSize(){
-	return weightCount_*sizeof(float);
+	return weightCount_*sizeof(__half);
 }

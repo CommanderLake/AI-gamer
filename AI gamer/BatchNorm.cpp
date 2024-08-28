@@ -102,7 +102,7 @@ void BatchNorm::UpdateParameters(float learningRate){
 		SGDFloat(bnBias_, learningRate, gradBnBias_, outC_);
 	}
 }
-void BatchNorm::SaveParameters(std::ofstream& file, float* buffer){
+void BatchNorm::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	cudaMemcpy(buffer, bnScale_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(buffer, bnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
@@ -116,7 +116,7 @@ void BatchNorm::SaveParameters(std::ofstream& file, float* buffer){
 	cudaMemcpy(buffer, bnSavedInvVariance_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 }
-void BatchNorm::LoadParameters(std::ifstream& file, float* buffer){
+void BatchNorm::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(bnScale_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
@@ -130,7 +130,7 @@ void BatchNorm::LoadParameters(std::ifstream& file, float* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(bnSavedInvVariance_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 }
-void BatchNorm::SaveOptimizerState(std::ofstream& file, float* buffer){
+void BatchNorm::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
 	cudaMemcpy(buffer, m_BnScale_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
@@ -141,7 +141,7 @@ void BatchNorm::SaveOptimizerState(std::ofstream& file, float* buffer){
 	cudaMemcpy(buffer, v_BnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 }
-void BatchNorm::LoadOptimizerState(std::ifstream& file, float* buffer){
+void BatchNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(m_BnScale_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);

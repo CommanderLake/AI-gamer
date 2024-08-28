@@ -10,10 +10,10 @@ public:
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
-	void SaveParameters(std::ofstream& file, float* buffer) override;
-	void LoadParameters(std::ifstream& file, float* buffer) override;
-	void SaveOptimizerState(std::ofstream& file, float* buffer) override;
-	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
+	void SaveParameters(std::ofstream& file, unsigned char* buffer) override;
+	void LoadParameters(std::ifstream& file, unsigned char* buffer) override;
+	void SaveOptimizerState(std::ofstream& file, unsigned char* buffer) override;
+	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	cudnnHandle_t cudnnHandle_;
@@ -42,8 +42,8 @@ public:
 	__half* gradBias_;
 	size_t workspaceSize_ = 0;
 	void* workspace_;
-	float *m_Weights_, *v_Weights_;
-	float *m_Bias_, *v_Bias_;
+	__half *m_Weights_, *v_Weights_;
+	__half *m_Bias_, *v_Bias_;
 	int t_ = 1;
 	const float alpha = 1.0f;
 	const float beta0 = 0.0f;

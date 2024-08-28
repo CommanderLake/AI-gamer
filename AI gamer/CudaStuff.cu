@@ -103,20 +103,65 @@ extern "C" float MseLoss(const __half* dPredictions, const float* dTargets, int 
 	cudaMemcpyFromSymbol(&h_loss, d_loss, sizeof(float));
 	return h_loss/size;
 }
-__global__ void convertAndNormalizeKernel(__half* output, unsigned char* input, size_t size){
+__device__ float dLossKeys;
+__device__ float dLossMouse;
+__global__ void mseLoss2Kernel(const __half* predictions, const float* targets, int size, int numKeys, int numCtrls){
+	extern __shared__ float sdata[];
+	const int tid = threadIdx.x;
+	int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	float sumKeys = 0.0f;
+	float sumMouse = 0.0f;
+	// Perform reduction within the block
+	while(idx<size){
+		float diff = __half2float(predictions[idx])-targets[idx];
+		diff *= diff;
+		if(idx%numCtrls<numKeys){ sumKeys += diff; } else{ sumMouse += diff; }
+		idx += gridDim.x*blockDim.x;
+	}
+	sdata[tid] = sumKeys;
+	sdata[tid+blockDim.x] = sumMouse;
+	__syncthreads();
+	// Reduce within the block
+	for(int s = blockDim.x/2; s>0; s >>= 1){
+		if(tid<s){
+			sdata[tid] += sdata[tid+s];
+			sdata[tid+blockDim.x] += sdata[tid+blockDim.x+s];
+		}
+		__syncthreads();
+	}
+	// Write result for this block to global memory
+	if(tid==0){
+		atomicAdd(&dLossKeys, sdata[0]);
+		atomicAdd(&dLossMouse, sdata[blockDim.x]);
+	}
+}
+extern "C" void MseLoss2(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss){
+	constexpr auto zero = 0.0f;
+	const auto size = numCtrls*batchSize;
+	cudaMemcpyToSymbol(dLossKeys, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
+	cudaMemcpyToSymbol(dLossMouse, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
+	int gridSize = div_ceil(size, BS);
+	int sharedMemSize = 2*BS*sizeof(float);
+	mseLoss2Kernel<<<gridSize, BS, sharedMemSize>>>(dPredictions, dTargets, size, numButs, numCtrls);
+	cudaMemcpyFromSymbol(butLoss, dLossKeys, sizeof(float));
+	cudaMemcpyFromSymbol(axesLoss, dLossMouse, sizeof(float));
+	*butLoss /= numButs*batchSize;
+	*axesLoss /= (numCtrls-numButs)*batchSize;
+}
+__global__ void convertAndNormalizeKernel(__half* output, const unsigned char* input, const size_t size){
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += blockDim.x*gridDim.x){
 		output[idx] = __float2half(static_cast<float>(input[idx])/255.0f);
 	}
 }
-extern "C" void ConvertAndNormalize(__half* output, unsigned char* input, size_t size){
+extern "C" void ConvertAndNormalize(__half* output, const unsigned char* input, const size_t size){
 	convertAndNormalizeKernel<<<GS, BS>>>(output, input, size);
 }
-__global__ void UnConvertAndUnNormalizeKernel(unsigned char* output, const __half* input, size_t size){
+__global__ void UnConvertAndUnNormalizeKernel(unsigned char* output, const __half* input, const size_t size){
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += blockDim.x*gridDim.x){
 		output[idx] = static_cast<unsigned char>(__half2float(input[idx])*255.0f);
 	}
 }
-extern "C" void UnConvertAndUnNormalize(unsigned char* output, const __half* input, size_t size){
+extern "C" void UnConvertAndUnNormalize(unsigned char* output, const __half* input, const size_t size){
 	UnConvertAndUnNormalizeKernel<<<BS, BS>>>(output, input, size);
 }
 __global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t n){
@@ -166,14 +211,14 @@ extern "C" void SGDFloat(float* param, const float learningRate, const float* gr
 #define BETA1_F 0.9f
 #define BETA2_F 0.999f
 #define EPSILON_F 1e-6f
-#define CLIP 1024.0f
+#define CLIP 128.0f
 __global__ void AdamwKernelFloat(float* params, const float* grads, float* m, float* v, const float lr, const int t, const float wd, const int n){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
 	if(idx<n){
 		const float grad = fmaxf(fminf(grads[idx], CLIP), -CLIP);
 		m[idx] = BETA1_F*m[idx]+(1.0f-BETA1_F)*grad;
 		v[idx] = BETA2_F*v[idx]+(1.0f-BETA2_F)*grad*grad;
-		params[idx] *= 1.0f - lr*wd;
+		params[idx] *= 1.0f - wd;
 		params[idx] -= lr*static_cast<float>(m[idx]/(1.0 - pow(BETA1_F, t))/(sqrt(v[idx]/(1.0 - pow(BETA2_F, t))) + EPSILON_F));
 	}
 }
@@ -181,34 +226,36 @@ extern "C" void AdamWFloat(float* params, const float* grads, float* m, float* v
 	auto gridSize = div_ceil(size, BS);
 	AdamwKernelFloat<<<gridSize, BS>>>(params, grads, m, v, learningRate, t, weightDecay, size);
 }
-__global__ void AdamwKernelHalf(__half* params, const __half* grads, float* m, float* v, const float lr, const int t, const float wd, const int n){
+__global__ void AdamwKernelHalf(__half* params, const __half* grads, __half* m, __half* v, const float lr, const int t, const float wd, const int n){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
 	if(idx<n){
 		const auto grad = fmaxf(fminf(__half2float(grads[idx]), CLIP), -CLIP);
-		m[idx] = BETA1_F*m[idx]+(1.0f-BETA1_F)*grad;
-		v[idx] = BETA2_F*v[idx]+(1.0f-BETA2_F)*grad*grad;
-		const auto param = __half2float(params[idx])*(1.0f - lr*wd);
-		params[idx] = __float2half(param - lr*static_cast<float>(m[idx]/(1.0 - pow(BETA1_F, t))/(sqrt(v[idx]/(1.0 - pow(BETA2_F, t))) + EPSILON_F)));
+		const auto mF = BETA1_F*__half2float(m[idx])+(1.0f-BETA1_F)*grad;
+		const auto vF = BETA2_F*__half2float(v[idx])+(1.0f-BETA2_F)*grad*grad;
+		const auto param = __half2float(params[idx])*(1.0f - wd);
+		params[idx] = __float2half(param - lr*static_cast<float>(mF/(1.0 - pow(BETA1_F, t))/(sqrt(vF/(1.0 - pow(BETA2_F, t))) + EPSILON_F)));
+		m[idx] = __float2half(mF);
+		v[idx] = __float2half(vF);
 	}
 }
-extern "C" void AdamWHalf(__half* params, const __half* grads, float* m, float* v, const float lr, const int t, const float weightDecay, const int size){
+extern "C" void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, const float lr, const int t, const float weightDecay, const int size){
 	auto gridSize = div_ceil(size, BS);
 	AdamwKernelHalf<<<gridSize, BS>>>(params, grads, m, v, lr, t, weightDecay, size);
 }
-__global__ void gradientKernel(__half* gradients, const __half* predictions, const __half* targets, int size, float scale, float clip){
-	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void gradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const float scale, const float clip){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float diff = (__half2float(predictions[idx]) - __half2float(targets[idx]))*scale;
 		const float clippedDiff = fminf(fmaxf(diff, -clip), clip);
 		gradients[idx] = __float2half(fmaxf(fabs(clippedDiff), 1e-7f)*(clippedDiff >= 0.0f ? 1.0f : -1.0f));
 	}
 }
-extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale, float clip){
+extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size, const float scale, const float clip){
 	auto gridSize = div_ceil(size, BS);
 	gradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale, clip);
 }
-__global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, int size, float scale){
-	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const float scale){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float y = __half2float(targets[idx]);
 		constexpr float epsilon = 1e-7f;
@@ -223,35 +270,36 @@ __global__ void BCEGradientKernel(__half* gradients, const __half* predictions, 
 		gradients[idx] = __float2half(gradient);
 	}
 }
-extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale){
+extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size, const float scale){
 	auto gridSize = div_ceil(size, BS);
 	BCEGradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale);
 }
-__global__ void GAILGradientKernel(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, int size, int numCtrls, int numButs, float lambda, float entropyCoeff, float scale, float clip){
-	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void GAILGradientKernel(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, const int size, const int numCtrls, const int numButs, const float lambda, const float entropyCoeff, const float butScale, const float axiScale, const float clip){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
-		const int batchIdx = idx/numCtrls;
 		const float pred = __half2float(predictions[idx]);
 		const float expert = expertActions[idx];
-		const float discOut = __half2float(discOutput[batchIdx]);
 		float imitationGrad, adversarialGrad, entropyGrad;
-		if(idx < numButs){
-			imitationGrad = (pred - expert)/(pred*(1.0f - pred) + 1e-8f);
-			adversarialGrad = -1.0f/(pred + 1e-8f);
-			entropyGrad = -logf(pred/(1.0f - pred + 1e-8f));
+		float scale;
+		if(idx%numCtrls < numButs){
+			imitationGrad = (pred - expert)/(pred*(1.0f - pred) + 1e-6f);
+			adversarialGrad = -1.0f/(pred + 1e-6f);
+			entropyGrad = -logf(pred/(1.0f - pred + 1e-6f));
+			scale = butScale;
 		} else{
-			imitationGrad = 2.0f*(pred - expert);
-			adversarialGrad = -1.0f/(fabsf(pred) + 1e-8f);
-			entropyGrad = 0.0f;
+			imitationGrad = pred - expert;
+			adversarialGrad = -pred;
+			entropyGrad = pred*pred*-0.5f;
+			scale = axiScale;
 		}
-		const float combinedGrad = imitationGrad + lambda*adversarialGrad*discOut + entropyCoeff*entropyGrad;
+		const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx/numCtrls]) + entropyCoeff*entropyGrad;
 		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad))*scale);
 	}
 }
-extern "C" void GAILGradient(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, int batchSize, int numCtrls, int numButs, float lambda, float entropyCoeff, float scale, float clip){
+extern "C" void GAILGradient(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, const int batchSize, const int numCtrls, const int numButs, const float lambda, const float entropyCoeff, const float butScale, const float axiScale, const float clip){
 	const auto size = numCtrls*batchSize;
 	auto gridSize = div_ceil(size, BS);
-	GAILGradientKernel<<<gridSize, BS>>>(gradients, predictions, discOutput, expertActions, size, numCtrls, numButs*batchSize, lambda, entropyCoeff, scale, clip);
+	GAILGradientKernel<<<gridSize, BS>>>(gradients, predictions, discOutput, expertActions, size, numCtrls, numButs, lambda, entropyCoeff, butScale, axiScale, clip);
 }
 __global__ void biasGradientsKernel(const __half* gradInput, __half* gradBias, int c, int batchSize){
 	extern __shared__ float sharedGrad[];
@@ -273,12 +321,12 @@ __global__ void biasGradientsKernel(const __half* gradInput, __half* gradBias, i
 		for(int i = 0; i < blockDim.x && blockIdx.x*blockDim.x + i < c; i++){ gradBias[blockIdx.x*blockDim.x + i] = __float2half(sharedGrad[i]); }
 	}
 }
-extern "C" void BiasGradient(const __half* gradInput, __half* gradBias, int c, int batchSize){
+extern "C" void BiasGradient(const __half* gradInput, __half* gradBias, const int c, const int batchSize){
 	auto gridSize = div_ceil(c, BS);
 	size_t sharedMemSize = BS*sizeof(float);
 	biasGradientsKernel<<<gridSize, BS, sharedMemSize>>>(gradInput, gradBias, c, batchSize);
 }
-__global__ void clipGradsKernel(__half* grad, int size, float lower, float upper){
+__global__ void clipGradsKernel(__half* grad, const int size, const float lower, const float upper){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float gradValue = __half2float(grad[idx]);
@@ -324,26 +372,25 @@ extern "C" void LeakyReluBackward(__half* gradient, const __half* inData, int si
 	auto gridSize = div_ceil(size, BS);
 	leakyReluBackwardKernel<<<gridSize, BS>>>(gradient, inData, size, __float2half(negativeSlope));
 }
-__global__ void sigmoidForwardKernel(__half* data, int numSigmoidOutputs, int batchSize, int outputSize){
+__global__ void sigmoidForwardKernel(__half* data, int numCtrls, int numButs, int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx >= batchSize*outputSize || idx % outputSize >= numSigmoidOutputs) return;
+	if(idx >= size || idx % numCtrls >= numButs) return;
 	const float val = __half2float(data[idx]);
-	const float sigmoid = 1.0f/(1.0f + expf(-val));
-	data[idx] = __float2half(sigmoid);
+	data[idx] = __float2half(1.0f/(1.0f + expf(-val)));
 }
-extern "C" void SigmoidForward(__half* data, int numSigmoidOutputs, int batchSize, int outputSize){
-	int numBlocks = div_ceil(batchSize*outputSize, BS);
-	sigmoidForwardKernel<<<numBlocks, BS>>>(data, numSigmoidOutputs, batchSize, outputSize);
+extern "C" void SigmoidForward(__half* data, int numCtrls, int numButs, int batchSize){
+	int numBlocks = div_ceil(numCtrls*batchSize, BS);
+	sigmoidForwardKernel<<<numBlocks, BS>>>(data, numCtrls, numButs, numCtrls*batchSize);
 }
-__global__ void sigmoidBackwardKernel(__half* grad, const __half* data, int numSigmoidOutputs, int batchSize, int outputSize){
+__global__ void sigmoidBackwardKernel(__half* grad, const __half* data, int numCtrls, int numButs, int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx >= batchSize*outputSize || idx % outputSize >= numSigmoidOutputs) return;
+	if(idx >= size || idx % numCtrls >= numButs) return;
 	const float val = __half2float(data[idx]);
 	grad[idx] = __float2half(__half2float(grad[idx])*val*(1.0f - val));
 }
-extern "C" void SigmoidBackward(__half* grad, const __half* data, int numSigmoidOutputs, int batchSize, int outputSize){
-	int numBlocks = div_ceil(batchSize*outputSize, BS);
-	sigmoidBackwardKernel<<<numBlocks, BS>>>(grad, data, numSigmoidOutputs, batchSize, outputSize);
+extern "C" void SigmoidBackward(__half* grad, const __half* data, int numCtrls, int numButs, int batchSize){
+	int numBlocks = div_ceil(numCtrls*batchSize, BS);
+	sigmoidBackwardKernel<<<numBlocks, BS>>>(grad, data, numCtrls, numButs, numCtrls*batchSize);
 }
 __global__ void computeMeanVarianceKernel(const __half* data, float* mean, float* variance, int N, int C, int HW){
 	extern __shared__ float sdata[];

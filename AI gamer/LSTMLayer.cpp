@@ -43,10 +43,10 @@ LSTMLayer::LSTMLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int
 		checkCUDA(cudaMemset(gradWeights_, 0, weightSpaceSize_));
 		checkCUDA(cudaMemset(gradOut_, 0, batchSize_*inCHW_*sizeof(__half)));
 		if(useAdamW_){
-			checkCUDA(cudaMalloc(&m_Weights_, weightSpaceSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&v_Weights_, weightSpaceSize_*sizeof(float)));
-			checkCUDA(cudaMemset(m_Weights_, 0, weightSpaceSize_*sizeof(float)));
-			checkCUDA(cudaMemset(v_Weights_, 0, weightSpaceSize_*sizeof(float)));
+			checkCUDA(cudaMalloc(&m_Weights_, weightSpaceSize_*sizeof(__half)));
+			checkCUDA(cudaMalloc(&v_Weights_, weightSpaceSize_*sizeof(__half)));
+			checkCUDA(cudaMemset(m_Weights_, 0, weightSpaceSize_*sizeof(__half)));
+			checkCUDA(cudaMemset(v_Weights_, 0, weightSpaceSize_*sizeof(__half)));
 		}
 	}
 	cudnnCreateTensorDescriptor(&outDesc_);
@@ -91,27 +91,27 @@ void LSTMLayer::UpdateParameters(float learningRate){
 		++t_;
 	} else{ SGDHalf(weights_, learningRate, gradWeights_, weightCount_); }
 }
-void LSTMLayer::SaveParameters(std::ofstream& file, float* buffer){
+void LSTMLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	cudaMemcpy(buffer, weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 }
-void LSTMLayer::LoadParameters(std::ifstream& file, float* buffer){
+void LSTMLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 }
-void LSTMLayer::SaveOptimizerState(std::ofstream& file, float* buffer){
+void LSTMLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
-	cudaMemcpy(buffer, m_Weights_, weightCount_*sizeof(float), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(float));
-	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(float), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(float));
+	cudaMemcpy(buffer, m_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 }
-void LSTMLayer::LoadOptimizerState(std::ifstream& file, float* buffer){
+void LSTMLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
-	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(float));
-	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(float));
-	cudaMemcpy(v_Weights_, buffer, weightCount_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(v_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 }
 size_t LSTMLayer::GetParameterSize(){ return weightCount_*sizeof(__half); }
-size_t LSTMLayer::GetOptimizerStateSize(){ return weightCount_*sizeof(float); }
+size_t LSTMLayer::GetOptimizerStateSize(){ return weightCount_*sizeof(__half); }

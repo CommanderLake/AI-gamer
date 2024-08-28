@@ -1,3 +1,5 @@
+#include <filesystem>
+
 #include "Train.h"
 #include "Infer.h"
 #include "Viewer.h"
@@ -38,27 +40,56 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 }
 std::mutex fileRecordPositionsMutex;
 size_t totalStateCount = 0;
-void ReadStateData(int *width, int *height){
+void ReadStateData(int* width, int* height){
 	for(const auto& fileName : trainDataInFiles){
-		std::ifstream file(fileName, std::ios::binary | std::ios::in);
+		std::ifstream file(fileName, std::ios::binary|std::ios::in);
 		if(!file.is_open()){
-			std::cerr << "Failed to open training data file: " << fileName << std::endl;
+			std::cerr<<"Failed to open training data file: "<<fileName<<std::endl;
 			continue;
 		}
+		// Get the file size using std::filesystem
+		std::uintmax_t fileSize = std::filesystem::file_size(fileName);
+		std::cerr<<"File: "<<fileName<<" Size: "<<fileSize<<" bytes"<<std::endl;
 		// Read width and height
-		file.read(reinterpret_cast<char*>(width), sizeof *width);
-		file.read(reinterpret_cast<char*>(height), sizeof *height);
+		file.read(reinterpret_cast<char*>(width), sizeof(*width));
+		file.read(reinterpret_cast<char*>(height), sizeof(*height));
+		if(file.fail()||file.eof()){
+			std::cerr<<"Failed to read width/height from file: "<<fileName<<"\r\n";
+			continue;
+		}
 		stateSize = *width**height*3;
+		std::cerr<<"State size calculated: "<<stateSize<<" bytes"<<std::endl;
 		// Store file positions of each record
 		std::vector<std::streampos> recordPositions;
-		while(file.peek() != EOF){
-			recordPositions.push_back(file.tellg());
-			file.seekg(10 + stateSize, std::ios::cur);
+		std::streampos startPos = file.tellg();
+		while(true){
+			std::streampos pos = file.tellg();
+			std::streampos bytesRemaining = fileSize-pos;
+			// Check if there are enough bytes left in the file for a full record
+			if(bytesRemaining<(10+stateSize)){
+				std::cerr<<"Not enough bytes remaining for a full record in file: "<<fileName<<" at position: "<<pos<<" (Remaining: "<<bytesRemaining<<" bytes)\r\n";
+				break;
+			}
+			recordPositions.push_back(pos);
+			// Move to the next record
+			file.seekg(10+stateSize, std::ios::cur);
+			if(file.fail()){
+				std::cerr<<"Failed to seek to next record in file: "<<fileName<<" at position: "<<pos<<"\r\n";
+				break;
+			}
+			// Ensure that after seeking, we are not past the end of the file
+			if(file.peek()==EOF||file.tellg()>fileSize){
+				std::cerr<<"Reached EOF or invalid position after seeking to next record in file: "<<fileName<<" at position: "<<pos<<"\r\n";
+				break;
+			}
 		}
+		std::cerr<<"Total records found: "<<recordPositions.size()<<" in file: "<<fileName<<std::endl;
 		file.close();
-		std::lock_guard<std::mutex> lock(fileRecordPositionsMutex);
-		totalStateCount += recordPositions.size();
-		fileRecordIndex[fileName] = recordPositions;
+		{
+			std::lock_guard<std::mutex> lock(fileRecordPositionsMutex);
+			totalStateCount += recordPositions.size();
+			fileRecordIndex[fileName] = recordPositions;
+		}
 	}
 }
 HWND MakeWindow(){
@@ -88,7 +119,7 @@ int main(){
 	std::cout << "R for record mode, T for train mode, V for view mode, I for Infer mode... ";
 	char mode;
 	std::cin >> mode;
-	std::cout << std::endl;
+	std::cout << "\r\n";
 	if(mode == 'r' || mode == 'R'){
 		const auto hwnd = MakeWindow();
 		RAWINPUTDEVICE rid[2];
@@ -135,6 +166,7 @@ int main(){
 		}
 		const auto nn = new Infer();
 		nn->Inference();
+		delete nn;
 	}
 	return 0;
 }

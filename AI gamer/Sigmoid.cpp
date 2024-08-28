@@ -9,14 +9,13 @@ Sigmoid::Sigmoid(cudnnTensorDescriptor_t outDesc, int numSigmoidOutputs, int bat
 	outCHW_ = c*h*w;
 	outNCHW_ = n*outCHW_;
 }
-Sigmoid::~Sigmoid() {
-}
+Sigmoid::~Sigmoid() {}
 __half* Sigmoid::Forward(__half* data) {
 	data_ = data;
-    SigmoidForward(data, numSigmoidOutputs_, batchSize_, outCHW_);
+	SigmoidForward(data, outCHW_, numSigmoidOutputs_, batchSize_);
     return data;
 }
 __half* Sigmoid::Backward(__half* grad) {
-    SigmoidBackward(grad, data_, numSigmoidOutputs_, batchSize_, outCHW_);
+	SigmoidBackward(grad, data_, outCHW_, numSigmoidOutputs_, batchSize_);
     return grad;
 }

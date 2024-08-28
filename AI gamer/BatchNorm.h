@@ -9,10 +9,10 @@ public:
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
-	void SaveParameters(std::ofstream& file, float* buffer) override;
-	void LoadParameters(std::ifstream& file, float* buffer) override;
-	void SaveOptimizerState(std::ofstream& file, float* buffer) override;
-	void LoadOptimizerState(std::ifstream& file, float* buffer) override;
+	void SaveParameters(std::ofstream& file, unsigned char* buffer) override;
+	void LoadParameters(std::ifstream& file, unsigned char* buffer) override;
+	void SaveOptimizerState(std::ofstream& file, unsigned char* buffer) override;
+	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	cudnnHandle_t cudnnHandle_;
