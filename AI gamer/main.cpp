@@ -18,13 +18,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 		case WM_USER_START_CAPTURE: 
 			if(recorder != nullptr){
 				recorder->StartCapture();
-				std::cout << "Capture enabled\r\n";
 			}
 			break;
 		case WM_USER_STOP_CAPTURE: 
 			if(recorder != nullptr){
 				recorder->StopCapture();
-				std::cout << "Capture disabled\r\n";
 			}
 			break;
 		case WM_USER_CAPTURE_FRAME: 
@@ -48,7 +46,7 @@ void ReadStateData(int* width, int* height){
 			continue;
 		}
 		// Get the file size using std::filesystem
-		std::uintmax_t fileSize = std::filesystem::file_size(fileName);
+		const std::uintmax_t fileSize = std::filesystem::file_size(fileName);
 		std::cerr<<"File: "<<fileName<<" Size: "<<fileSize<<" bytes"<<std::endl;
 		// Read width and height
 		file.read(reinterpret_cast<char*>(width), sizeof(*width));
@@ -57,8 +55,8 @@ void ReadStateData(int* width, int* height){
 			std::cerr<<"Failed to read width/height from file: "<<fileName<<"\r\n";
 			continue;
 		}
-		stateSize = *width**height*3;
-		std::cerr<<"State size calculated: "<<stateSize<<" bytes"<<std::endl;
+		stateSize_ = *width**height*3;
+		std::cerr<<"State size calculated: "<<stateSize_<<" bytes"<<std::endl;
 		// Store file positions of each record
 		std::vector<std::streampos> recordPositions;
 		std::streampos startPos = file.tellg();
@@ -66,13 +64,13 @@ void ReadStateData(int* width, int* height){
 			std::streampos pos = file.tellg();
 			std::streampos bytesRemaining = fileSize-pos;
 			// Check if there are enough bytes left in the file for a full record
-			if(bytesRemaining<(10+stateSize)){
+			if(bytesRemaining<(10+stateSize_)){
 				std::cerr<<"Not enough bytes remaining for a full record in file: "<<fileName<<" at position: "<<pos<<" (Remaining: "<<bytesRemaining<<" bytes)\r\n";
 				break;
 			}
 			recordPositions.push_back(pos);
 			// Move to the next record
-			file.seekg(10+stateSize, std::ios::cur);
+			file.seekg(10+stateSize_, std::ios::cur);
 			if(file.fail()){
 				std::cerr<<"Failed to seek to next record in file: "<<fileName<<" at position: "<<pos<<"\r\n";
 				break;
@@ -114,6 +112,8 @@ HWND MakeWindow(){
 	return hwnd;
 }
 int main(){
+	SetEnvironmentVariableA("CUDNN_LOGDEST_DBG", "E:\\cudnn_debug_log.txt");
+	SetEnvironmentVariableA("CUDNN_LOGLEVEL_DBG", "3");
 	std::ios::sync_with_stdio(false);
 	std::cout << std::fixed << std::setprecision(8);
 	std::cout << "R for record mode, T for train mode, V for view mode, I for Infer mode... ";

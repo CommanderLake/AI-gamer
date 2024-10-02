@@ -6,7 +6,7 @@
 #include <vector>
 class Discriminator{
 public:
-	Discriminator(int batchSize, int inputSize, bool train);
+	Discriminator(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, bool train);
 	~Discriminator();
 	__half* Forward(__half* data);
 	__half* Backward(const __half* predictions, const __half* targets);

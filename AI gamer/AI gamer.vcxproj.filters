@@ -39,9 +39,6 @@
     <ClCompile Include="LeakyReLU.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ScaleGrad.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Sigmoid.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -51,16 +48,10 @@
     <ClCompile Include="Viewer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="LSTMLayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Dropout.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ConvScale.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="CustomOutLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="NN.cpp">
@@ -73,6 +64,21 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Discriminator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SpatialAttentionLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LSTMLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LayerNorm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ResConvLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Swish.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -110,9 +116,6 @@
     <ClInclude Include="LeakyReLU.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ScaleGrad.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Sigmoid.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -122,16 +125,10 @@
     <ClInclude Include="Viewer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="LSTMLayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Dropout.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ConvScale.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="CustomOutLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="NN.h">
@@ -144,6 +141,21 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Discriminator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SpatialAttentionLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LSTMLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LayerNorm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ResConvLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Swish.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

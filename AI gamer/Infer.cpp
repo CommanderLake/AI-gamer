@@ -73,26 +73,30 @@ void Infer::Inference(){
 	InitCUDA();
 	InitNvFBC();
 	AllocGPU();
-	const auto nn = new NN(0, 0, false);
+	cudnnContext* cudnn_;
+	cudnnCreate(&cudnn_);
+	cublasContext* cublas_;
+	cublasCreate(&cublas_);
+	const auto nn = new NN(cudnn_, cublas_, 0, 0, false);
 	std::thread listenKey(&Infer::ListenForKey, this);
 	listenKey.detach();
 	while(!simInput){
 		Sleep(1);
 	}
 	int capWidth = 0, capHeight = 0;
+	const auto frameSize = nn->inWidth_*nn->inHeight_*3;
 	float* hPredictionsF;
-	checkCUDA(cudaMallocHost(&hPredictionsF, numCtrls_*sizeof(float)));
 	float* dPredictionsF;
-	checkCUDA(cudaMalloc(&dPredictionsF, numCtrls_*sizeof(float)));
-	const auto inputSize = nn->inWidth_*nn->inHeight_*3;
-	__half* frameHalf = nullptr;
-	checkCUDA(cudaMalloc(&frameHalf, inputSize*sizeof(__half)));
-	checkCUDA(cudaMemset(frameHalf, 0, inputSize*sizeof(__half)));
+	__half* frameHalf;
+	checkCUDA(cudaMallocHost(&hPredictionsF, numCtrls_*sizeof(float)));
+	CUDAMallocZero(&dPredictionsF, numCtrls_*sizeof(float));
+	CUDAMallocZero(&frameHalf, frameSize*sizeof(__half));
 	constexpr std::chrono::microseconds frameDuration(33333);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	while(!stopInfer){
 		while(!simInput){
 			Sleep(1);
+			nextFrameTime = std::chrono::high_resolution_clock::now();
 		}
 		nextFrameTime += frameDuration;
 		std::this_thread::sleep_until(nextFrameTime);
@@ -102,7 +106,7 @@ void Infer::Inference(){
 			std::cerr << "Capture resolution mismatch, pausing AI input.\r\n";
 			continue;
 		}
-		ConvertAndNormalize(frameHalf, frame, inputSize);
+		ConvertAndNormalize(frameHalf, frame, frameSize);
 		const auto output = nn->Forward(frameHalf);
 		ConvertHalfToFloat(output, dPredictionsF, numCtrls_);
 		checkCUDA(cudaMemcpy(hPredictionsF, dPredictionsF, numCtrls_*sizeof(float), cudaMemcpyDeviceToHost));
@@ -112,4 +116,5 @@ void Infer::Inference(){
 	cudaFreeHost(hPredictionsF);
 	cudaFree(dPredictionsF);
 	cudaFree(frameHalf);
+	delete nn;
 }

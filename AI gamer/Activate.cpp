@@ -1,15 +1,13 @@
 #include "Activate.h"
 #include "common.h"
-Activate::Activate(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnActivationMode_t mode, double coef, const char* layerName): cudnnHandle_(cudnnHandle){
+Activate::Activate(cudnnHandle_t cudnnHandle, cudnnActivationMode_t mode, double coef, int batchSize, int channels, int height, int width, const char* layerName): cudnnHandle_(cudnnHandle){
 	layerName_ = layerName;
-	outDesc_ = outDesc;
-	cudnnDataType_t dt;
-	int n, c, h, w, ns, cs, hs, ws;
-	cudnnGetTensor4dDescriptor(outDesc, &dt, &n, &c, &h, &w, &ns, &cs, &hs, &ws);
-	outNCHW_ = n*c*h*w;
+	outNCHW_ = batchSize*channels*height*width;
+	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize, channels, height, width));
 	checkCUDNN(cudnnCreateTensorDescriptor(&gradDesc_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(gradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize, channels, height, width));
 	checkCUDNN(cudnnCreateActivationDescriptor(&activDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(gradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, n, c, h, w));
 	checkCUDNN(cudnnSetActivationDescriptor(activDesc_, mode, CUDNN_NOT_PROPAGATE_NAN, coef));
 }
 Activate::~Activate(){

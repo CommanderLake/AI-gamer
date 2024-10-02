@@ -1,37 +1,37 @@
 #include "Discriminator.h"
+#include "Activate.h"
 #include "FCLayer.h"
 #include "LeakyReLU.h"
 #include "BatchNorm.h"
 #include "Dropout.h"
 #include "Sigmoid.h"
-Discriminator::Discriminator(int batchSize, int inputSize, bool train) : cudnn_(nullptr), cublas_(nullptr), gradient_(nullptr), inputSize_(inputSize), batchSize_(batchSize), learningRate_(0.000005f), maxBufferSize_(0){
-	cudnnCreate(&cudnn_);
-	cublasCreate(&cublas_);
-	cublasSetMathMode(cublas_, CUBLAS_TENSOR_OP_MATH); //S
+Discriminator::Discriminator(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), gradient_(nullptr), inputSize_(inputSize), batchSize_(batchSize), learningRate_(0.000005f), maxBufferSize_(0){
 	std::cout<<"Initializing Discriminator layers... ";
-	constexpr auto wd = 0.000005f;
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inputSize_, 128, "Disc FC0", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "Disc BN0", train, wd));
-	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Disc LeakyReLU0"));
-	layers_.push_back(new Dropout(cudnn_, layers_.back()->outDesc_, 0.3f, "Drop0"));
-
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 128, 64, "Disc FC1", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "Disc BN1", train, wd));
-	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Disc LeakyReLU1"));
-	layers_.push_back(new Dropout(cudnn_, layers_.back()->outDesc_, 0.3f, "Drop1"));
-
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 64, 32, "Disc FC2", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "Disc BN2", train, wd));
-	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Disc LeakyReLU2"));
-	layers_.push_back(new Dropout(cudnn_, layers_.back()->outDesc_, 0.3f, "Drop2"));
-
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 32, 16, "Disc FC3", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, layers_.back()->outDesc_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, "Disc BN3", train, wd));
-	layers_.push_back(new LeakyReLU(layers_.back()->outDesc_, "Disc LeakyReLU3"));
-
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 16, 1, "Disc Output FC", train, wd));
-	layers_.push_back(new Sigmoid(layers_.back()->outDesc_, 1, batchSize_, "Disc Output Sigmoid"));
-	checkCUDA(cudaMalloc(&gradient_, batchSize_*sizeof(__half)));
+	constexpr auto wd = 0.0000001f;
+	int outC = 128;
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inputSize, outC, "Disc FC0", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Disc BN0", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Disc ReLU0"));
+	outC = 256;
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 128, outC, "Disc FC1", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Disc BN1", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Disc ReLU1"));
+	outC = 512;
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, outC, "Disc FC2", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Disc BN2", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Disc ReLU2"));
+	outC = 256;
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 512, outC, "Disc FC3", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Disc BN3", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Disc ReLU3"));
+	outC = 128;
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, outC, "Disc FC4", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Disc BN4", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Disc ReLU4"));
+	outC = inputSize_;
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 128, outC, "Disc FC Out", train, wd));
+	layers_.push_back(new Sigmoid(numButs_, batchSize_, outC, "Disc Sigmoid Out"));
+	checkCUDA(cudaMalloc(&gradient_, inputSize_*batchSize_*sizeof(__half)));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
@@ -39,8 +39,6 @@ Discriminator::Discriminator(int batchSize, int inputSize, bool train) : cudnn_(
 	std::cout << "Done.\r\n";
 }
 Discriminator::~Discriminator(){
-	cudnnDestroy(cudnn_);
-	cublasDestroy(cublas_);
 	if(gradient_) cudaFree(gradient_);
 }
 __half* Discriminator::Forward(__half* data){
@@ -48,7 +46,7 @@ __half* Discriminator::Forward(__half* data){
 	return data;
 }
 __half* Discriminator::Backward(const __half* predictions, const __half* targets){
-	BCEGradient(gradient_, predictions, targets, batchSize_, 100.0f);
+	DiscriminatorGradient(gradient_, predictions, targets, inputSize_*batchSize_, numCtrls_, numButs_, 1.0f, 1.0f, 32.0f);
 	auto outGrad = gradient_;
 	for(int i = layers_.size(); --i>=0;){ outGrad = layers_[i]->Backward(outGrad); }
 	return outGrad;

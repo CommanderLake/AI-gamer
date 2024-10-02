@@ -29,7 +29,7 @@ void InputRecorder::StartCapture(){
 	}
 	capturing = true;
 	lastPacketTime = std::chrono::high_resolution_clock::now();
-	std::cout << "Capture started." << std::endl;
+	std::cout << "Capture started" << std::endl;
 	// Start the frame capture thread
 	captureThread = std::thread(&InputRecorder::FrameCaptureThread, this);
 }
@@ -37,7 +37,7 @@ void InputRecorder::StopCapture(){
 	capturing = false;
 	if(captureThread.joinable()){ captureThread.join(); }
 	WriteFrameData();
-	std::cout << "Capture paused." << std::endl;
+	std::cout << "Capture paused" << std::endl;
 }
 void InputRecorder::ListenForKey(){
 	std::cout << "Press F9 to start recording and Escape to stop.\r\n";
@@ -130,7 +130,6 @@ void InputRecorder::WriteFrameData(){
 	int height;
 	const auto buf = GrabFrameInt8(&width, &height, true, true);
 	outputFile.write(reinterpret_cast<char*>(buf), frameSize);
-	outputFile.flush();
 }
 void InputRecorder::FrameCaptureThread(){
 	constexpr std::chrono::microseconds frameDuration(33333);

@@ -1,8 +1,8 @@
 #include "MHALayer.h"
 #include "common.h"
 #include <iostream>
-MultiHeadAttentionLayer::MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int embedSize, int numHeads, const char* layerName, bool train) : cudnnHandle_(cudnnHandle),
-	cublasHandle_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), embedSize_(embedSize), numHeads_(numHeads){
+MultiHeadAttentionLayer::MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int embedSize, int numHeads, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle),
+	cublasHandle_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), embedSize_(embedSize), numHeads_(numHeads), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	weightSize_ = embedSize*embedSize;
@@ -16,16 +16,10 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, cubl
 	cudnnDropoutDescriptor_t attnDropoutDesc, postDropoutDesc;
 	checkCUDNN(cudnnCreateDropoutDescriptor(&attnDropoutDesc));
 	checkCUDNN(cudnnCreateDropoutDescriptor(&postDropoutDesc));
-	checkCUDNN(cudnnSetAttnDescriptor(attnDesc_,
-		CUDNN_ATTN_QUERYMAP_ALL_TO_ONE, // attnMode
-		numHeads_,
-		1.0 / sqrt(embedSize / numHeads), // smScaler
-		CUDNN_DATA_HALF,
-		CUDNN_DATA_FLOAT, // computePrec
-		CUDNN_TENSOR_OP_MATH,
-		attnDropoutDesc,
-		postDropoutDesc,
-		embedSize, // qSize
+	checkCUDNN(cudnnSetAttnDescriptor(attnDesc_, CUDNN_ATTN_QUERYMAP_ALL_TO_ONE, // attnMode
+		numHeads_, 1.0 / sqrt(embedSize / numHeads_), // smScaler
+		CUDNN_DATA_HALF, CUDNN_DATA_FLOAT, // computePrec
+		CUDNN_TENSOR_OP_MATH, attnDropoutDesc, postDropoutDesc, embedSize, // qSize
 		embedSize, // kSize
 		embedSize, // vSize
 		embedSize, // qProjSize
@@ -36,9 +30,8 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, cubl
 		seqLength, // kvMaxSeqLength
 		batchSize, // maxBatchSize
 		1)); // maxBeamSize
-
-// Set sequence data descriptors
-	int dimA[4] = {batchSize, numHeads, seqLength, embedSize / numHeads};
+	// Set sequence data descriptors
+	int dimA[4] = {batchSize, numHeads_, seqLength, embedSize/numHeads_};
 	cudnnSeqDataAxis_t axes[4] = {CUDNN_SEQDATA_BATCH_DIM, CUDNN_SEQDATA_BEAM_DIM, CUDNN_SEQDATA_TIME_DIM, CUDNN_SEQDATA_VECT_DIM};
 	std::vector<int> seqLengthArray(batchSize_, seqLength_);
 	checkCUDNN(cudnnSetSeqDataDescriptor(qDesc_, CUDNN_DATA_HALF, 4, dimA, axes, batchSize_, seqLengthArray.data(), nullptr));
@@ -46,43 +39,35 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, cubl
 	checkCUDNN(cudnnSetSeqDataDescriptor(vDesc_, CUDNN_DATA_HALF, 4, dimA, axes, batchSize_, seqLengthArray.data(), nullptr));
 	checkCUDNN(cudnnSetSeqDataDescriptor(oDesc_, CUDNN_DATA_HALF, 4, dimA, axes, batchSize_, seqLengthArray.data(), nullptr));
 	// Allocate memory for weights and data
-	checkCUDA(cudaMalloc(&wq_, weightSize_*sizeof(__half)));
-	checkCUDA(cudaMalloc(&wk_, weightSize_*sizeof(__half)));
-	checkCUDA(cudaMalloc(&wv_, weightSize_*sizeof(__half)));
-	checkCUDA(cudaMalloc(&wo_, weightSize_*sizeof(__half)));
+	CUDAMallocZero(&wq_, weightSize_*sizeof(__half));
+	CUDAMallocZero(&wk_, weightSize_*sizeof(__half));
+	CUDAMallocZero(&wv_, weightSize_*sizeof(__half));
+	CUDAMallocZero(&wo_, weightSize_*sizeof(__half));
 	// Initialize weights
 	HeInit(wq_, weightSize_, embedSize);
 	HeInit(wk_, weightSize_, embedSize);
 	HeInit(wv_, weightSize_, embedSize);
 	HeInit(wo_, weightSize_, embedSize);
 	size_t dataSize = batchSize*seqLength*embedSize;
-	checkCUDA(cudaMalloc(&qData_, dataSize*sizeof(__half)));
-	checkCUDA(cudaMalloc(&kData_, dataSize*sizeof(__half)));
-	checkCUDA(cudaMalloc(&vData_, dataSize*sizeof(__half)));
-	checkCUDA(cudaMalloc(&oData_, dataSize*sizeof(__half)));
+	CUDAMallocZero(&qData_, dataSize*sizeof(__half));
+	CUDAMallocZero(&kData_, dataSize*sizeof(__half));
+	CUDAMallocZero(&vData_, dataSize*sizeof(__half));
+	CUDAMallocZero(&oData_, dataSize*sizeof(__half));
 	if(train_){
-		checkCUDA(cudaMalloc(&gradWq_, weightSize_*sizeof(__half)));
-		checkCUDA(cudaMalloc(&gradWk_, weightSize_*sizeof(__half)));
-		checkCUDA(cudaMalloc(&gradWv_, weightSize_*sizeof(__half)));
-		checkCUDA(cudaMalloc(&gradWo_, weightSize_*sizeof(__half)));
-		checkCUDA(cudaMalloc(&gradIn_, dataSize*sizeof(__half)));
+		CUDAMallocZero(&gradWq_, weightSize_*sizeof(__half));
+		CUDAMallocZero(&gradWk_, weightSize_*sizeof(__half));
+		CUDAMallocZero(&gradWv_, weightSize_*sizeof(__half));
+		CUDAMallocZero(&gradWo_, weightSize_*sizeof(__half));
+		CUDAMallocZero(&gradIn_, dataSize*sizeof(__half));
 		if(useAdamW_){
-			checkCUDA(cudaMalloc(&m_Wq_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&v_Wq_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&m_Wk_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&v_Wk_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&m_Wv_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&v_Wv_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&m_Wo_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMalloc(&v_Wo_, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(m_Wq_, 0, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(v_Wq_, 0, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(m_Wk_, 0, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(v_Wk_, 0, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(m_Wv_, 0, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(v_Wv_, 0, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(m_Wo_, 0, weightSize_*sizeof(float)));
-			checkCUDA(cudaMemset(v_Wo_, 0, weightSize_*sizeof(float)));
+			CUDAMallocZero(&m_Wq_, weightSize_*sizeof(__half));
+			CUDAMallocZero(&v_Wq_, weightSize_*sizeof(__half));
+			CUDAMallocZero(&m_Wk_, weightSize_*sizeof(__half));
+			CUDAMallocZero(&v_Wk_, weightSize_*sizeof(__half));
+			CUDAMallocZero(&m_Wv_, weightSize_*sizeof(__half));
+			CUDAMallocZero(&v_Wv_, weightSize_*sizeof(__half));
+			CUDAMallocZero(&m_Wo_, weightSize_*sizeof(__half));
+			CUDAMallocZero(&v_Wo_, weightSize_*sizeof(__half));
 		}
 	}
 	// Get workspace size
@@ -90,19 +75,19 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, cubl
 	checkCUDA(cudaMalloc(&workspace_, workspaceSize_));
 	checkCUDA(cudaMalloc(&reserveSpace_, reserveSpaceSize_));
 	// Allocate device memory for sequence lengths
-	checkCUDA(cudaMalloc(&d_seqLengthsQO, batchSize_*sizeof(int)));
-	checkCUDA(cudaMalloc(&d_seqLengthsKV, batchSize_*sizeof(int)));
+	checkCUDA(cudaMalloc(&d_SeqLengthsQo, batchSize_*sizeof(int)));
+	checkCUDA(cudaMalloc(&d_SeqLengthsKv, batchSize_*sizeof(int)));
 	std::vector<int> h_seqLengths(batchSize_, seqLength_);
-	checkCUDA(cudaMemcpy(d_seqLengthsQO, h_seqLengths.data(), batchSize_*sizeof(int), cudaMemcpyHostToDevice));
-	checkCUDA(cudaMemcpy(d_seqLengthsKV, h_seqLengths.data(), batchSize_*sizeof(int), cudaMemcpyHostToDevice));
+	checkCUDA(cudaMemcpy(d_SeqLengthsQo, h_seqLengths.data(), batchSize_*sizeof(int), cudaMemcpyHostToDevice));
+	checkCUDA(cudaMemcpy(d_SeqLengthsKv, h_seqLengths.data(), batchSize_*sizeof(int), cudaMemcpyHostToDevice));
 	// Set up attention window
 	loWinIdx = new std::vector<int>(seqLength_, 0);
 	hiWinIdx = new std::vector<int>(seqLength_);
-	for(int i = 0; i < seqLength_; ++i){
-		(*hiWinIdx)[i] = i + 1;  // For self-attention
+	for(int i = 0; i<seqLength_; ++i){
+		(*hiWinIdx)[i] = i+1; // For self-attention
 	}
-	devSeqLengthsDQDO = new std::vector<int>(batchSize_, seqLength_);
-	devSeqLengthsDKDV = new std::vector<int>(batchSize_, seqLength_);
+	devSeqLengthsDqdo = new std::vector<int>(batchSize_, seqLength_);
+	devSeqLengthsDkdv = new std::vector<int>(batchSize_, seqLength_);
 }
 MultiHeadAttentionLayer::~MultiHeadAttentionLayer(){
 	cudaFree(wq_);
@@ -115,8 +100,8 @@ MultiHeadAttentionLayer::~MultiHeadAttentionLayer(){
 	cudaFree(oData_);
 	cudaFree(workspace_);
 	cudaFree(reserveSpace_);
-	cudaFree(d_seqLengthsQO);
-	cudaFree(d_seqLengthsKV);
+	cudaFree(d_SeqLengthsQo);
+	cudaFree(d_SeqLengthsKv);
 	if(train_){
 		cudaFree(gradWq_);
 		cudaFree(gradWk_);
@@ -140,23 +125,23 @@ MultiHeadAttentionLayer::~MultiHeadAttentionLayer(){
 	checkCUDNN(cudnnDestroySeqDataDescriptor(vDesc_));
 	checkCUDNN(cudnnDestroySeqDataDescriptor(oDesc_));
 }
-__half* MultiHeadAttentionLayer::Forward(__half* data, bool train){
-	const int currIdx = train ? -1 : 0;  // Process all steps in training, one step at a time in inference
+__half* MultiHeadAttentionLayer::Forward(__half* data){
+	const int currIdx = train_ ? -1 : 0;
 	checkCUDNN(cudnnMultiHeadAttnForward(cudnnHandle_, attnDesc_,
 		currIdx,
 		(*loWinIdx).data(),
 		(*hiWinIdx).data(),
-		d_seqLengthsQO,
-		d_seqLengthsKV,
+		d_SeqLengthsQo,
+		d_SeqLengthsKv,
 		qDesc_, data,
-		nullptr,  // residuals (set to nullptr if no residual connections)
+		nullptr,  // residuals
 		kDesc_, data,
 		vDesc_, data,
 		oDesc_, oData_,
 		weightSize_*sizeof(__half), wq_,
 		workspaceSize_, workspace_,
-		train ? reserveSpaceSize_ : 0,
-		train ? reserveSpace_ : nullptr));
+		train_ ? reserveSpaceSize_ : 0,
+		train_ ? reserveSpace_ : nullptr));
 	return oData_;
 }
 __half* MultiHeadAttentionLayer::Backward(__half* grad){
@@ -164,8 +149,8 @@ __half* MultiHeadAttentionLayer::Backward(__half* grad){
 	checkCUDNN(cudnnMultiHeadAttnBackwardData(cudnnHandle_, attnDesc_,
 		(*loWinIdx).data(),
 		(*hiWinIdx).data(),
-		(*devSeqLengthsDQDO).data(),
-		(*devSeqLengthsDKDV).data(),
+		(*devSeqLengthsDqdo).data(),
+		(*devSeqLengthsDkdv).data(),
 		oDesc_, grad,
 		qDesc_, gradIn_,
 		qData_,
@@ -191,19 +176,19 @@ __half* MultiHeadAttentionLayer::Backward(__half* grad){
 }
 void MultiHeadAttentionLayer::UpdateParameters(float learningRate){
 	if(useAdamW_){
-		AdamWHalf(wq_, m_Wq_, v_Wq_, learningRate, gradWq_, weightSize_, t_, 0.0001F);
-		AdamWHalf(wk_, m_Wk_, v_Wk_, learningRate, gradWk_, weightSize_, t_, 0.0001F);
-		AdamWHalf(wv_, m_Wv_, v_Wv_, learningRate, gradWv_, weightSize_, t_, 0.0001F);
-		AdamWHalf(wo_, m_Wo_, v_Wo_, learningRate, gradWo_, weightSize_, t_, 0.0001F);
+		AdamWHalf(wq_, gradWq_, m_Wq_, v_Wq_, learningRate, t_, weightDecay_, weightSize_);
+		AdamWHalf(wk_, gradWk_, m_Wk_, v_Wk_, learningRate, t_, weightDecay_, weightSize_);
+		AdamWHalf(wv_, gradWv_, m_Wv_, v_Wv_, learningRate, t_, weightDecay_, weightSize_);
+		AdamWHalf(wo_, gradWo_, m_Wo_, v_Wo_, learningRate, t_, weightDecay_, weightSize_);
 		++t_;
 	} else{
-		SGDHalf(wq_, learningRate, gradWq_, weightSize_);
-		SGDHalf(wk_, learningRate, gradWk_, weightSize_);
-		SGDHalf(wv_, learningRate, gradWv_, weightSize_);
-		SGDHalf(wo_, learningRate, gradWo_, weightSize_);
+		SGDHalf(wq_, gradWq_, weightSize_, learningRate);
+		SGDHalf(wk_, gradWk_, weightSize_, learningRate);
+		SGDHalf(wv_, gradWv_, weightSize_, learningRate);
+		SGDHalf(wo_, gradWo_, weightSize_, learningRate);
 	}
 }
-void MultiHeadAttentionLayer::SaveParameters(std::ofstream& file, float* buffer){
+void MultiHeadAttentionLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	cudaMemcpy(buffer, wq_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
 	cudaMemcpy(buffer, wk_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
@@ -213,7 +198,7 @@ void MultiHeadAttentionLayer::SaveParameters(std::ofstream& file, float* buffer)
 	cudaMemcpy(buffer, wo_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
 }
-void MultiHeadAttentionLayer::LoadParameters(std::ifstream& file, float* buffer){
+void MultiHeadAttentionLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
 	cudaMemcpy(wq_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
@@ -223,51 +208,49 @@ void MultiHeadAttentionLayer::LoadParameters(std::ifstream& file, float* buffer)
 	file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
 	cudaMemcpy(wo_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
 }
-void MultiHeadAttentionLayer::SaveOptimizerState(std::ofstream& file, float* buffer){
+void MultiHeadAttentionLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	if(useAdamW_){
-		cudaMemcpy(buffer, m_Wq_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(buffer, v_Wq_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(buffer, m_Wk_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(buffer, v_Wk_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(buffer, m_Wv_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(buffer, v_Wv_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(buffer, m_Wo_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(buffer, v_Wo_, weightSize_*sizeof(float), cudaMemcpyDeviceToHost);
-		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(float));
+		cudaMemcpy(buffer, m_Wq_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(buffer, v_Wq_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(buffer, m_Wk_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(buffer, v_Wk_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(buffer, m_Wv_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(buffer, v_Wv_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(buffer, m_Wo_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(buffer, v_Wo_, weightSize_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), weightSize_*sizeof(__half));
 	}
 }
-void MultiHeadAttentionLayer::LoadOptimizerState(std::ifstream& file, float* buffer){
+void MultiHeadAttentionLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(useAdamW_){
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(m_Wq_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(v_Wq_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(m_Wk_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(v_Wk_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(m_Wv_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(v_Wv_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(m_Wo_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
-		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(float));
-		cudaMemcpy(v_Wo_, buffer, weightSize_*sizeof(float), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(m_Wq_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(v_Wq_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(m_Wk_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(v_Wk_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(m_Wv_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(v_Wv_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(m_Wo_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), weightSize_*sizeof(__half));
+		cudaMemcpy(v_Wo_, buffer, weightSize_*sizeof(__half), cudaMemcpyHostToDevice);
 	}
 }
-bool MultiHeadAttentionLayer::HasParameters(){ return true; }
-bool MultiHeadAttentionLayer::HasOptimizerState(){ return useAdamW_; }
 size_t MultiHeadAttentionLayer::GetParameterSize(){
 	return 4*weightSize_*sizeof(__half); // wq, wk, wv, wo
 }
 size_t MultiHeadAttentionLayer::GetOptimizerStateSize(){
-	return useAdamW_ ? (8*weightSize_*sizeof(float)) : 0; // m and v for wq, wk, wv, wo
+	return useAdamW_ ? 8*weightSize_*sizeof(__half) : 0; // m and v for wq, wk, wv, wo
 }

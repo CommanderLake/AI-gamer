@@ -1,6 +1,6 @@
 #pragma once
+#include <cudnn.h>
 #include <cuda_fp16.h>
-#include <cudnn_ops_infer.h>
 #include <fstream>
 class Layer{
 public:

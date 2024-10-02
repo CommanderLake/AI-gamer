@@ -1,8 +1,8 @@
 #include "FCLayer.h"
 #include "common.h"
 #include <iostream>
-FCLayer::FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, int outputSize, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle),
-	batchSize_(batchSize), inC_(inputSize), outC_(outputSize), inData_(nullptr), weightDecay_(weightDecay){
+FCLayer::FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle),
+	batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
@@ -11,27 +11,19 @@ FCLayer::FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int bat
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(biasDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, 1, outC_, 1, 1));
 	weightCount_ = inC_*outC_;
-	checkCUDA(cudaMalloc(&weights_, weightCount_*sizeof(__half)));
-	checkCUDA(cudaMalloc(&bias_, outC_*sizeof(__half)));
-	checkCUDA(cudaMalloc(&outData_, outNCHW_*sizeof(__half)));
+	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
+	CUDAMallocZero(&bias_, outC_*sizeof(__half));
+	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	HeInit(weights_, weightCount_, inC_);
-	checkCUDA(cudaMemset(bias_, 0, outC_*sizeof(__half)));
 	if(train_){
-		checkCUDA(cudaMalloc(&gradOut_, batchSize_*inC_*sizeof(__half)));
-		checkCUDA(cudaMalloc(&gradWeights_, weightCount_*sizeof(__half)));
-		checkCUDA(cudaMalloc(&gradBias_, outC_*sizeof(__half)));
-		checkCUDA(cudaMemset(gradWeights_, 0, weightCount_*sizeof(__half)));
-		checkCUDA(cudaMemset(gradBias_, 0, outC_*sizeof(__half)));
-		checkCUDA(cudaMemset(gradOut_, 0, batchSize_*inC_*sizeof(__half)));
+		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
+		CUDAMallocZero(&gradBias_, outC_*sizeof(__half));
+		CUDAMallocZero(&gradOut_, batchSize_*inC_*sizeof(__half));
 		if(useAdamW_){
-			checkCUDA(cudaMalloc(&m_Weights_, weightCount_*sizeof(__half)));
-			checkCUDA(cudaMalloc(&v_Weights_, weightCount_*sizeof(__half)));
-			checkCUDA(cudaMalloc(&m_Bias_, outC_*sizeof(__half)));
-			checkCUDA(cudaMalloc(&v_Bias_, outC_*sizeof(__half)));
-			checkCUDA(cudaMemset(m_Weights_, 0, weightCount_*sizeof(__half)));
-			checkCUDA(cudaMemset(v_Weights_, 0, weightCount_*sizeof(__half)));
-			checkCUDA(cudaMemset(m_Bias_, 0, outC_*sizeof(__half)));
-			checkCUDA(cudaMemset(v_Bias_, 0, outC_*sizeof(__half)));
+			CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
+			CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
+			CUDAMallocZero(&m_Bias_, outC_*sizeof(__half));
+			CUDAMallocZero(&v_Bias_, outC_*sizeof(__half));
 		}
 	}
 }
@@ -67,18 +59,12 @@ __half* FCLayer::Backward(__half* grad){
 }
 void FCLayer::UpdateParameters(float learningRate){
 	if(useAdamW_){
-		//std::cout << layerName_ << ":\r\n";
-		//PrintDataHalf(m_Weights_, 8, "m_Weights_");
-		//PrintDataHalf(v_Weights_, 8, "v_Weights_");
-		//PrintDataHalf(m_Bias_, std::min(8, outC_), "m_Bias_");
-		//PrintDataHalf(v_Bias_, std::min(8, outC_), "v_Bias_");
-		//std::cout << "\r\n";
 		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightCount_);
 		AdamWHalf(bias_, gradBias_, m_Bias_, v_Bias_, learningRate, t_, weightDecay_, outC_);
 		++t_;
 	} else{
-		SGDHalf(weights_, learningRate, gradWeights_, weightCount_);
-		SGDHalf(bias_, learningRate, gradBias_, outC_);
+		SGDHalf(weights_, gradWeights_, weightCount_, learningRate, weightDecay_);
+		SGDHalf(bias_, gradBias_, outC_, learningRate, weightDecay_);
 	}
 }
 void FCLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){

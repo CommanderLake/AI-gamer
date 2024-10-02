@@ -45,22 +45,6 @@ unsigned char keyMap[] = {
 	12,  // Mouse button 2
 	13   // Mouse button 3
 };
-unsigned char keyReMap[] = {
-	VK_UP,       // Up arrow key (replaces W)
-	VK_LEFT,     // Left arrow key (replaces A)
-	VK_DOWN,     // Down arrow key (replaces S)
-	VK_RIGHT,    // Right arrow key (replaces D)
-	VK_SPACE,    // Space
-	VK_CONTROL,  // Ctrl
-	0x10,        // Q
-	0x13,        // R
-	0x12,        // E
-	0x02,        // 1
-	0x03,        // 2
-	VK_LBUTTON,  // Mouse button 1
-	VK_RBUTTON,  // Mouse button 2
-	VK_MBUTTON   // Mouse button 3
-};
 int ConvertSmVer2Cores(int major, int minor){
 	// Defines for GPU Architecture types (using the SM version to determine the # of cores per SM
 	typedef struct{
@@ -173,17 +157,17 @@ void PrintDataHalf(const __half* data, const size_t size, const char* label){
 		PrintDataHalf2(data, size, label);
 		return;
 	}
-	const auto h_data = static_cast<__half*>(_mm_malloc(truncatedSize*sizeof(__half), 32));
-	const auto f_data = static_cast<float*>(_mm_malloc(truncatedSize*sizeof(float), 32));
-	checkCUDA(cudaMemcpy(h_data, data, truncatedSize*sizeof(__half), cudaMemcpyDeviceToHost));
-	H2F128Asm(f_data, h_data, truncatedSize);
+	const auto hData = static_cast<__half*>(_mm_malloc(truncatedSize*sizeof(__half), 32));
+	const auto fData = static_cast<float*>(_mm_malloc(truncatedSize*sizeof(float), 32));
+	checkCUDA(cudaMemcpy(hData, data, truncatedSize*sizeof(__half), cudaMemcpyDeviceToHost));
+	H2F128Asm(fData, hData, truncatedSize);
 	std::cout << label << ":\r\n";
 	for(size_t i = 0; i < truncatedSize; ++i){
-		std::cout << f_data[i] << " ";
+		std::cout << fData[i] << " ";
 	}
 	std::cout << "\r\n";
-	_mm_free(h_data);
-	_mm_free(f_data);
+	_mm_free(hData);
+	_mm_free(fData);
 }
 void PrintDataFloat(const float* data, const size_t size, const char* label){
 	std::vector<float> h_data(size);
@@ -194,12 +178,12 @@ void PrintDataFloat(const float* data, const size_t size, const char* label){
 }
 void PrintDataFloatHost(const float* data, const size_t size, const char* label){
 	std::cout << label << ":\r\n";
-	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
+	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << " "; }
 	std::cout << "\r\n";
 }
 void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
 	std::cout << label << ":\r\n";
-	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << "\r\n"; }
+	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << " "; }
 	std::cout << "\r\n";
 }
 void ClearScreen(char fill){
@@ -213,20 +197,69 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-std::vector<std::string> trainDataInFiles = {"E:\\TrainingData\\training_data_extra.bin", "E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin", "E:\\TrainingData\\training_data4.bin", "E:\\TrainingData\\training_data5.bin"};
+std::vector<std::string> trainDataInFiles = {/*"E:\\TrainingData\\training_data.bin", */"E:\\TrainingData\\training_data1.bin"};
 std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
-std::size_t stateSize;
+std::size_t stateSize_;
 ThreadPool threadPool(8);
 void ReportStreamState(std::ifstream& file){
-	if(file.eof()){ std::cerr<<"End of file reached prematurely.\r\n"; } else if(file.fail()){ std::cerr<<"Logical error on i/o operation.\r\n"; } else if(file.bad()){ std::cerr<<"Read/writing error on i/o operation.\r\n"; } else{
+	if(file.eof()){ std::cerr<<"End of file reached prematurely.\r\n"; } else if(file.fail()){ std::cerr<<"Logical error on I/O operation.\r\n"; } else if(file.bad()){ std::cerr<<"Read/writing error on I/O operation.\r\n"; } else{
 		std::cerr<<"Unknown error occurred.\r\n";
 	}
 	std::cerr<<"Current stream position: "<<file.tellg()<<"\r\n";
 }
-void LoadBatch(StateBatch* batch, int seqLength, int numSequences){
-	for(size_t i = 0; i<numSequences; ++i){
-		threadPool.Enqueue([i, batch, seqLength](){
-			std::mt19937& gen = threadPool.GetThreadGenerator();
+void LoadBatch(StateBatch* batch, int batchSize){
+	for(size_t i = 0; i<batchSize; ++i){
+		threadPool.Enqueue([i, batch]{
+			auto& gen = threadPool.GetThreadGenerator();
+			const std::uniform_int_distribution<> fileDis(0, trainDataInFiles.size() - 1);
+			const std::string selectedFile = trainDataInFiles[fileDis(gen)];
+			const auto recordIndexIt = fileRecordIndex.find(selectedFile);
+			if(recordIndexIt==fileRecordIndex.end()){
+				std::cerr<<"No records for file: "<<selectedFile<<"\r\n";
+				return;
+			}
+			std::ifstream file(selectedFile, std::ios::binary|std::ios::in);
+			if(!file.is_open()){
+				std::cerr<<"Failed to open training data file: "<<selectedFile<<"\r\n";
+				return;
+			}
+			const std::uniform_int_distribution<> recordDis(0, recordIndexIt->second.size() - 1);
+			const size_t recordIndex = recordDis(gen);
+			if(recordIndex>=recordIndexIt->second.size()){
+				std::cerr<<"Record index out of bounds in file: "<<selectedFile<<"\r\n";
+				return;
+			}
+			file.seekg(recordIndexIt->second[recordIndex]);
+			if(file.fail()){
+				std::cerr<<"seekg failed for recordIndex: "<<recordIndex<<" in file: "<<selectedFile<<" at position: "<<recordIndexIt->second[recordIndex]<<"\r\n";
+				return;
+			}
+			if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i]), sizeof(unsigned short))){
+				std::cerr<<"Failed to read keyStates at index "<<i<<" from file: "<<selectedFile<<"\r\n";
+				ReportStreamState(file);
+				return;
+			}
+			if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i]), sizeof(int))){
+				std::cerr<<"Failed to read mouseDeltaX at index "<<i<<" from file: "<<selectedFile<<"\r\n";
+				ReportStreamState(file);
+				return;
+			}
+			if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i]), sizeof(int))){
+				std::cerr<<"Failed to read mouseDeltaY at index "<<i<<" from file: "<<selectedFile<<"\r\n";
+				ReportStreamState(file);
+				return;
+			}
+			if(!file.read(reinterpret_cast<char*>(batch->stateData+i*stateSize_), stateSize_)){
+				std::cerr<<"Failed to read stateData at index "<<i<<" from file: "<<selectedFile<<"\r\n";
+				ReportStreamState(file);
+			}
+		});
+	}
+}
+void LoadBatch3D(StateBatch* batch, int seqLength, int batchSize){
+	for(size_t n = 0; n<batchSize; ++n){
+		threadPool.Enqueue([n, batch, seqLength](){
+			auto& gen = threadPool.GetThreadGenerator();
 			const std::uniform_int_distribution<> fileDis(0, trainDataInFiles.size()-1);
 			const std::string selectedFile = trainDataInFiles[fileDis(gen)];
 			const auto recordIndexIt = fileRecordIndex.find(selectedFile);
@@ -241,7 +274,63 @@ void LoadBatch(StateBatch* batch, int seqLength, int numSequences){
 			}
 			const std::uniform_int_distribution<> recordDis(0, recordIndexIt->second.size()-seqLength);
 			const size_t recordIndex = recordDis(gen);
-			if(recordIndex+seqLength>recordIndexIt->second.size()){
+			if(recordIndex+seqLength>=recordIndexIt->second.size()){
+				std::cerr<<"Record index out of bounds in file: "<<selectedFile<<"\r\n";
+				return;
+			}
+			for(int d = 0; d<seqLength; ++d){
+				file.seekg(recordIndexIt->second[recordIndex+d]);
+				if(file.fail()){
+					std::cerr<<"seekg failed for recordIndex: "<<recordIndex+d<<" in file: "<<selectedFile<<" at position: "<<recordIndexIt->second[recordIndex+d]<<"\r\n";
+					return;
+				}
+				if(!file.read(reinterpret_cast<char*>(&batch->keyStates[n]), sizeof(unsigned short))){
+					std::cerr<<"Failed to read keyStates at index "<<n<<" from file: "<<selectedFile<<"\r\n";
+					ReportStreamState(file);
+					return;
+				}
+				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[n]), sizeof(int))){
+					std::cerr<<"Failed to read mouseDeltaX at index "<<n<<" from file: "<<selectedFile<<"\r\n";
+					ReportStreamState(file);
+					return;
+				}
+				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[n]), sizeof(int))){
+					std::cerr<<"Failed to read mouseDeltaY at index "<<n<<" from file: "<<selectedFile<<"\r\n";
+					ReportStreamState(file);
+					return;
+				}
+				const auto stateCSize = stateSize_/3;
+				for(int c = 0; c<3; ++c){
+					const auto dstIndex = seqLength*stateSize_*n + stateCSize*(c + 3*d);
+					if(!file.read(reinterpret_cast<char*>(batch->stateData+dstIndex), stateCSize)){
+						std::cerr<<"Failed to read stateData at index "<<dstIndex<<" from file: "<<selectedFile<<"\r\n";
+						ReportStreamState(file);
+						return;
+					}
+				}
+			}
+		});
+	}
+}
+void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize){
+	for(size_t i = 0; i<batchSize; ++i){
+		threadPool.Enqueue([i, batch, seqLength, batchSize](){
+			auto& gen = threadPool.GetThreadGenerator();
+			const std::uniform_int_distribution<> fileDis(0, trainDataInFiles.size()-1);
+			const std::string selectedFile = trainDataInFiles[fileDis(gen)];
+			const auto recordIndexIt = fileRecordIndex.find(selectedFile);
+			if(recordIndexIt==fileRecordIndex.end()){
+				std::cerr<<"No records for file: "<<selectedFile<<"\r\n";
+				return;
+			}
+			std::ifstream file(selectedFile, std::ios::binary|std::ios::in);
+			if(!file.is_open()){
+				std::cerr<<"Failed to open training data file: "<<selectedFile<<"\r\n";
+				return;
+			}
+			const std::uniform_int_distribution<> recordDis(0, recordIndexIt->second.size()-seqLength);
+			const size_t recordIndex = recordDis(gen);
+			if(recordIndex+seqLength>=recordIndexIt->second.size()){
 				std::cerr<<"Record index out of bounds in file: "<<selectedFile<<"\r\n";
 				return;
 			}
@@ -251,27 +340,57 @@ void LoadBatch(StateBatch* batch, int seqLength, int numSequences){
 					std::cerr<<"seekg failed for recordIndex: "<<recordIndex+j<<" in file: "<<selectedFile<<" at position: "<<recordIndexIt->second[recordIndex+j]<<"\r\n";
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i*seqLength+j]), sizeof(unsigned short))){
-					std::cerr<<"Failed to read keyStates at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
-					ReportStreamState(file);
-					return;
-				}
-				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i*seqLength+j]), sizeof(int))){
-					std::cerr<<"Failed to read mouseDeltaX at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
-					ReportStreamState(file);
-					return;
-				}
-				if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i*seqLength+j]), sizeof(int))){
-					std::cerr<<"Failed to read mouseDeltaY at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
-					ReportStreamState(file);
-					return;
-				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData+(i*seqLength+j)*stateSize), stateSize)){
-					std::cerr<<"Failed to read stateData at index "<<i*seqLength+j<<" from file: "<<selectedFile<<"\r\n";
+				const auto index = j*batchSize+i;
+				if(j == seqLength - 1){
+					if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i]), sizeof(unsigned short))){
+						std::cerr<<"Failed to read keyStates for sequence "<<i<<" from file: "<<selectedFile<<"\r\n";
+						ReportStreamState(file);
+						return;
+					}
+					if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i]), sizeof(int))){
+						std::cerr<<"Failed to read mouseDeltaX for sequence "<<i<<" from file: "<<selectedFile<<"\r\n";
+						ReportStreamState(file);
+						return;
+					}
+					if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i]), sizeof(int))){
+						std::cerr<<"Failed to read mouseDeltaY for sequence "<<i<<" from file: "<<selectedFile<<"\r\n";
+						ReportStreamState(file);
+						return;
+					}
+				} else file.seekg(10, std::ios_base::cur);
+				// Load stateData for all time steps
+				if(!file.read(reinterpret_cast<char*>(batch->stateData+index*stateSize_), stateSize_)){
+					std::cerr<<"Failed to read stateData at index "<<index<<" from file: "<<selectedFile<<"\r\n";
 					ReportStreamState(file);
 					return;
 				}
 			}
 		});
 	}
+}
+ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, const cudnnTensorDescriptor_t xDesc, const cudnnFilterDescriptor_t wDesc, const cudnnConvolutionDescriptor_t convDesc, const cudnnTensorDescriptor_t yDesc, bool isTraining){
+	ConvolutionAlgorithms algorithms;
+	algorithms.workspaceSize = 0;
+	// Forward algorithm
+	cudnnConvolutionFwdAlgoPerf_t fwdAlgoPerf[10];
+	int returnedAlgoCount;
+	checkCUDNN(cudnnGetConvolutionForwardAlgorithm_v7( cudnnHandle, xDesc, wDesc, convDesc, yDesc, 10, &returnedAlgoCount, fwdAlgoPerf ));
+	algorithms.fwdAlgo = fwdAlgoPerf[0].algo;
+	algorithms.workspaceSize = max(algorithms.workspaceSize, fwdAlgoPerf[0].memory);
+	if(isTraining){
+		// Backward data algorithm
+		cudnnConvolutionBwdDataAlgoPerf_t bwdDataAlgoPerf[10];
+		checkCUDNN(cudnnGetConvolutionBackwardDataAlgorithm_v7( cudnnHandle, wDesc, yDesc, convDesc, xDesc, 10, &returnedAlgoCount, bwdDataAlgoPerf ));
+		algorithms.bwdDataAlgo = bwdDataAlgoPerf[0].algo;
+		algorithms.workspaceSize = max(algorithms.workspaceSize, bwdDataAlgoPerf[0].memory);
+		// Backward filter algorithm
+		cudnnConvolutionBwdFilterAlgoPerf_t bwdFilterAlgoPerf[10];
+		checkCUDNN(cudnnGetConvolutionBackwardFilterAlgorithm_v7( cudnnHandle, xDesc, yDesc, convDesc, wDesc, 10, &returnedAlgoCount, bwdFilterAlgoPerf ));
+		algorithms.bwdFilterAlgo = bwdFilterAlgoPerf[0].algo;
+		algorithms.workspaceSize = max(algorithms.workspaceSize, bwdFilterAlgoPerf[0].memory);
+	} else{
+		algorithms.bwdDataAlgo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
+		algorithms.bwdFilterAlgo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
+	}
+	return algorithms;
 }

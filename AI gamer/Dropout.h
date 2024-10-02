@@ -1,9 +1,11 @@
 #pragma once
+#include <cudnn.h>
+
 #include "Layer.h"
 
 class Dropout : public Layer{
 public:
-	Dropout(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, float dropoutRate, const char* layerName);
+	Dropout(cudnnHandle_t cudnnHandle, float dropoutRate, int batchSize, int channels, int height, int width, const char* layerName, bool train);
 	~Dropout() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

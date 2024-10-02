@@ -1,11 +1,11 @@
 #pragma once
 #include "Layer.h"
 #include <cublas_v2.h>
-
+#include <cudnn.h>
 class FCLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, int outputSize, const char* layerName, bool train, float weightDecay);
+	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay);
 	~FCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

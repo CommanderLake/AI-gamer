@@ -4,7 +4,7 @@
 class BatchNorm final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	BatchNorm(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t outDesc, cudnnBatchNormMode_t bnMode, int bitchSize, const char* layerName, bool train, float weightDecay);
+	BatchNorm(cudnnHandle_t cudnnHandle, cudnnBatchNormMode_t bnMode, int batchSize, int channels, int height, int width, const char* layerName, bool train, float weightDecay);
 	~BatchNorm() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -19,7 +19,7 @@ public:
 	cudnnTensorDescriptor_t bnScaleBiasDesc_;
 	cudnnTensorDescriptor_t gradDesc_;
 	cudnnBatchNormMode_t bnMode_;
-	size_t bitchSize_;
+	size_t batchSize_;
 	__half* inData_;
 	__half* outData_;
 	float epsilon_;

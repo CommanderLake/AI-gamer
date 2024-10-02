@@ -1,42 +1,24 @@
 #include "LayerNorm.h"
 #include "common.h"
 #include <vector>
-LayerNorm::LayerNorm(cudnnTensorDescriptor_t outDesc, int batchSize, const char* layerName) : batchSize_(batchSize), inData_(nullptr), epsilon_(1e-6){
+LayerNorm::LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, float weightDecay) : batchSize_(batchSize), outC_(channels), outHW_(height*width), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;
-	outDesc_ = outDesc;
-	cudnnDataType_t dt;
-	int n, c, h, w, ns, cs, hs, ws;
-	cudnnGetTensor4dDescriptor(outDesc, &dt, &n, &c, &h, &w, &ns, &cs, &hs, &ws);
-	outC_ = c;
-	outHW_ = h*w;
-	outCHW_ = c*outHW_;
-	outNCHW_ = n*outCHW_;
-	checkCUDNN(cudnnCreateTensorDescriptor(&gradDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(gradDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, n, h, w, c));
-	checkCUDA(cudaMalloc(&outData_, outNCHW_*sizeof(__half)));
-	checkCUDA(cudaMemset(outData_, 0, outNCHW_*sizeof(__half)));
-	const auto paramSizeBytes = c*sizeof(float);
-	checkCUDA(cudaMalloc(&gamma_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&beta_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&gradGamma_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&gradBeta_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&mean_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&variance_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&mGamma_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&vGamma_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&mBeta_, paramSizeBytes));
-	checkCUDA(cudaMalloc(&vBeta_, paramSizeBytes));
-	const std::vector<float> gammaInit(c, 1.0f);
+	outCHW_ = outC_*outHW_;
+	outNCHW_ = batchSize_*outCHW_;
+	const auto paramSizeBytes = outC_*sizeof(float);
+	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
+	CUDAMallocZero(&gamma_, paramSizeBytes);
+	CUDAMallocZero(&beta_, paramSizeBytes);
+	CUDAMallocZero(&gradGamma_, paramSizeBytes);
+	CUDAMallocZero(&gradBeta_, paramSizeBytes);
+	CUDAMallocZero(&mean_, paramSizeBytes);
+	CUDAMallocZero(&variance_, paramSizeBytes);
+	CUDAMallocZero(&mGamma_, paramSizeBytes);
+	CUDAMallocZero(&vGamma_, paramSizeBytes);
+	CUDAMallocZero(&mBeta_, paramSizeBytes);
+	CUDAMallocZero(&vBeta_, paramSizeBytes);
+	const std::vector<float> gammaInit(outC_, 1.0f);
 	checkCUDA(cudaMemcpy(gamma_, gammaInit.data(), paramSizeBytes, cudaMemcpyHostToDevice));
-	checkCUDA(cudaMemset(beta_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(gradGamma_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(gradBeta_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(mean_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(variance_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(mGamma_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(vGamma_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(mBeta_, 0, paramSizeBytes));
-	checkCUDA(cudaMemset(vBeta_, 0, paramSizeBytes));
 }
 LayerNorm::~LayerNorm(){
 	cudaFree(outData_);
@@ -50,25 +32,56 @@ LayerNorm::~LayerNorm(){
 	cudaFree(vGamma_);
 	cudaFree(mBeta_);
 	cudaFree(vBeta_);
-	cudnnDestroyTensorDescriptor(gradDesc_);
 }
 __half* LayerNorm::Forward(__half* data){
 	inData_ = data;
-	LayerNormForward(outData_, data, gamma_, beta_, mean_, variance_, batchSize_, outC_, outHW_, epsilon_);
-	if(const cudaError_t err = cudaGetLastError(); err != cudaSuccess){
-		printf("CUDA error in Forward: %s\n", cudaGetErrorString(err));
-	}
+	LayerNormForward(outData_, data, gamma_, beta_, mean_, variance_, batchSize_, outC_, outHW_);
 	return outData_;
 }
 __half* LayerNorm::Backward(__half* grad){
-	LayerNormBackward(grad, grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, batchSize_, outC_, outHW_, epsilon_);
-	if(const cudaError_t err = cudaGetLastError(); err != cudaSuccess){
-		printf("CUDA error in Backward: %s\n", cudaGetErrorString(err));
-	}
+	LayerNormBackward(grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, batchSize_, outC_, outHW_);
 	return grad;
 }
 void LayerNorm::UpdateParameters(float learningRate){
-	AdamWFloat(gamma_, mGamma_, vGamma_, learningRate, gradGamma_, outNCHW_, t_, 0.001F);
-	AdamWFloat(beta_, mBeta_, vBeta_, learningRate, gradBeta_, outNCHW_, t_, 0.001F);
+	AdamWFloat(gamma_, gradGamma_, mGamma_, vGamma_, learningRate, t_, weightDecay_, outC_);
+	AdamWFloat(beta_, gradBeta_, mBeta_, vBeta_, learningRate, t_, weightDecay_, outC_);
 	++t_;
+}
+void LayerNorm::SaveParameters(std::ofstream& file, unsigned char* buffer){
+	cudaMemcpy(buffer, gamma_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(buffer, beta_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+}
+void LayerNorm::LoadParameters(std::ifstream& file, unsigned char* buffer){
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(gamma_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(beta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+}
+void LayerNorm::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
+	cudaMemcpy(buffer, mGamma_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(buffer, vGamma_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(buffer, mBeta_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(buffer, vBeta_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+}
+void LayerNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(mGamma_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(vGamma_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(mBeta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	cudaMemcpy(vBeta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+}
+size_t LayerNorm::GetParameterSize(){
+	return outC_*sizeof(float);
+}
+size_t LayerNorm::GetOptimizerStateSize(){
+	return outC_*sizeof(float);
 }
