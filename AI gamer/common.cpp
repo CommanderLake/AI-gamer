@@ -197,7 +197,7 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-std::vector<std::string> trainDataInFiles = {/*"E:\\TrainingData\\training_data.bin", */"E:\\TrainingData\\training_data1.bin"};
+std::vector<std::string> trainDataInFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin"};
 std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
 std::size_t stateSize_;
 ThreadPool threadPool(8);

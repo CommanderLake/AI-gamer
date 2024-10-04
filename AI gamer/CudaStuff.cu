@@ -325,26 +325,21 @@ extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const
 	BCEGradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale);
 }
 __global__ void DiscriminatorGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const int numCtrls, const int numButs, const float binaryScale, const float continuousScale, const float clip){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float pred = __half2float(predictions[idx]);
 		const float target = __half2float(targets[idx]);
 		float gradient;
-		if(idx%numCtrls < numButs){
-			// Binary output (BCE loss)
-			constexpr float epsilon = 1e-7f;
-			const float pClamped = fminf(fmaxf(pred, epsilon), 1.0f - epsilon);
-			if(target > 0.5f){
-				gradient = (pClamped - 1.0f)/pClamped;
-			} else{
-				gradient = pClamped/(1.0f - pClamped);
-			}
+		if(idx % numCtrls < numButs){
+			// Binary output (Sigmoid activation + BCE loss)
+			gradient = pred - target;
 			gradient *= binaryScale;
 		} else{
 			// Continuous output (MSE loss)
-			gradient = 2.0f*(pred - target);
+			gradient = 2.0f * (pred - target);
 			gradient *= continuousScale;
 		}
+		// Apply gradient clipping
 		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
 	}
 }
@@ -357,20 +352,21 @@ __global__ void GAILGradientKernel(__half* gradients, const __half* predictions,
 	if(idx < size){
 		const float pred = __half2float(predictions[idx]);
 		const float expert = expertActions[idx];
-		float imitationGrad, entropyGrad;
+		float imitationGrad, adversarialGrad, entropyGrad;
 		float scale;
-		const float adversarialGrad = -1.0f/(__half2float(discOutput[idx])+1e-6f);
 		if(idx%numCtrls < numButs){ // binary output
 			imitationGrad = -expert / (pred + 1e-6f) + (1.0f - expert) / (1.0f - pred + 1e-6f);
+			adversarialGrad = -1.0f;
 			entropyGrad = -logf(pred + 1e-6f) + logf(1.0f - pred + 1e-6f);
 			scale = butScale;
 		} else{ // continuous output
 			imitationGrad = 2.0f * (pred - expert);
+			adversarialGrad = -1.0f;
 			entropyGrad = 0.0f;
 			scale = axiScale;
 		}
-		const float combinedGrad = imitationGrad + lambda * adversarialGrad + entropyCoeff * entropyGrad;
-		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad * scale)));
+		const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx]) + entropyCoeff*entropyGrad;
+		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad*scale)));
 	}
 }
 extern "C" void GAILGradient(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, const int batchSize, const int numCtrls, const int numButs, const float lambda, const float entropyCoeff, const float butScale, const float axiScale, const float clip){

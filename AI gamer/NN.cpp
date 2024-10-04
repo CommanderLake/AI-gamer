@@ -29,7 +29,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inWidth_ = netWidth;
 	inHeight_ = netHeight;
 	std::cout << "Initializing layers... ";
-	constexpr auto wd = 0.000005f;
+	constexpr auto wd = 0.000001f;
 	auto outC = 32;
 	layers_.push_back(new ConvLayer(cudnn_, batchSize_, 3, outC, 2, 2, 0, &netHeight, &netWidth, "Conv0", train, wd));
 	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC, netHeight, netWidth, "Conv0 BatchNorm", train, wd));

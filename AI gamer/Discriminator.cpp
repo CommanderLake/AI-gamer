@@ -28,10 +28,9 @@ Discriminator::Discriminator(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHan
 	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, outC, "Disc FC4", train, wd));
 	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Disc BN4", train, wd));
 	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Disc ReLU4"));
-	outC = inputSize_;
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 128, outC, "Disc FC Out", train, wd));
-	layers_.push_back(new Sigmoid(numButs_, batchSize_, outC, "Disc Sigmoid Out"));
-	checkCUDA(cudaMalloc(&gradient_, inputSize_*batchSize_*sizeof(__half)));
+	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 128, 1, "Disc FC Out", train, wd));
+	layers_.push_back(new Sigmoid(1, batchSize_, 1, "Disc Sigmoid Out"));
+	checkCUDA(cudaMalloc(&gradient_, batchSize_*sizeof(__half)));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
@@ -46,7 +45,7 @@ __half* Discriminator::Forward(__half* data){
 	return data;
 }
 __half* Discriminator::Backward(const __half* predictions, const __half* targets){
-	DiscriminatorGradient(gradient_, predictions, targets, inputSize_*batchSize_, numCtrls_, numButs_, 1.0f, 1.0f, 32.0f);
+	BCEGradient(gradient_, predictions, targets, batchSize_, 1.0);
 	auto outGrad = gradient_;
 	for(int i = layers_.size(); --i>=0;){ outGrad = layers_[i]->Backward(outGrad); }
 	return outGrad;
