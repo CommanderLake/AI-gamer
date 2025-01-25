@@ -6,7 +6,7 @@
 #include <vector>
 class NN{
 public:
-	NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train);
+	NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train, float lr = 0.00001f);
 	~NN();
 	__half* Forward(__half* data);
 	__half* Backward(__half* grad);
@@ -18,6 +18,8 @@ public:
 	std::vector<Layer*> layers_;
 	int batchSize_;
 	int seqLength_;
+	int batchStateTotal_;
+	int stateSize_;
 	int inWidth_, inHeight_;
 	float learningRate_;
 	size_t maxBufferSize_;

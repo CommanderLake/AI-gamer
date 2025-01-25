@@ -1,15 +1,13 @@
 #include "NN.h"
 #include "Activate.h"
 #include "ConvLayer.h"
-#include "FCLayer.h"
 #include "BatchNorm.h"
-#include "Dropout.h"
-#include "LeakyReLU.h"
+#include "CustomOutLayer.h"
 #include "ResConvLayer.h"
-#include "Sigmoid.h"
-#include "Swish.h"
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), seqLength_(1), inWidth_(0), inHeight_(0), learningRate_(0.00001f), maxBufferSize_(0){
+#include "SpatialAttentionLayer.h"
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train, float lr): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(20), seqLength_(1), inWidth_(0), inHeight_(0), learningRate_(lr), maxBufferSize_(0){
 	if(!train) batchSize_ = 1;
+	batchStateTotal_ = batchSize_*seqLength_;
 	std::ifstream ckptFile(ckptFileName, std::ios::binary);
 	const bool fileOpen = ckptFile.is_open();
 	int netWidth = w;
@@ -28,37 +26,21 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	}
 	inWidth_ = netWidth;
 	inHeight_ = netHeight;
+	stateSize_ = inWidth_*inHeight_*3;
 	std::cout << "Initializing layers... ";
-	constexpr auto wd = 0.000001f;
+	constexpr auto wd = 0.0000001f;
 	auto outC = 32;
-	layers_.push_back(new ConvLayer(cudnn_, batchSize_, 3, outC, 2, 2, 0, &netHeight, &netWidth, "Conv0", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC, netHeight, netWidth, "Conv0 BatchNorm", train, wd));
-	//layers_.push_back(new Swish(batchSize_*outC*netHeight*netWidth, "Conv0 Swish"));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, netHeight, netWidth, "Conv0 ReLU"));
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 3, 2, 1, &netHeight, &netWidth, "Conv0", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0 BatchNorm", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv0 ReLU"));
+	outC = 32;
+	layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv0", train, wd));
 	outC = 64;
-	layers_.push_back(new ResConvLayer(cudnn_, batchSize_, 32, outC, &netHeight, &netWidth, "ResConv0", train));
+	layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv1", train, wd));
 	outC = 128;
-	layers_.push_back(new ResConvLayer(cudnn_, batchSize_, 64, outC, &netHeight, &netWidth, "ResConv1", train));
-	outC = 256;
-	layers_.push_back(new ResConvLayer(cudnn_, batchSize_, 128, outC, &netHeight, &netWidth, "ResConv2", train));
-	outC = 1024;
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256*netHeight*netWidth, outC, "FC0", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "FC0 BatchNorm", train, wd));
-	//layers_.push_back(new Swish(batchSize_*outC, "FC0 Swish"));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "FC0 ReLU"));
-	outC = 512;
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 1024, outC, "FC1", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "FC1 BatchNorm", train, wd));
-	//layers_.push_back(new Swish(batchSize_*outC, "FC1 Swish"));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "FC1 ReLU"));
-	outC = 256;
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 512, outC, "FC2", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "FC2 BatchNorm", train, wd));
-	//layers_.push_back(new Swish(batchSize_*outC, "FC2 Swish"));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "FC2 ReLU"));
-	outC = numCtrls_;
-	layers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, 256, outC, "FC Out", train, wd));
-	layers_.push_back(new Sigmoid(numButs_, batchSize_, outC, "Sigmoid"));
+	layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 64, outC, &netHeight, &netWidth, "ResConv2", train, wd));
+	//layers_.push_back(new SpatialAttentionLayer(cudnn_, 32, 8, batchSize_, outC, netHeight, netWidth, "SpatAtt", train, wd));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, outC*netHeight*netWidth, "SplitOut", train, wd));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());

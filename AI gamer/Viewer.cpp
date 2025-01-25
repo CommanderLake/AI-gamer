@@ -1,27 +1,40 @@
 #include "Viewer.h"
+#include <sstream>
 #include <iostream>
-#include <chrono>
-Viewer::Viewer(WNDPROC windowProc) : hwnd(nullptr), hdc(nullptr), gdiplusToken(0), windowProc(windowProc){}
-Viewer::~Viewer(){
-	Gdiplus::GdiplusShutdown(gdiplusToken);
-	ReleaseDC(hwnd, hdc);
-	DestroyWindow(hwnd);
+#include <fstream>
+LRESULT CALLBACK Viewer::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
+	switch(uMsg){
+		case WM_DESTROY: PostQuitMessage(0);
+			return 0;
+		default: return DefWindowProc(hwnd, uMsg, wParam, lParam);
+	}
 }
-void Viewer::InitializeWindow(int width, int height){
-	GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
-	const char CLASS_NAME[] = "ImageDisplayWindowClass";
+Viewer::Viewer() : hwnd_(nullptr), hdc_(nullptr), gdiplusToken_(0){}
+Viewer::~Viewer(){
+	Gdiplus::GdiplusShutdown(gdiplusToken_);
+	ReleaseDC(hwnd_, hdc_);
+	DestroyWindow(hwnd_);
+}
+void Viewer::InitializeWindow(const int width, const int height){
+	GdiplusStartup(&gdiplusToken_, &gdiplusStartupInput_, nullptr);
+	constexpr char className[] = "ImageDisplayWindowClass";
 	WNDCLASS wc = {};
-	wc.lpfnWndProc = windowProc;
+	wc.lpfnWndProc = WindowProc;
 	wc.hInstance = GetModuleHandle(nullptr);
-	wc.lpszClassName = CLASS_NAME;
+	wc.lpszClassName = className;
 	RegisterClass(&wc);
-	hwnd = CreateWindowEx(0, CLASS_NAME, "Image Viewer", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
-	if(hwnd == nullptr){
-		std::cerr << "Failed to create window!" << std::endl;
+	constexpr DWORD windowStyle = WS_OVERLAPPEDWINDOW;
+	RECT adjustedRect = {0, 0, width, height};
+	AdjustWindowRect(&adjustedRect, windowStyle, FALSE);
+	const int adjustedWidth = adjustedRect.right-adjustedRect.left;
+	const int adjustedHeight = adjustedRect.bottom-adjustedRect.top;
+	hwnd_ = CreateWindowEx(0, className, "Image Viewer", windowStyle, CW_USEDEFAULT, CW_USEDEFAULT, adjustedWidth, adjustedHeight, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
+	if(hwnd_==nullptr){
+		std::cerr<<"Failed to create window!"<<std::endl;
 		exit(1);
 	}
-	ShowWindow(hwnd, SW_SHOW);
-	hdc = GetDC(hwnd);
+	ShowWindow(hwnd_, SW_SHOW);
+	hdc_ = GetDC(hwnd_);
 }
 void Viewer::ShowImage(const unsigned char* imageData, int width, int height) const{
 	Gdiplus::Bitmap bitmap(width, height, PixelFormat24bppRGB);
@@ -40,31 +53,34 @@ void Viewer::ShowImage(const unsigned char* imageData, int width, int height) co
 		}
 	}
 	bitmap.UnlockBits(&bitmapData);
-	Gdiplus::Graphics graphics(hdc);
+	Gdiplus::Graphics graphics(hdc_);
 	graphics.DrawImage(&bitmap, 0, 0, width, height);
 }
+const std::string DOWN = "1";
+const std::string UP = "0";
+std::ostringstream output;
 void Viewer::ShowKeyState(const unsigned short keyStates, const int mouseDeltaX, const int mouseDeltaY){
-	// Clear the console
+	output.str("");
+	//if(keyStates & 1) DebugBreak();
+	output << "Key States:\r\n";
+	output << "Move forward (W): " << (keyStates & 1 ? DOWN : UP) << "\r\n";
+	output << "Move left (A): " << (keyStates & 1 << 1 ? DOWN : UP) << "\r\n";
+	output << "Move backward (S): " << (keyStates & 1 << 2 ? DOWN : UP) << "\r\n";
+	output << "Move right (D): " << (keyStates & 1 << 3 ? DOWN : UP) << "\r\n";
+	output << "Jump (Space): " << (keyStates & 1 << 4 ? DOWN : UP) << "\r\n";
+	output << "Crouch (CTRL): " << (keyStates & 1 << 5 ? DOWN : UP) << "\r\n";
+	output << "Melee (Q): " << (keyStates & 1 << 6 ? DOWN : UP) << "\r\n";
+	output << "Reload (R): " << (keyStates & 1 << 7 ? DOWN : UP) << "\r\n";
+	output << "Action (E): " << (keyStates & 1 << 8 ? DOWN : UP) << "\r\n";
+	output << "Switch weapon (1): " << (keyStates & 1 << 9 ? DOWN : UP) << "\r\n";
+	output << "Switch grenade (2): " << (keyStates & 1 << 10 ? DOWN : UP) << "\r\n";
+	output << "Shoot (Mouse button 1): " << (keyStates & 1 << 11 ? DOWN : UP) << "\r\n";
+	output << "Zoom in (Mouse button 2): " << (keyStates & 1 << 12 ? DOWN : UP) << "\r\n";
+	output << "Throw grenade (Mouse button 3): " << (keyStates & 1 << 13 ? DOWN : UP) << "\r\n";
+	output << "Mouse Delta X: " << mouseDeltaX << "\r\n";
+	output << "Mouse Delta Y: " << mouseDeltaY << "\r\n";
 	ClearScreen();
-	// Viewer the key states
-	std::cout << "Key States:\n";
-	std::cout << "Move forward (W): " << (keyStates & 1 ? "Pressed" : "Released") << "\n";
-	std::cout << "Move left (A): " << (keyStates & 1 << 1 ? "Pressed" : "Released") << "\n";
-	std::cout << "Move backward (S): " << (keyStates & 1 << 2 ? "Pressed" : "Released") << "\n";
-	std::cout << "Move right (D): " << (keyStates & 1 << 3 ? "Pressed" : "Released") << "\n";
-	std::cout << "Jump (Space): " << (keyStates & 1 << 4 ? "Pressed" : "Released") << "\n";
-	std::cout << "Crouch (CTRL): " << (keyStates & 1 << 5 ? "Pressed" : "Released") << "\n";
-	std::cout << "Melee (Q): " << (keyStates & 1 << 6 ? "Pressed" : "Released") << "\n";
-	std::cout << "Reload (R): " << (keyStates & 1 << 7 ? "Pressed" : "Released") << "\n";
-	std::cout << "Action (E): " << (keyStates & 1 << 8 ? "Pressed" : "Released") << "\n";
-	std::cout << "Switch weapon (1): " << (keyStates & 1 << 9 ? "Pressed" : "Released") << "\n";
-	std::cout << "Switch grenade (2): " << (keyStates & 1 << 10 ? "Pressed" : "Released") << "\n";
-	std::cout << "Shoot (Mouse button 1): " << (keyStates & 1 << 11 ? "Pressed" : "Released") << "\n";
-	std::cout << "Zoom in (Mouse button 2): " << (keyStates & 1 << 12 ? "Pressed" : "Released") << "\n";
-	std::cout << "Throw grenade (Mouse button 3): " << (keyStates & 1 << 13 ? "Pressed" : "Released") << "\n";
-	// Viewer the mouse movements
-	std::cout << "Mouse Delta X: " << mouseDeltaX << "\n";
-	std::cout << "Mouse Delta Y: " << mouseDeltaY << "\n";
+	std::cout << output.str();
 }
 void Viewer::Play(std::string fileName){
 	std::ifstream file(fileName, std::ios::binary | std::ios::in);

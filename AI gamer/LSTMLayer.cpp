@@ -1,19 +1,19 @@
 #include "LSTMLayer.h"
 #include "common.h"
 #include <iostream>
-LSTMLayer::LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, int hiddenSize, int batchSize, int inC, const char* layerName, bool train) : cudnnHandle_(cudnnHandle), inData_(nullptr), batchSize_(batchSize), seqLength_(seqLength),
-																																							hiddenSize_(hiddenSize), inC_(inC), numLayers_(numLayers){
+LSTMLayer::LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, int hiddenSize, int batchSize, int inC, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle), inData_(nullptr), batchSize_(batchSize),
+	seqLength_(seqLength), hiddenSize_(hiddenSize), inC_(inC), numLayers_(numLayers), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = seqLength_*batchSize_*inC_;
 	checkCUDNN(cudnnDropoutGetStatesSize(cudnnHandle_, &stateSize_));
 	CUDAMallocZero(&dropoutStates_, stateSize_);
 	checkCUDNN(cudnnCreateDropoutDescriptor(&dropoutDesc_));
-	checkCUDNN(cudnnSetDropoutDescriptor(dropoutDesc_, cudnnHandle_, 0.5f, dropoutStates_, stateSize_, static_cast<unsigned long long>(time(nullptr))));
+	checkCUDNN(cudnnSetDropoutDescriptor(dropoutDesc_, cudnnHandle_, 0.0f, dropoutStates_, stateSize_, static_cast<unsigned long long>(time(nullptr))));
 	checkCUDNN(cudnnCreateRNNDescriptor(&rnnDesc_));
 	checkCUDNN(cudnnSetRNNDescriptor(cudnnHandle_, rnnDesc_, hiddenSize_, numLayers_, dropoutDesc_, CUDNN_LINEAR_INPUT, CUDNN_UNIDIRECTIONAL, CUDNN_LSTM, CUDNN_RNN_ALGO_STANDARD, CUDNN_DATA_HALF));
 	checkCUDNN(cudnnRNNSetClip(cudnnHandle_, rnnDesc_, CUDNN_RNN_CLIP_MINMAX, CUDNN_PROPAGATE_NAN, -5.0, 5.0));
-	checkCUDNN(cudnnSetRNNMatrixMathType(rnnDesc_, CUDNN_TENSOR_OP_MATH));//S
+	checkCUDNN(cudnnSetRNNMatrixMathType(rnnDesc_, CUDNN_TENSOR_OP_MATH)); //S
 	xDesc_ = new cudnnTensorDescriptor_t[seqLength_];
 	yDesc_ = new cudnnTensorDescriptor_t[seqLength_];
 	for(int i = 0; i<seqLength_; ++i){
@@ -33,6 +33,23 @@ LSTMLayer::LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, in
 	CUDAMallocZero(&weights_, weightSpaceSize_);
 	CUDAMallocZero(&outData_, seqLength_*batchSize_*hiddenSize_*sizeof(__half));
 	HeInit(weights_, weightCount_, inC_+hiddenSize_);
+	cudnnFilterDescriptor_t linLayerBiasDesc;
+	checkCUDNN(cudnnCreateFilterDescriptor(&linLayerBiasDesc));
+	checkCUDNN(cudnnSetFilter4dDescriptor(linLayerBiasDesc, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, 1, hiddenSize_, 1, 1));
+	std::vector<__half> forgetGateBias(hiddenSize_, __half(1.0f));
+	for(int pseudoLayer = 0; pseudoLayer < numLayers_; ++pseudoLayer){
+		for(int linLayerID = 0; linLayerID < 8; ++linLayerID){
+			void* linLayerBias;
+			checkCUDNN(cudnnGetRNNLinLayerBiasParams(
+				cudnnHandle_, rnnDesc_, pseudoLayer, xDesc_[0], weightDesc_, weights_, linLayerID, linLayerBiasDesc, &linLayerBias
+			));
+			if(linLayerID == 1 || linLayerID == 5){
+				checkCUDA(cudaMemcpy(linLayerBias, forgetGateBias.data(), hiddenSize_*sizeof(__half), cudaMemcpyHostToDevice));
+			} else{
+				checkCUDA(cudaMemset(linLayerBias, 0, hiddenSize_*sizeof(__half)));
+			}
+		}
+	}
 	CUDAMallocZero(&dx_, seqLength_*batchSize_*hiddenSize_*sizeof(__half));
 	checkCUDNN(cudnnGetRNNWorkspaceSize(cudnnHandle_, rnnDesc_, seqLength_, xDesc_, &workspaceSize_));
 	CUDAMallocZero(&workspace_, workspaceSize_);
@@ -100,7 +117,9 @@ __half* LSTMLayer::Forward(__half* data){
 			workspace_, workspaceSize_
 		));
 	}
-	return outData_ + (seqLength_ - 1)*batchSize_*hiddenSize_;
+	const auto outP = outData_ + (seqLength_ - 1)*batchSize_*hiddenSize_;
+	//PrintDataHalf(outP, 16, "\nLSTM");
+	return outP;
 }
 __half* LSTMLayer::Backward(__half* grad){
 	checkCUDA(cudaMemcpy(dx_ + (seqLength_ - 1)*batchSize_*hiddenSize_, grad, batchSize_*hiddenSize_*sizeof(__half), cudaMemcpyDeviceToDevice));

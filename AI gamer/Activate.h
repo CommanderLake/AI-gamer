@@ -11,7 +11,7 @@ public:
 	cudnnHandle_t cudnnHandle_;
 	cudnnActivationDescriptor_t activDesc_;
 	cudnnTensorDescriptor_t gradDesc_;
-	__half* data_ = nullptr;
+	__half *dataIn_, *dataOut_;
 	const float alpha = 1.0f;
 	const float beta0 = 0.0f;
 	const float beta1 = 1.0f;

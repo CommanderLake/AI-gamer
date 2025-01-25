@@ -5,12 +5,11 @@
 #include <cublas_v2.h>
 #include <vector>
 #include "Activate.h"
-#include "LeakyReLU.h"
-#include "Swish.h"
-class ResConvLayer : public Layer{
+#include "FCLayer.h"
+class ResFCLayer : public Layer{
 public:
-	ResConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int outC, int *inHeight, int *inWidth, const char* layerName, bool train, float weightDecay);
-	~ResConvLayer() override;
+	ResFCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay);
+	~ResFCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
@@ -20,11 +19,12 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
+	cudaStream_t cudaStream_;
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t inDesc_;
 	int batchSize_;
 	std::vector<Layer*> layers_;
-	ConvLayer* residue_;
+	FCLayer* residue_;
 	Activate* resAct_;
 	const float blendFwd = 0.5f;
 	const float blendBwd = 0.1f;

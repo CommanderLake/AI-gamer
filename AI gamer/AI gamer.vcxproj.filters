@@ -18,9 +18,6 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="input_recorder.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ConvLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -63,9 +60,6 @@
     <ClCompile Include="Train.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Discriminator.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="SpatialAttentionLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -81,15 +75,21 @@
     <ClCompile Include="Swish.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CustomOutLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ResFCLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Record.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Tune.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="input_recorder.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="NvDisplayCap.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="GetError.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="NvFBCLibrary.h">
@@ -140,9 +140,6 @@
     <ClInclude Include="Train.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Discriminator.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="SpatialAttentionLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -156,6 +153,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Swish.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomOutLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ResFCLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Record.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Tune.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

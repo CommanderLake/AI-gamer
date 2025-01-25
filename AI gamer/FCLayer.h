@@ -5,7 +5,7 @@
 class FCLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay);
+	FCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay);
 	~FCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -16,6 +16,7 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
+	cudaStream_t cudaStream_;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	cudnnTensorDescriptor_t biasDesc_;

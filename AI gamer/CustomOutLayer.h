@@ -1,16 +1,11 @@
 #pragma once
 #include "Layer.h"
-#include "ConvLayer.h"
-#include <cudnn.h>
 #include <cublas_v2.h>
 #include <vector>
-#include "Activate.h"
-#include "LeakyReLU.h"
-#include "Swish.h"
-class ResConvLayer : public Layer{
+class CustomOutLayer : public Layer{
 public:
-	ResConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int outC, int *inHeight, int *inWidth, const char* layerName, bool train, float weightDecay);
-	~ResConvLayer() override;
+	CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, const char* layerName, bool train, float weightDecay);
+	~CustomOutLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
@@ -20,12 +15,13 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	cudnnHandle_t cudnnHandle_;
+	cudaStream_t buttonStream_, axisStream_;
+	cudnnHandle_t cudnn_;
+	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
 	int batchSize_;
-	std::vector<Layer*> layers_;
-	ConvLayer* residue_;
-	Activate* resAct_;
-	const float blendFwd = 0.5f;
-	const float blendBwd = 0.1f;
+	std::vector<Layer*> buttonLayers_;
+	std::vector<Layer*> axisLayers_;
+	__half* outData_;
+	const float alpha = 0.5f;
 };

@@ -3,21 +3,18 @@
 #include "common.h"
 #include "BatchNorm.h"
 #include "ConvLayer.h"
-#include "LeakyReLU.h"
-#include "Swish.h"
-ResConvLayer::ResConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int outC, int *inHeight, int *inWidth, const char* layerName, bool train): cudnnHandle_(cudnnHandle), batchSize_(batchSize){
+ResConvLayer::ResConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int outC, int *inHeight, int *inWidth, const char* layerName, bool train, float weightDecay): cudnnHandle_(cudnnHandle), batchSize_(batchSize){
 	layerName_ = layerName;
 	train_ = train;
-	constexpr auto wd = 0.000001f;
+	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC, *inHeight, *inWidth));
 	int resH = *inHeight, resW = *inWidth;
-	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, inC, outC, 4, 2, 1, inHeight, inWidth, "Conv0", train, wd));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC, *inHeight, *inWidth, "Conv0 BatchNorm", train_, wd));
-	//layers_.push_back(new Swish(batchSize_*outC**inHeight**inWidth, "Conv0 Swish"));
+	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, inC, outC, 4, 2, 1, inHeight, inWidth, "Conv0", train, weightDecay));
+	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC, *inHeight, *inWidth, "Conv0 BatchNorm", train_, weightDecay));
 	layers_.push_back(new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, *inHeight, *inWidth, "Conv0 ReLU"));
-	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, outC, outC, 3, 1, 1, inHeight, inWidth, "Conv1", train, wd));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC, *inHeight, *inWidth, "Conv1 BatchNorm", train_, wd));
-	residue_ = new ConvLayer(cudnnHandle_, batchSize_, inC, outC, 2, 2, 0, &resH, &resW, "Residue", train, wd);
-	//resAct_ = new Swish(batchSize_*outC*resH*resW, "Residue Swish");
+	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, outC, outC, 3, 1, 1, inHeight, inWidth, "Conv1", train, weightDecay));
+	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC, *inHeight, *inWidth, "Conv1 BatchNorm", train_, weightDecay));
+	residue_ = new ConvLayer(cudnnHandle_, batchSize_, inC, outC, 2, 2, 0, &resH, &resW, "Residue", train, weightDecay);
 	resAct_ = new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, *inHeight, *inWidth, "Residue ReLU");
 }
 ResConvLayer::~ResConvLayer(){
@@ -32,7 +29,7 @@ __half* ResConvLayer::Forward(__half* data){
 		data = layers_[i]->Forward(data);
 		//PrintDataHalf(buttonData, 14, "buttonData");
 	}
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha, residue_->outDesc_, residue, &alpha, layers_.back()->outDesc_, data));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &blendFwd, residue_->outDesc_, residue, &blendFwd, layers_.back()->outDesc_, data));
 	return resAct_->Forward(data);
 }
 __half* ResConvLayer::Backward(__half* grad){
@@ -43,7 +40,7 @@ __half* ResConvLayer::Backward(__half* grad){
 		grad = layers_[i]->Backward(grad);
 		//PrintDataHalf(buttonGrad, 8, "gradient");
 	}
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha, ((ConvLayer*)layers_[0])->inDesc_, residueGrad, &alpha, ((ConvLayer*)layers_[0])->inDesc_, grad));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &blendBwd, inDesc_, residueGrad, &blendBwd, inDesc_, grad));
 	return grad;
 }
 void ResConvLayer::UpdateParameters(float learningRate){

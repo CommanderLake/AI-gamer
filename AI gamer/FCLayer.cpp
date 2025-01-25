@@ -1,8 +1,8 @@
 #include "FCLayer.h"
 #include "common.h"
 #include <iostream>
-FCLayer::FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle),
-	batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay){
+FCLayer::FCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay) : cudaStream_(cudaStream), cudnnHandle_(cudnnHandle),
+	cublasHandle_(cublasHandle), batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
@@ -53,7 +53,7 @@ __half* FCLayer::Forward(__half* data){
 }
 __half* FCLayer::Backward(__half* grad){
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, outC_, inC_, batchSize_, &alpha, grad, CUDA_R_16F, outC_, inData_, CUDA_R_16F, inC_, &beta0, gradWeights_, CUDA_R_16F, outC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	BiasGradient(grad, gradBias_, outC_, batchSize_);
+	BiasGradient(grad, gradBias_, outC_, batchSize_, cudaStream_);
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, inC_, batchSize_, outC_, &alpha, weights_, CUDA_R_16F, outC_, grad, CUDA_R_16F, outC_, &beta0, gradOut_, CUDA_R_16F, inC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return gradOut_;
 }

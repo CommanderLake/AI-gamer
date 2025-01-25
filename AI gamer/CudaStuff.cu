@@ -18,8 +18,11 @@ struct pixRGB{
 };
 curandGenerator_t gen;
 int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
+bool inited = false;
 extern "C" void InitCUDA(){
+	if(inited) return;
 	const CUresult cudaRes = cuInit(0);
+	inited = true;
 	if(cudaRes != CUDA_SUCCESS){
 		const char* pStr = nullptr;
 		cuGetErrorString(cudaRes, &pStr);
@@ -62,10 +65,10 @@ extern "C" cudaError ARGBtoRGB(unsigned char* src, unsigned char* dst, int n){
 }
 __global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, int n){
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += blockDim.x*gridDim.x){
-		const int srcIdx = i*4; // Each pixARGB has 4 bytes
-		dst[i] = src[srcIdx + 2]; // R plane
-		dst[i + n] = src[srcIdx + 1]; // G plane
-		dst[i + 2*n] = src[srcIdx]; // B plane
+		const int srcIdx = i*4;      
+		dst[i] = src[srcIdx + 2];   
+		dst[i + n] = src[srcIdx + 1];   
+		dst[i + 2*n] = src[srcIdx];   
 	}
 }
 extern "C" cudaError ARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
@@ -111,7 +114,6 @@ __global__ void mseLoss2Kernel(const __half* predictions, const float* targets, 
 	int idx = blockIdx.x*blockDim.x+threadIdx.x;
 	float sumKeys = 0.0f;
 	float sumMouse = 0.0f;
-	// Perform reduction within the block
 	while(idx<size){
 		float diff = __half2float(predictions[idx])-targets[idx];
 		diff *= diff;
@@ -121,7 +123,6 @@ __global__ void mseLoss2Kernel(const __half* predictions, const float* targets, 
 	sdata[tid] = sumKeys;
 	sdata[tid+blockDim.x] = sumMouse;
 	__syncthreads();
-	// Reduce within the block
 	for(int s = blockDim.x/2; s>0; s >>= 1){
 		if(tid<s){
 			sdata[tid] += sdata[tid+s];
@@ -129,7 +130,6 @@ __global__ void mseLoss2Kernel(const __half* predictions, const float* targets, 
 		}
 		__syncthreads();
 	}
-	// Write result for this block to global memory
 	if(tid==0){
 		atomicAdd(&dLossKeys, sdata[0]);
 		atomicAdd(&dLossMouse, sdata[blockDim.x]);
@@ -195,7 +195,7 @@ extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn){
 #define BETA2_F 0.99f
 #define BETA3_F 0.999f
 #define EPSILON_F 1e-7f
-#define CLIP 128.0f
+#define CLIP 1.0f
 __global__ void sgdHalfKernel(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
@@ -295,29 +295,64 @@ extern "C" void AdanHalf(__half* params, const __half* grads, __half* m, __half*
 	auto gridSize = div_ceil(size, BS);
 	AdanKernelHalf<<<gridSize, BS>>>(params, grads, m, v, n, velocity, learningRate, t, weightDecay, size);
 }
-__global__ void gradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size){
+__global__ void gradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
-		gradients[idx] = predictions[idx] - targets[idx];
+		grads[idx] = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx] - targets[idx]))));
 	}
 }
-extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size){
+extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const float clip, const int size){
 	auto gridSize = div_ceil(size, BS);
-	gradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size);
+	gradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size);
+}
+__global__ void SplitGradKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx < size){
+		const int batchId = idx/numCtrls;
+		const int ctrlId = idx%numCtrls;
+		const auto diff = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx] - targets[idx]))));
+		if(ctrlId < numButs){
+			const auto gradIdx = batchId*numButs + ctrlId;
+			grads[gradIdx] = diff;
+		} else{
+			const auto gradIdx = numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs);
+			grads[gradIdx] = diff;
+		}
+	}
+}
+extern "C" void SplitGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
+	auto gridSize = div_ceil(size, BS);
+	SplitGradKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size, numCtrls, numButs, batchSize);
+}
+__global__ void MergeOutputsKernel(__half* outData, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
+	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	if(idx<size){
+		const int batchId = idx/numCtrls;
+		const int outputId = idx%numCtrls;
+		if(outputId<numButs){
+			outData[idx] = buttonData[batchId*numButs+outputId];
+		} else{
+			outData[idx] = axisData[batchId*(numCtrls - numButs)+(outputId-numButs)];
+		}
+	}
+}
+extern "C" void MergeOutputs(__half* outData, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
+	auto gridSize = div_ceil(size, BS);
+	MergeOutputsKernel<<<gridSize, BS>>>(outData, buttonData, axisData, size, numCtrls, numButs);
 }
 __global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const float scale){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float y = __half2float(targets[idx]);
-		constexpr float epsilon = 1e-7f;
-		const float pClamped = fminf(fmaxf(__half2float(predictions[idx]), epsilon), 1.0f - epsilon);
+		const float pClamped = fminf(fmaxf(__half2float(predictions[idx]), EPSILON_F), 1.0f - EPSILON_F);
 		float gradient = 0.0f;
 		if(y == 1.0f){
 			gradient = (pClamped - 1.0f)/pClamped;
+			gradients[idx] = __float2half(gradient*scale);
 		} else{
 			gradient = pClamped/(1.0f - pClamped);
+			gradients[idx] = __float2half(gradient*scale);
 		}
-		gradients[idx] = __float2half(gradient*scale);
 	}
 }
 extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size, const float scale){
@@ -330,17 +365,15 @@ __global__ void DiscriminatorGradientKernel(__half* gradients, const __half* pre
 		const float pred = __half2float(predictions[idx]);
 		const float target = __half2float(targets[idx]);
 		float gradient;
-		if(idx % numCtrls < numButs){
-			// Binary output (Sigmoid activation + BCE loss)
+		if(idx%numCtrls < numButs){
 			gradient = pred - target;
 			gradient *= binaryScale;
+			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
 		} else{
-			// Continuous output (MSE loss)
 			gradient = 2.0f * (pred - target);
 			gradient *= continuousScale;
+			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
 		}
-		// Apply gradient clipping
-		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
 	}
 }
 extern "C" void DiscriminatorGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size, const int numCtrls, const int numButs, const float binaryScale, const float continuousScale, const float clip){
@@ -354,19 +387,21 @@ __global__ void GAILGradientKernel(__half* gradients, const __half* predictions,
 		const float expert = expertActions[idx];
 		float imitationGrad, adversarialGrad, entropyGrad;
 		float scale;
-		if(idx%numCtrls < numButs){ // binary output
+		if(idx%numCtrls < numButs){   
 			imitationGrad = -expert / (pred + 1e-6f) + (1.0f - expert) / (1.0f - pred + 1e-6f);
 			adversarialGrad = -1.0f;
 			entropyGrad = -logf(pred + 1e-6f) + logf(1.0f - pred + 1e-6f);
 			scale = butScale;
-		} else{ // continuous output
+			const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx]) + entropyCoeff*entropyGrad;
+			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad*scale)));
+		} else{   
 			imitationGrad = 2.0f * (pred - expert);
 			adversarialGrad = -1.0f;
 			entropyGrad = 0.0f;
 			scale = axiScale;
+			const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx]) + entropyCoeff*entropyGrad;
+			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad*scale)));
 		}
-		const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx]) + entropyCoeff*entropyGrad;
-		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad*scale)));
 	}
 }
 extern "C" void GAILGradient(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, const int batchSize, const int numCtrls, const int numButs, const float lambda, const float entropyCoeff, const float butScale, const float axiScale, const float clip){
@@ -383,26 +418,24 @@ __global__ void biasGradientsKernel(const __half* gradInput, __half* gradBias, i
 		sharedGrad[threadIdx.x] = sum;
 	} else{ sharedGrad[threadIdx.x] = 0.0f; }
 	__syncthreads();
-	// Reduce sum in shared memory
 	for(int stride = blockDim.x/2; stride > 0; stride >>= 1){
 		if(threadIdx.x < stride){ sharedGrad[threadIdx.x] += sharedGrad[threadIdx.x + stride]; }
 		__syncthreads();
 	}
 	if(threadIdx.x == 0){
-		// Write the reduced sum to the global bias gradient
 		for(int i = 0; i < blockDim.x && blockIdx.x*blockDim.x + i < c; i++){ gradBias[blockIdx.x*blockDim.x + i] = __float2half(sharedGrad[i]); }
 	}
 }
-extern "C" void BiasGradient(const __half* gradInput, __half* gradBias, const int c, const int batchSize){
+extern "C" void BiasGradient(const __half* gradInput, __half* gradBias, const int c, const int batchSize, cudaStream_t cudaStream){
 	auto gridSize = div_ceil(c, BS);
-	biasGradientsKernel<<<gridSize, BS, BS*sizeof(float)>>>(gradInput, gradBias, c, batchSize);
+	biasGradientsKernel<<<gridSize, BS, BS*sizeof(float), cudaStream>>>(gradInput, gradBias, c, batchSize);
 }
 __global__ void LeakyReluKernel(__half* __restrict__ data, const int size, const __half negativeSlope){
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < size; i += blockDim.x*gridDim.x) if(data[i] < __half(0.0f)) data[i] *= negativeSlope;
 }
 extern "C" void LeakyReluForward(__half* data, const int size, const float negativeSlope){
 	auto gridSize = div_ceil(size, BS);
-	LeakyReluKernel<<<gridSize, BS>>>(data, size, negativeSlope);
+	LeakyReluKernel<<<min(gridSize, GS), BS>>>(data, size, negativeSlope);
 }
 __global__ void LeakyReluBackwardKernel(__half* __restrict__ gradient, const __half* __restrict__ inData, const int size, const __half negativeSlope){
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += blockDim.x*gridDim.x){
@@ -411,28 +444,28 @@ __global__ void LeakyReluBackwardKernel(__half* __restrict__ gradient, const __h
 }
 extern "C" void LeakyReluBackward(__half* grad, const __half* data, const int size, const float negativeSlope){
 	auto gridSize = div_ceil(size, BS);
-	LeakyReluBackwardKernel<<<gridSize, BS>>>(grad, data, size, __float2half(negativeSlope));
+	LeakyReluBackwardKernel<<<min(gridSize, GS), BS>>>(grad, data, size, __float2half(negativeSlope));
 }
-__global__ void SwishKernel(__half* __restrict__ data, const int size){
+__global__ void SwishKernel(const __half* __restrict__ inData, __half* __restrict__ outData, const int size){
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += blockDim.x*gridDim.x){
-		const auto x = __half2float(data[idx]);
-		data[idx] = __float2half(x/(1.0f + exp(-x)));
+		const auto x = __half2float(inData[idx]);
+		outData[idx] = __float2half(x/(1.0f + exp(-x)));
 	}
 }
-extern "C" void SwishForward(__half* data, const int size){
+extern "C" void SwishForward(const __half* inData, __half* outData, const int size){
 	auto gridSize = div_ceil(size, BS);
-	SwishKernel<<<gridSize, BS>>>(data, size);
+	SwishKernel<<<min(gridSize, GS), BS>>>(inData, outData, size);
 }
-__global__ void SwishBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ output, const int size){
+__global__ void SwishBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ data, const int size){
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += blockDim.x*gridDim.x){
-		const auto swish = __half2float(output[idx]);
+		const auto swish = __half2float(data[idx]);
 		const auto sig = swish/(1.0f + swish);
 		grad[idx] = __float2half(__half2float(grad[idx])*(swish + sig*(1.0f - swish)));
 	}
 }
 extern "C" void SwishBackward(__half* grad, const __half* data, const int size){
 	auto gridSize = div_ceil(size, BS);
-	SwishBackwardKernel<<<gridSize, BS>>>(grad, data, size);
+	SwishBackwardKernel<<<min(gridSize, GS), BS>>>(grad, data, size);
 }
 __global__ void SigmoidForwardKernel(__half* data, const int numCtrls, const int numButs, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -440,9 +473,9 @@ __global__ void SigmoidForwardKernel(__half* data, const int numCtrls, const int
 	const float val = __half2float(data[idx]);
 	data[idx] = __float2half(1.0f/(1.0f + expf(-val)));
 }
-extern "C" void SigmoidForward(__half* data, const int numCtrls, const int numButs, const int size){
+extern "C" void SigmoidForward(__half* data, const int numCtrls, const int numButs, const int size, cudaStream_t cudaStream){
 	auto gridSize = div_ceil(size, BS);
-	SigmoidForwardKernel<<<gridSize, BS>>>(data, numCtrls, numButs, size);
+	SigmoidForwardKernel<<<gridSize, BS, 0, cudaStream>>>(data, numCtrls, numButs, size);
 }
 __global__ void SigmoidBackwardKernel(__half* grad, const __half* data, const int numCtrls, const int numButs, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -450,9 +483,9 @@ __global__ void SigmoidBackwardKernel(__half* grad, const __half* data, const in
 	const float val = __half2float(data[idx]);
 	grad[idx] = __float2half(__half2float(grad[idx])*val*(1.0f - val));
 }
-extern "C" void SigmoidBackward(__half* grad, const __half* data, const int numCtrls, const int numButs, const int size){
+extern "C" void SigmoidBackward(__half* grad, const __half* data, const int numCtrls, const int numButs, const int size, cudaStream_t cudaStream){
 	auto gridSize = div_ceil(size, BS);
-	SigmoidBackwardKernel<<<gridSize, BS>>>(grad, data, numCtrls, numButs, size);
+	SigmoidBackwardKernel<<<gridSize, BS, 0, cudaStream>>>(grad, data, numCtrls, numButs, size);
 }
 __global__ void ComputeMeanVarianceKernel(const __half* data, float* mean, float* variance, const int N, const int C, const int HW){
 	extern __shared__ float sdata[];
@@ -498,7 +531,7 @@ __global__ void layerNormForwardKernel(__half* output, const __half* data, const
 	__syncthreads();
 	const int total = N*C*HW;
 	for(int i = blockIdx.x*blockDim.x+threadIdx.x; i<total; i += blockDim.x*gridDim.x){
-		const int c = (i/HW)%C;
+		const int c = i/HW%C;
 		const float x = __half2float(data[i]);
 		const float norm = (x-sMean[c])/sqrtf(sVar[c]+EPSILON_F);
 		output[i] = __float2half(norm*sGamma[c]+sBeta[c]);
@@ -581,283 +614,200 @@ extern "C" bool IsnanHalf(const __half* data, int size){
 	cudaMemcpyFromSymbol(&hResult, deviceResult, sizeof(int));
 	return hResult != 0;
 }
-__global__ void ComputeAttentionKernel(const __half* queryMap, const __half* keyMap, __half* attentionScores, const int inC, const int attC, const int inH, const int inW, const int size){
+__global__ void ComputeAttentionKernel(const __half* __restrict__ queryMap, const __half* __restrict__ keyMap, __half* __restrict__ attentionScores, int inC, int attC, int inH, int inW, int size){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<size){
-		const int cPrime = idx/(inH*inW);
-		const int n = idx%(inH*inW)/(inH*inW);
-		const int h = idx/inW%inH;
-		const int w = idx%inW;
-		__half score = __float2half(0.0f);
-		for(int c = 0; c<inC; ++c){
-			const int qIdx = ((n*inC+c)*inH+h)*inW+w;
-			const int kIdx = ((n*attC+cPrime)*inH+h)*inW+w;
-			score += queryMap[qIdx]*keyMap[kIdx];
-		}
-		score = score/__float2half(sqrt(static_cast<float>(inC)));
-		attentionScores[idx] = score;
+	if(idx >= size) return;
+	int i = idx;
+	const int w = i%inW;
+	i /= inW;
+	const int h = i%inH;
+	i /= inH;
+	const int cPrime = i%attC;
+	i /= attC;
+	const int n = i;
+	float sum = 0.f;
+	const int qBase = ((n*attC+cPrime)*inH+h)*inW+w;
+	for(int c = 0; c<inC; ++c){
+		const int kBase = ((n*inC+c)*inH+h)*inW+w;
+		const float qVal = __half2float(queryMap[qBase]);
+		const float kVal = __half2float(keyMap[kBase]);
+		sum += qVal*kVal;
 	}
+	sum *= 1.0f/sqrtf(static_cast<float>(inC));
+	attentionScores[idx] = __float2half(sum);
 }
-extern "C" void ComputeAttention(const __half* inData, const __half* attentionMap, __half* outData, int inC, int attC, int inH, int inW, int size){
+extern "C" void ComputeAttention(const __half* __restrict__ queryMap, const __half* __restrict__ keyMap, __half* __restrict__ attentionScores, int inC, int attC, int inH, int inW){
+	const auto size = inC*attC*inH*inW;
 	auto gridSize = div_ceil(size, BS);
-	ComputeAttentionKernel<<<gridSize, BS>>>(inData, attentionMap, outData, inC, attC, inH, inW, size);
+	ComputeAttentionKernel<<<gridSize, BS>>>(queryMap, keyMap, attentionScores, inC, attC, inH, inW, size);
 }
-__global__ void ApplyAttentionKernel(const __half* valueMap, const __half* attentionScores, __half* output, const int inC, const int attC, const int inH, const int inW, const int size){
+__global__ void ApplyAttentionKernel(const __half* __restrict__ valueMap, const __half* __restrict__ attentionScores, __half* __restrict__ output, int inC, int attC, int inH, int inW, int size){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<size){
-		const int n = idx/(inC*inH*inW);
-		const int c = idx/(inH*inW)%inC;
-		const int h = idx/inW%inH;
-		const int w = idx%inW;
-		__half result = __float2half(0.0f);
-		// Accumulate attention-weighted value map
-		for(int ac = 0; ac<attC; ++ac){
-			const int attIdx = ((n*attC+ac)*inH+h)*inW+w;
-			const int valIdx = ((n*inC+c)*inH+h)*inW+w;
-			result = __hfma(valueMap[valIdx], attentionScores[attIdx], result);
-		}
-		// Store the result in the output tensor
-		output[idx] = result;
+	if(idx >= size) return;
+	int i = idx;
+	const int w = i%inW;
+	i /= inW;
+	const int h = i%inH;
+	i /= inH;
+	const int c = i%inC;
+	i /= inC;
+	const int n = i;
+	const int valIdx = ((n*inC+c)*inH+h)*inW+w;
+	const float val = __half2float(valueMap[valIdx]);
+	float sum = 0.f;
+	for(int ac = 0; ac<attC; ++ac){
+		const int attIdx = ((n*attC+ac)*inH+h)*inW+w;
+		sum += val*__half2float(attentionScores[attIdx]);
 	}
+	output[idx] = __float2half(sum);
 }
-extern "C" void ApplyAttention(const __half* valueMap, const __half* attentionScores, __half* output, int inC, int attC, int inH, int inW, int size){
+extern "C" void ApplyAttention(const __half* __restrict__ valueMap, const __half* __restrict__ attentionScores, __half* __restrict__ output, int inC, int attC, int inH, int inW){
+	const auto size = inC*attC*inH*inW;
 	auto gridSize = div_ceil(size, BS);
 	ApplyAttentionKernel<<<gridSize, BS>>>(valueMap, attentionScores, output, inC, attC, inH, inW, size);
 }
-__global__ void ApplyAttentionBackwardKernel(const __half* grad, const __half* valueMap, const __half* attentionScores, __half* gradValue, __half* gradAttention, const int inC, const int attC, const int inH, const int inW, const int size){
+__global__ void ApplyAttentionBackwardKernel(const __half* __restrict__ gradIn, const __half* __restrict__ valueMap, const __half* __restrict__ attentionScores, __half* __restrict__ gradValue, __half* __restrict__ gradAttention, int inC, int attC, int inH, int inW, int size){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<size){
-		const int n = idx/(inC*inH*inW);
-		const int h = idx/inW%inH;
-		const int w = idx%inW;
-		__half gradValueSum = __float2half(0.0f);
-		for(int ac = 0; ac<attC; ++ac){
-			const int attIdx = ((n*attC+ac)*inH+h)*inW+w;
-			gradValueSum = __hfma(grad[idx], attentionScores[attIdx], gradValueSum);
-		}
-		gradValue[idx] = gradValueSum;
-		for(int ac = 0; ac<attC; ++ac){
-			const int attIdx = ((n*attC+ac)*inH+h)*inW+w;
-			atomicAdd(&gradAttention[attIdx], grad[idx]*valueMap[idx]);
-		}
+	if(idx >= size) return;
+	int i = idx;
+	const int w = i%inW;
+	i /= inW;
+	const int h = i%inH;
+	i /= inH;
+	int c = i%inC;
+	i /= inC;
+	const int n = i;
+	const float dOut = __half2float(gradIn[idx]);
+	const float val = __half2float(valueMap[idx]);
+	float gradValSum = 0.f;
+	for(int ac = 0; ac<attC; ++ac){
+		const int attIdx = ((n*attC+ac)*inH+h)*inW+w;
+		gradValSum += dOut*__half2float(attentionScores[attIdx]);
+	}
+	gradValue[idx] = __float2half(gradValSum);
+	for(int ac = 0; ac<attC; ++ac){
+		const int attIdx = ((n*attC+ac)*inH+h)*inW+w;
+		const float increment = dOut*val;
+		atomicAdd(&gradAttention[attIdx], __float2half(increment));
 	}
 }
-extern "C" void ApplyAttentionBackward(const __half* grad, const __half* valueMap, const __half* attentionScores, __half* gradValue, __half* gradAttention, const int inC, const int attC, const int inH, const int inW, const int size){
+extern "C" void ApplyAttentionBackward(const __half* __restrict__ gradIn, const __half* __restrict__ valueMap, const __half* __restrict__ attentionScores, __half* __restrict__ gradValue, __half* __restrict__ gradAttention, int inC, int attC, int inH, int inW){
+	const auto size = inC*attC*inH*inW;
 	auto gridSize = div_ceil(size, BS);
-	ApplyAttentionBackwardKernel<<<gridSize, BS, BS*sizeof(__half)>>>(grad, valueMap, attentionScores, gradValue, gradAttention, inC, attC, inH, inW, size);
+	ApplyAttentionBackwardKernel<<<gridSize, BS>>>(gradIn, valueMap, attentionScores, gradValue, gradAttention, inC, attC, inH, inW, size);
 }
-__global__ void ComputeQueryKeyGradKernel(const __half* gradAttention, const __half* queryMap, const __half* keyMap, __half* gradQuery, __half* gradKey, const int inC, const int attC, const int inH, const int inW, const int size){
+__global__ void ComputeQueryKeyGradKernel(const __half* __restrict__ gradAttention, const __half* __restrict__ queryMap, const __half* __restrict__ keyMap, __half* __restrict__ gradQuery, __half* __restrict__ gradKey, int inC, int attC, int inH, int inW, int size){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<size){
-		const int n = idx/(inC*inH*inW);
-		const int h = idx/inW%inH;
-		const int w = idx%inW;
-		__half gradQuerySum = __float2half(0.0f);
-		__half gradKeySum = __float2half(0.0f);
-		for(int ac = 0; ac<attC; ++ac){
-			const int attIdx = ((n*attC+ac)*inH+h)*inW+w;
-			const __half gradAtt = gradAttention[attIdx];
-			gradQuerySum = __hfma(gradAtt, keyMap[idx], gradQuerySum);
-			gradKeySum = __hfma(gradAtt, queryMap[idx], gradKeySum);
-		}
-		const float scale = 1.0f/sqrt(static_cast<float>(inC));
-		gradQuery[idx] = gradQuerySum*__float2half(scale);
-		gradKey[idx] = gradKeySum*__float2half(scale);
-	}
+	if(idx>=size) return;
+	const int w = idx%inW;
+	int tmp = idx/inW;
+	const int h = tmp%inH;
+	tmp /= inH;
+	const int cPrime = tmp%attC;
+	tmp /= attC;
+	const int c = tmp%inC;
+	const int n = tmp/inC;
+	const int attIdx = ((n*attC+cPrime)*inH+h)*inW+w;
+	float gAttVal = __half2float(gradAttention[attIdx]);
+	const float scale = 1.0f/sqrtf(static_cast<float>(inC));
+	gAttVal *= scale;
+	const float qVal = __half2float(queryMap[attIdx]);
+	const int keyIdx = ((n*inC+c)*inH+h)*inW+w;
+	const float kVal = __half2float(keyMap[keyIdx]);
+	const float dQuery = gAttVal*kVal;
+	const float dKey = gAttVal*qVal;
+	atomicAdd(&gradQuery[attIdx], dQuery);
+	atomicAdd(&gradKey[keyIdx], dKey);
 }
-extern "C" void ComputeQueryKeyGrad(const __half* gradAttention, const __half* queryMap, const __half* keyMap, __half* gradQuery, __half* gradKey, int inC, int attC, int inH, int inW, int size){
+extern "C" void ComputeQueryKeyGrad(const __half* __restrict__ gradAttention, const __half* __restrict__ queryMap, const __half* __restrict__ keyMap, __half* __restrict__ gradQuery, __half* __restrict__ gradKey, int N, int inC, int attC, int inH, int inW){
+	const auto size = N*inC*attC*inH*inW;
 	auto gridSize = div_ceil(size, BS);
 	ComputeQueryKeyGradKernel<<<gridSize, BS>>>(gradAttention, queryMap, keyMap, gradQuery, gradKey, inC, attC, inH, inW, size);
 }
-#include <mma.h>
-__global__ void SpatialAttentionForwardKernel(const __half* __restrict__ inData, const __half* __restrict__ keyWeights, const __half* __restrict__ queryWeights, const __half* __restrict__ valueWeights, __half* __restrict__ keyMap,
-											__half* __restrict__ queryMap, __half* __restrict__ valueMap, __half* __restrict__ attentionScores, __half* __restrict__ outData, int batchSize, int inC, int attC, int inH, int inW, const float scale,
-											const float residualScale){
-	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	const int n = idx/(inH*inW);
-	const int h = idx/inW%inH;
-	const int w = idx%inW;
-	if(n<batchSize&&h<inH&&w<inW){
-		const int spatialIdx = n*inH*inW+h*inW+w;
-		const bool useWMMA = h%16==0&&w%16==0&&h+15<inH&&w+15<inW&&attC%16==0;
-		if(useWMMA){
-			// Use Tensor Cores for main computation
-			nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, __half, nvcuda::wmma::row_major> aFrag;
-			nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16, __half, nvcuda::wmma::col_major> bFragKey, bFragQuery, bFragValue;
-			nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, __half> cFrag;
-			// Load input data
-			load_matrix_sync(aFrag, inData+spatialIdx*inC, inW);
-			// Key projection
-			load_matrix_sync(bFragKey, keyWeights, inC);
-			fill_fragment(cFrag, 0.0f);
-			mma_sync(cFrag, aFrag, bFragKey, cFrag);
-			store_matrix_sync(keyMap+spatialIdx*attC, cFrag, inW, nvcuda::wmma::mem_row_major);
-			// Query projection
-			load_matrix_sync(bFragQuery, queryWeights, inC);
-			fill_fragment(cFrag, 0.0f);
-			mma_sync(cFrag, aFrag, bFragQuery, cFrag);
-			store_matrix_sync(queryMap+spatialIdx*attC, cFrag, inW, nvcuda::wmma::mem_row_major);
-			// Value projection
-			load_matrix_sync(bFragValue, valueWeights, inC);
-			fill_fragment(cFrag, 0.0f);
-			mma_sync(cFrag, aFrag, bFragValue, cFrag);
-			store_matrix_sync(valueMap+spatialIdx*attC, cFrag, inW, nvcuda::wmma::mem_row_major);
-		} else{
-			// Use standard CUDA operations for remainder
-			for(int ac = 0; ac<attC; ++ac){
-				__half keySum = __float2half(0.0f);
-				__half querySum = __float2half(0.0f);
-				__half valueSum = __float2half(0.0f);
-				for(int ic = 0; ic<inC; ++ic){
-					const __half inVal = inData[spatialIdx*inC+ic];
-					keySum = __hfma(inVal, keyWeights[ac*inC+ic], keySum);
-					querySum = __hfma(inVal, queryWeights[ac*inC+ic], querySum);
-					valueSum = __hfma(inVal, valueWeights[ac*inC+ic], valueSum);
-				}
-				keyMap[spatialIdx*attC+ac] = keySum;
-				queryMap[spatialIdx*attC+ac] = querySum;
-				valueMap[spatialIdx*attC+ac] = valueSum;
-			}
+__global__ void SpatialSoftmaxKernelHalf(const __half* __restrict__ inData, __half* __restrict__ outData, int N, int C, int H, int W){
+	const auto blockSize = blockDim.x;
+	const int nc = blockIdx.x;
+	if(nc>=N*C) return;
+	const int n = nc/C;
+	const int c = nc%C;
+	const int HW = H*W;
+	__shared__ float sMax;
+	__shared__ float sSumExp;
+	const int baseOffset = (n*C+c)*HW;
+	float threadMax = -FLT_MAX;
+	for(int tid = threadIdx.x; tid<HW; tid += blockSize){
+		const float val = __half2float(inData[baseOffset+tid]);
+		if(val>threadMax){ threadMax = val; }
+	}
+	__shared__ float buf[1024];
+	buf[threadIdx.x] = threadMax;
+	__syncthreads();
+	for(int offset = blockSize/2; offset>0; offset >>= 1){
+		if(threadIdx.x<offset){
+			const float other = buf[threadIdx.x+offset];
+			if(other>buf[threadIdx.x]){ buf[threadIdx.x] = other; }
 		}
-		// Compute Attention Scores (dot product of key and query)
-		float score = 0.0f;
-		for(int ac = 0; ac<attC; ++ac){ score += __half2float(queryMap[spatialIdx*attC+ac])*__half2float(keyMap[spatialIdx*attC+ac]); }
-		score *= scale;
-		// Softmax: Normalize Attention Scores
-		extern __shared__ float sharedScores[];
-		float maxScore = score;
-		for(int i = 0; i<blockDim.x; i++){ maxScore = max(maxScore, __shfl_sync(0xffffffff, score, i)); }
-		const float expScore = expf(score-maxScore);
-		sharedScores[threadIdx.x] = expScore;
 		__syncthreads();
-		for(int stride = blockDim.x/2; stride>0; stride >>= 1){
-			if(threadIdx.x<stride){ sharedScores[threadIdx.x] += sharedScores[threadIdx.x+stride]; }
-			__syncthreads();
-		}
-		const float sumScores = sharedScores[0];
-		score = sumScores>0 ? expScore/sumScores : 0.0f;
-		attentionScores[spatialIdx] = __float2half(score);
-		// Apply Attention to Value Map and add Residual Connection
-		for(int ac = 0; ac<attC; ++ac){
-			const __half weightedValue = __hmul(attentionScores[spatialIdx], valueMap[spatialIdx*attC+ac]);
-			outData[spatialIdx*attC+ac] = __hfma(__float2half(residualScale), inData[spatialIdx*inC+ac%inC], weightedValue);
-		}
+	}
+	if(threadIdx.x==0){ sMax = buf[0]; }
+	__syncthreads();
+	float threadSumExp = 0.0f;
+	for(int tid = threadIdx.x; tid<HW; tid += blockSize){
+		const float val = __half2float(inData[baseOffset+tid]);
+		const float expVal = expf(val-sMax);
+		threadSumExp += expVal;
+	}
+	buf[threadIdx.x] = threadSumExp;
+	__syncthreads();
+	for(int offset = blockSize/2; offset>0; offset >>= 1){
+		if(threadIdx.x<offset){ buf[threadIdx.x] += buf[threadIdx.x+offset]; }
+		__syncthreads();
+	}
+	if(threadIdx.x==0){ sSumExp = buf[0]; }
+	__syncthreads();
+	for(int tid = threadIdx.x; tid<HW; tid += blockSize){
+		const float val = __half2float(inData[baseOffset+tid]);
+		const float expVal = expf(val-sMax);
+		const float softmaxVal = expVal/sSumExp;
+		outData[baseOffset+tid] = __float2half(softmaxVal);
 	}
 }
-extern "C" void SpatialAttentionForward(const __half* __restrict__ inData, const __half* __restrict__ keyWeights, const __half* __restrict__ queryWeights, const __half* __restrict__ valueWeights, __half* __restrict__ keyMap,
-														__half* __restrict__ queryMap, __half* __restrict__ valueMap, __half* __restrict__ attentionScores, __half* __restrict__ outData, const int batchSize, const int inC, const int attC, const int inH, const int inW){
-	const int totalSize = batchSize*inH*inW*attC;
-	const int gridSize = div_ceil(totalSize, BS);
-	const float scale = 1.0f/sqrtf(static_cast<float>(inC));
-	// Allocate shared memory for softmax
-	size_t sharedMemorySize = BS*sizeof(float);
-	// Launch the kernel
-	SpatialAttentionForwardKernel<<<gridSize, BS, sharedMemorySize>>>(inData, keyWeights, queryWeights, valueWeights, keyMap, queryMap, valueMap, attentionScores, outData, batchSize, inC, attC, inH, inW, scale, 1.0f);
-	const cudaError_t err = cudaGetLastError();
-	if(err != cudaSuccess){
-		printf("SpatialAttentionForwardKernel launch failed: %s\n", cudaGetErrorString(err));
+extern "C" void SpatialSoftmaxHalf(const __half* inData, __half* outData, int N, int C, int H, int W){
+	auto gridSize = div_ceil(N*C, 1);
+	SpatialSoftmaxKernelHalf<<<gridSize, BS, 1040>>>(inData, outData, N, C, H, W);
+}
+__global__ void SpatialSoftmaxBackwardHalfKernel(const __half* __restrict__ outData, const __half* __restrict__ graIn, __half* __restrict__ gradOut, int N, int C, int H, int W){
+	const int blockSize = blockDim.x;
+	const int nc = blockIdx.x;
+	if(nc>=N*C) return;
+	const int n = nc/C;
+	const int c = nc%C;
+	const int hw = H*W;
+	__shared__ float sSumG;
+	__shared__ float buf[1024];
+	const int baseOffset = (n*C+c)*hw;
+	float threadSum = 0.0f;
+	for(int tid = threadIdx.x; tid<hw; tid += blockSize){
+		const float y = __half2float(outData[baseOffset+tid]);
+		const float dO = __half2float(graIn[baseOffset+tid]);
+		threadSum += y*dO;
+	}
+	buf[threadIdx.x] = threadSum;
+	__syncthreads();
+	for(int offset = blockSize/2; offset>0; offset >>= 1){
+		if(threadIdx.x<offset){ buf[threadIdx.x] += buf[threadIdx.x+offset]; }
+		__syncthreads();
+	}
+	if(threadIdx.x==0){ sSumG = buf[0]; }
+	__syncthreads();
+	for(int tid = threadIdx.x; tid<hw; tid += blockSize){
+		const float y = __half2float(outData[baseOffset+tid]);
+		const float dO = __half2float(graIn[baseOffset+tid]);
+		const float dI = y*(dO-sSumG);
+		gradOut[baseOffset+tid] = __float2half(dI);
 	}
 }
-__global__ void SpatialAttentionBackwardKernel(const __half* __restrict__ inData, const __half* __restrict__ keyWeights, const __half* __restrict__ queryWeights, const __half* __restrict__ valueWeights, const __half* __restrict__ keyMap,
-												const __half* __restrict__ queryMap, const __half* __restrict__ valueMap, const __half* __restrict__ attentionScores, const __half* __restrict__ inGrad, __half* __restrict__ outGrad,
-												__half* __restrict__ keyWeightsGrad, __half* __restrict__ queryWeightsGrad, __half* __restrict__ valueWeightsGrad, int batchSize, int inC, int attC, int inH, int inW, const float scale,
-												const float residualScale){
-	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	const int n = idx/(inH*inW);
-	const int h = idx/inW%inH;
-	const int w = idx%inW;
-	if(n<batchSize&&h<inH&&w<inW){
-		const int spatialIdx = n*inH*inW+h*inW+w;
-		const bool useWMMA = h%16==0&&w%16==0&&h+15<inH&&w+15<inW&&attC%16==0;
-		// Compute gradients for attention mechanism
-		float attScoreGrad[16] = {0};
-		float valueMapGrad[16] = {0};
-		float gradSum = 0.0f;
-		for(int ac = 0; ac<attC; ++ac){
-			const float inGradVal = __half2float(inGrad[spatialIdx*attC+ac]);
-			const float valueMapVal = __half2float(valueMap[spatialIdx*attC+ac]);
-			const float attScoreVal = __half2float(attentionScores[spatialIdx]);
-			attScoreGrad[ac%16] = inGradVal*valueMapVal;
-			valueMapGrad[ac%16] = inGradVal*attScoreVal;
-			gradSum += attScoreGrad[ac%16];
-		}
-		// Compute softmax gradient
-		float maxGrad = -FLT_MAX;
-		for(int ac = 0; ac<attC; ++ac){
-			const float grad = attScoreGrad[ac%16]-gradSum*__half2float(attentionScores[spatialIdx]);
-			attScoreGrad[ac%16] = grad*scale;
-			maxGrad = max(maxGrad, fabsf(attScoreGrad[ac%16]));
-		}
-		// Gradient clipping and normalization
-		const float clipValue = 1.0f;
-		if(maxGrad>clipValue){
-			const float normFactor = clipValue/maxGrad;
-			for(int ac = 0; ac<attC; ++ac){
-				attScoreGrad[ac%16] *= normFactor;
-				valueMapGrad[ac%16] *= normFactor;
-			}
-		}
-		if(useWMMA){
-			// Use Tensor Cores for main computation
-			nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, __half, nvcuda::wmma::col_major> aFragKey, aFragQuery, aFragValue;
-			nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16, __half, nvcuda::wmma::row_major> bFrag;
-			nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, __half> cFrag;
-			// Load gradients
-			for(int i = 0; i<bFrag.num_elements; i++){ bFrag.x[i] = __float2half(attScoreGrad[i]); }
-			// Key weights gradient
-			load_matrix_sync(aFragKey, keyMap+spatialIdx*attC, inW);
-			fill_fragment(cFrag, 0.0f);
-			mma_sync(cFrag, aFragKey, bFrag, cFrag);
-			store_matrix_sync(keyWeightsGrad+spatialIdx*inC, cFrag, inC, nvcuda::wmma::mem_row_major);
-			// Query weights gradient
-			load_matrix_sync(aFragQuery, queryMap+spatialIdx*attC, inW);
-			fill_fragment(cFrag, 0.0f);
-			mma_sync(cFrag, aFragQuery, bFrag, cFrag);
-			store_matrix_sync(queryWeightsGrad+spatialIdx*inC, cFrag, inC, nvcuda::wmma::mem_row_major);
-			// Value weights gradient
-			load_matrix_sync(aFragValue, valueMap+spatialIdx*attC, inW);
-			for(int i = 0; i<bFrag.num_elements; i++){ bFrag.x[i] = __float2half(valueMapGrad[i]); }
-			fill_fragment(cFrag, 0.0f);
-			mma_sync(cFrag, aFragValue, bFrag, cFrag);
-			store_matrix_sync(valueWeightsGrad+spatialIdx*inC, cFrag, inC, nvcuda::wmma::mem_row_major);
-			// Input gradient
-			load_matrix_sync(bFrag, inData+spatialIdx*inC, inW);
-			fill_fragment(cFrag, 0.0f);
-			mma_sync(cFrag, aFragKey, bFrag, cFrag);
-			mma_sync(cFrag, aFragQuery, bFrag, cFrag);
-			mma_sync(cFrag, aFragValue, bFrag, cFrag);
-			store_matrix_sync(outGrad+spatialIdx*inC, cFrag, inC, nvcuda::wmma::mem_row_major);
-		} else{
-			// Use standard CUDA operations for remainder
-			for(int ic = 0; ic<inC; ++ic){
-				float keyGrad = 0.0f;
-				float queryGrad = 0.0f;
-				float valueGrad = 0.0f;
-				float inGradVal = 0.0f;
-				for(int ac = 0; ac<attC; ++ac){
-					keyGrad += attScoreGrad[ac%16]*__half2float(keyWeights[ac*inC+ic]);
-					queryGrad += attScoreGrad[ac%16]*__half2float(queryWeights[ac*inC+ic]);
-					valueGrad += valueMapGrad[ac%16]*__half2float(valueWeights[ac*inC+ic]);
-					inGradVal += attScoreGrad[ac%16]*__half2float(keyMap[spatialIdx*attC+ac]);
-					inGradVal += attScoreGrad[ac%16]*__half2float(queryMap[spatialIdx*attC+ac]);
-					inGradVal += valueMapGrad[ac%16]*__half2float(valueMap[spatialIdx*attC+ac]);
-				}
-				keyWeightsGrad[ic*attC+idx%attC] = __float2half(keyGrad);
-				queryWeightsGrad[ic*attC+idx%attC] = __float2half(queryGrad);
-				valueWeightsGrad[ic*attC+idx%attC] = __float2half(valueGrad);
-				outGrad[spatialIdx*inC+ic] = __float2half(residualScale*__half2float(inGrad[spatialIdx*attC+ic%attC])+inGradVal);
-			}
-		}
-	}
-}
-extern "C" void SpatialAttentionBackward(const __half* __restrict__ inData, const __half* __restrict__ keyWeights, const __half* __restrict__ queryWeights, const __half* __restrict__ valueWeights, const __half* __restrict__ keyMap,
-										const __half* __restrict__ queryMap, const __half* __restrict__ valueMap, const __half* __restrict__ attentionScores, const __half* __restrict__ inGrad, __half* __restrict__ outGrad,
-										__half* __restrict__ keyWeightsGrad, __half* __restrict__ queryWeightsGrad, __half* __restrict__ valueWeightsGrad, const int batchSize, const int inC, const int attC, const int inH, const int inW){
-	const int totalSize = batchSize*attC*inH*inW;
-	const int gridSize = div_ceil(totalSize, BS);
-	const float scale = 1.0f/sqrtf(static_cast<float>(inC));
-	// Launch the kernel
-	SpatialAttentionBackwardKernel<<<gridSize, BS>>>(inData, keyWeights, queryWeights, valueWeights, keyMap, queryMap, valueMap, attentionScores, inGrad, outGrad, keyWeightsGrad, queryWeightsGrad, valueWeightsGrad, batchSize, inC, attC, inH, inW, scale, 1.0f);
-	const cudaError_t err = cudaGetLastError();
-	if(err!=cudaSuccess){ printf("SpatialAttentionBackwardKernel launch failed: %s\n", cudaGetErrorString(err)); }
+extern "C" void SpatialSoftmaxBackwardHalf(const __half* outData, const __half* gradIn, __half* gradOut, int N, int C, int H, int W){
+	int gridSize = div_ceil(N*C, 1);
+	SpatialSoftmaxBackwardHalfKernel<<<gridSize, BS, 1032>>>(outData, gradIn, gradOut, N, C, H, W);
 }

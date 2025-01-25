@@ -4,13 +4,7 @@
 #include <cublas_v2.h>
 #include <cuda_runtime_api.h>
 #include <string>
-#include <fstream>
 #include <iostream>
-#include <random>
-#include <unordered_map>
-#define WM_USER_STOP_CAPTURE (WM_USER + 1)
-#define WM_USER_START_CAPTURE (WM_USER + 2)
-#define WM_USER_CAPTURE_FRAME (WM_USER + 3)
 const char* cublasGetErrorString(cublasStatus_t status);
 #define checkCUBLAS(status) { \
     if (status != CUBLAS_STATUS_SUCCESS) { \
@@ -33,14 +27,18 @@ const char* cublasGetErrorString(cublasStatus_t status);
     } \
 }
 struct __half;
-struct InputRecord{
-	unsigned short keyStates;
-	int mouseDeltaX;
-	int mouseDeltaY;
-	unsigned char* stateData = nullptr;
-	~InputRecord(){
-		if(stateData){
-			_mm_free(stateData);
+struct RecordState{
+	unsigned short keyStates_;
+	int mouseDeltaX_;
+	int mouseDeltaY_;
+	unsigned char* stateData_;
+	RecordState(const size_t stateSize, const unsigned short keyStates, const int mouseDeltaX, const int mouseDeltaY, const unsigned char* data): keyStates_(keyStates), mouseDeltaX_(mouseDeltaX), mouseDeltaY_(mouseDeltaY){
+		stateData_ = static_cast<unsigned char*>(_mm_malloc(stateSize, 32));
+		memcpy(stateData_, data, stateSize);
+	}
+	~RecordState(){
+		if(stateData_){
+			_mm_free(stateData_);
 		}
 	}
 };
@@ -65,19 +63,28 @@ struct StateBatch{
 		cudaFreeHost(stateData);
 	}
 };
+struct RecordIndex{
+	const std::string* fileName;
+	std::streampos position;
+};
+enum class InferMode{
+	Off,
+	On,
+	Correct,
+	Tune
+};
 struct ConvolutionAlgorithms{
 	cudnnConvolutionFwdAlgo_t fwdAlgo;
 	cudnnConvolutionBwdDataAlgo_t bwdDataAlgo;
 	cudnnConvolutionBwdFilterAlgo_t bwdFilterAlgo;
 	size_t workspaceSize;
 };
-extern std::vector<std::string> trainDataInFiles;
-extern std::unordered_map<std::string, std::vector<std::streampos>> fileRecordIndex;
-extern std::size_t stateSize_;
+extern std::vector<std::string> trainingDataFiles;
+extern std::vector<RecordIndex> recordIndices;
 extern ThreadPool threadPool;
-void LoadBatch(StateBatch* batch, int batchSize);
-void LoadBatch3D(StateBatch* batch, int seqLength, int batchSize);
-void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize);
+void LoadBatch(StateBatch* batch, int batchSize, int stateSize);
+void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, int stateSize);
+void LoadBatchFromVector(const std::vector<RecordState>& recordStates, StateBatch* batch, int batchSize, int stateSize);
 ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t xDesc, cudnnFilterDescriptor_t wDesc, cudnnConvolutionDescriptor_t convDesc, cudnnTensorDescriptor_t yDesc, bool isTraining);
 template <typename T>
 void CUDAMallocZero(T** ptr, size_t size){
@@ -114,26 +121,25 @@ extern "C" void SGDFloat(float* param, const float* grads, int size, float learn
 extern "C" void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
 extern "C" void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
 extern "C" void AdanHalf(__half* params, const __half* grads, __half* m, __half* v, __half* n, __half* velocity, float learningRate, int t, float weightDecay, int size);
-extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size);
-extern "C" void BiasGradient(const __half* gradInput, __half* gradBias, int c, int batchSize);
+extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, float clip, int size);
+extern "C" void SplitGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
+extern "C" void MergeOutputs(__half* outData, const __half* buttonData, const __half* axisData, int size, int numCtrls, int numButs);
+extern "C" void BiasGradient(const __half* gradInput, __half* gradBias, int c, int batchSize, cudaStream_t cudaStream = nullptr);
 extern "C" void LeakyReluForward(__half* data, int size, float negativeSlope);
 extern "C" void LeakyReluBackward(__half* grad, const __half* data, int size, float negativeSlope);
-extern "C" void SwishForward(__half* data, int size);
+extern "C" void SwishForward(const __half* inData, __half* outData, int size);
 extern "C" void SwishBackward(__half* grad, const __half* data, int size);
-extern "C" void SigmoidForward(__half* data, int numCtrls, int numButs, int size);
-extern "C" void SigmoidBackward(__half* grad, const __half* data, int numCtrls, int numButs, int size);
+extern "C" void SigmoidForward(__half* data, int numCtrls, int numButs, int size, cudaStream_t cudaStream = nullptr);
+extern "C" void SigmoidBackward(__half* grad, const __half* data, int numCtrls, int numButs, int size, cudaStream_t cudaStream = nullptr);
 extern "C" void LayerNormForward(__half* output, const __half* data, const float* gamma, const float* beta, float* mean, float* variance, int N, int C, int HW);
 extern "C" void LayerNormBackward(__half* grad, const __half* data, const float* gamma, float* gradGamma, float* gradBeta, const float* mean, const float* variance, int N, int C, int HW);
 extern "C" bool IsnanHalf(const __half* data, int size);
 extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale);
 extern "C" void DiscriminatorGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, int numCtrls, int numButs, float binaryScale, float continuousScale, float clip);
 extern "C" void GAILGradient(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, int batchSize, int numCtrls, int numButs, float lambda, float entropyCoeff, float butScale, float axiScale, float clip);
-extern "C" void ComputeAttention(const __half* inData, const __half* attentionMap, __half* outData, int inC, int attC, int inH, int inW, int size);
-extern "C" void ComputeQueryKeyGrad(const __half* gradAttention, const __half* queryMap, const __half* keyMap, __half* gradQuery, __half* gradKey, int inC, int attC, int inH, int inW, int size);
-extern "C" void ApplyAttention(const __half* valueMap, const __half* attentionScores, __half* output, int inC, int attC, int inH, int inW, int size);
-extern "C" void ApplyAttentionBackward(const __half* grad, const __half* queryMap, const __half* attentionMap, __half* gradQueryMap, __half* gradAttentionMap, int inC, int attC, int inH, int inW, int size);
-extern "C" void SpatialAttentionForward(const __half* __restrict__ inData, const __half* __restrict__ keyWeights, const __half* __restrict__ queryWeights, const __half* __restrict__ valueWeights, __half* __restrict__ keyMap,
-	__half* __restrict__ queryMap, __half* __restrict__ valueMap, __half* __restrict__ attentionScores, __half* __restrict__ outData, int batchSize, int inC, int attC, int inH, int inW);
-extern "C" void SpatialAttentionBackward(const __half* __restrict__ inData, const __half* __restrict__ keyWeights, const __half* __restrict__ queryWeights, const __half* __restrict__ valueWeights, const __half* __restrict__ keyMap,
-	const __half* __restrict__ queryMap, const __half* __restrict__ valueMap, const __half* __restrict__ attentionScores, const __half* __restrict__ inGrad, __half* __restrict__ outGrad,
-	__half* __restrict__ keyWeightsGrad, __half* __restrict__ queryWeightsGrad, __half* __restrict__ valueWeightsGrad, int batchSize, int inC, int attC, int inH, int inW);
+extern "C" void ComputeAttention(const __half* queryMap, const __half* keyMap, __half* attentionScores, int inC, int attC, int inH, int inW);
+extern "C" void ApplyAttention(const __half* valueMap, const __half* attentionScores, __half* output, int inC, int attC, int inH, int inW);
+extern "C" void ApplyAttentionBackward(const __half* gradIn, const __half* valueMap, const __half* attentionScores, __half* gradValue, __half* gradAttention, int inC, int attC, int inH, int inW);
+extern "C" void ComputeQueryKeyGrad(const __half* gradAttention, const __half* queryMap, const __half* keyMap, __half* gradQuery, __half* gradKey, int N, int inC, int attC, int inH, int inW);
+extern "C" void SpatialSoftmaxHalf(const __half* inData, __half* outData, int N, int C, int H, int W);
+extern "C" void SpatialSoftmaxBackwardHalf(const __half* outData, const __half* gradOut, __half* gradIn, int N, int C, int H, int W);

@@ -5,7 +5,7 @@
 class LSTMLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, int hiddenSize, int batchSize, int inC, const char* layerName, bool train);
+	LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, int hiddenSize, int batchSize, int inC, const char* layerName, bool train, float weightDecay);
 	~LSTMLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

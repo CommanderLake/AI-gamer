@@ -9,17 +9,18 @@ Activate::Activate(cudnnHandle_t cudnnHandle, cudnnActivationMode_t mode, double
 	checkCUDNN(cudnnSetTensor4dDescriptor(gradDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize, channels, height, width));
 	checkCUDNN(cudnnCreateActivationDescriptor(&activDesc_));
 	checkCUDNN(cudnnSetActivationDescriptor(activDesc_, mode, CUDNN_NOT_PROPAGATE_NAN, coef));
+	CUDAMallocZero(&dataOut_, outNCHW_*sizeof(__half));
 }
 Activate::~Activate(){
 	cudnnDestroyTensorDescriptor(gradDesc_);
 	cudnnDestroyActivationDescriptor(activDesc_);
 }
 __half* Activate::Forward(__half* data){
-	data_ = data;
-	checkCUDNN(cudnnActivationForward(cudnnHandle_, activDesc_, &alpha, outDesc_, data, &beta0, outDesc_, data));
-	return data;
+	dataIn_ = data;
+	checkCUDNN(cudnnActivationForward(cudnnHandle_, activDesc_, &alpha, outDesc_, dataIn_, &beta0, outDesc_, dataOut_));
+	return dataOut_;
 }
 __half* Activate::Backward(__half* grad){
-	checkCUDNN(cudnnActivationBackward(cudnnHandle_, activDesc_, &alpha, outDesc_, data_, gradDesc_, grad, outDesc_, data_, &beta1, gradDesc_, grad));
+	checkCUDNN(cudnnActivationBackward(cudnnHandle_, activDesc_, &alpha, outDesc_, dataOut_, gradDesc_, grad, outDesc_, dataIn_, &beta1, gradDesc_, grad));
 	return grad;
 }
