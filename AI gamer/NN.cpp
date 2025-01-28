@@ -8,20 +8,18 @@
 NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train, float lr): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(20), seqLength_(1), inWidth_(0), inHeight_(0), learningRate_(lr), maxBufferSize_(0){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
-	std::ifstream ckptFile(ckptFileName, std::ios::binary);
-	const bool fileOpen = ckptFile.is_open();
 	int netWidth = w;
 	int netHeight = h;
-	if(fileOpen){
+	std::ifstream ckptFile(ckptFileName, std::ios::binary);
+	if(ckptFile.is_open()){
 		std::cout << "Checkpoint file found...\r\n";
 		ckptFile.read(reinterpret_cast<char*>(&netWidth), sizeof(int));
 		ckptFile.read(reinterpret_cast<char*>(&netHeight), sizeof(int));
-	}
-	if(train){
-		if(fileOpen && (w != netWidth || h != netHeight)){
-			std::cerr << "Error: Checkpoint resolution does not match training data resolution.\r\n";
-			ckptFile.close();
-			return;
+		if(w > 0 && w != netWidth || h > 0 && h != netHeight) throw std::invalid_argument("Training data resolution does not match checkpoint resolution");
+	}else{
+		std::cout << "Checkpoint file not found\r\n";
+		if(w <= 0 || h <= 0){
+			throw std::invalid_argument("Invalid training data resolution");
 		}
 	}
 	inWidth_ = netWidth;
@@ -46,8 +44,8 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
 	}
 	std::cout << "Done.\r\n";
-	if(fileOpen){
-		std::cout << "Loading weights/bias... ";
+	if(ckptFile.is_open()){
+		std::cout << "Loading weights... ";
 		unsigned char* buffer = nullptr;
 		checkCUDA(cudaMallocHost(&buffer, maxBufferSize_));
 		for(const auto& layer : layers_){
@@ -71,7 +69,9 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 		cudaFreeHost(buffer);
 	}
 }
-NN::~NN(){}
+NN::~NN(){
+	layers_.clear();
+}
 __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
 		//std::cout << "\r\n" << layer->layerName_ << " ";
@@ -120,5 +120,10 @@ void NN::SaveOptimizerState(const std::string& filename){
 		file.close();
 	} else{
 		std::cerr << "Unable to open file for saving optimizer state: " << filename << "\r\n";
+	}
+}
+void NN::SetTrain(bool enable){
+	for(int i = 0; i<layers_.size(); ++i){
+		layers_[i]->SetTrain(enable);
 	}
 }

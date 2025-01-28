@@ -1,11 +1,10 @@
 #include "common.h"
 #include "SpatialAttentionLayer.h"
 SpatialAttentionLayer::SpatialAttentionLayer(cudnnHandle_t cudnnHandle, int attentionChannels, int numHeads, int batchSize, int channels, int height, int width, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle),
-	attC_(attentionChannels), batchSize_(batchSize), inC_(channels), inH_(height), inW_(width), numHeads_(numHeads), inData_(nullptr), weightDecay_(weightDecay){
+	batchSize_(batchSize), inC_(channels), inH_(height), inW_(width), numHeads_(numHeads), attC_(attentionChannels), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*inC_*inH_*inW_;
-	attNCHW_ = batchSize_*attC_*inH_*inW_;
 	channelsPerHead_ = inC_/numHeads_;
 	attCPerHead_ = attC_/numHeads_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&attentionDesc_));
@@ -21,8 +20,6 @@ SpatialAttentionLayer::SpatialAttentionLayer(cudnnHandle_t cudnnHandle, int atte
 	checkCUDNN(cudnnSetConvolution2dDescriptor(keyQueryConvDesc_, 1, 1, 1, 1, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
 	checkCUDNN(cudnnSetConvolution2dDescriptor(valueConvDesc_, 0, 0, 1, 1, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
 	checkCUDNN(cudnnSetConvolutionMathType(keyQueryConvDesc_, CUDNN_TENSOR_OP_MATH)); 
-	headSize_ = batchSize_*channelsPerHead_*inH_*inW_;     
-	totalHeadSize_ = headSize_*numHeads_;
 	kqHeadSize_ = batchSize_*channelsPerHead_*inH_*inW_;
 	vHeadSize_ = batchSize_*attCPerHead_*inH_*inW_;
 	dwWeightSizeSingle_ = channelsPerHead_*channelsPerHead_*9;

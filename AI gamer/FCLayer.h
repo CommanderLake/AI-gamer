@@ -16,13 +16,12 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
+	void SetTrain(bool enable) override;
 	cudaStream_t cudaStream_;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	cudnnTensorDescriptor_t biasDesc_;
-	int batchSize_;
-	int inC_;
-	int outC_;
+	int ogbs_, batchSize_, inC_, outC_;
 	__half* weights_;
 	__half* bias_;
 	__half* outData_;

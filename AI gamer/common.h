@@ -26,52 +26,50 @@ const char* cublasGetErrorString(cublasStatus_t status);
         throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(status)); \
     } \
 }
-struct __half;
-struct RecordState{
-	unsigned short keyStates_;
-	int mouseDeltaX_;
-	int mouseDeltaY_;
-	unsigned char* stateData_;
-	RecordState(const size_t stateSize, const unsigned short keyStates, const int mouseDeltaX, const int mouseDeltaY, const unsigned char* data): keyStates_(keyStates), mouseDeltaX_(mouseDeltaX), mouseDeltaY_(mouseDeltaY){
-		stateData_ = static_cast<unsigned char*>(_mm_malloc(stateSize, 32));
-		memcpy(stateData_, data, stateSize);
-	}
-	~RecordState(){
-		if(stateData_){
-			_mm_free(stateData_);
-		}
-	}
-};
-struct StateBatch{
-	int batchSize;
-	int stateSize;
-	unsigned short* keyStates;
-	int* mouseDeltaX;
-	int* mouseDeltaY;
-	unsigned char* stateData = nullptr;
-	explicit StateBatch(const int batchSize, int stateSize): batchSize(batchSize), stateSize(stateSize){
-		keyStates = static_cast<unsigned short*>(malloc(batchSize*sizeof(unsigned short)));
-		mouseDeltaX = static_cast<int*>(malloc(batchSize*sizeof(int)));
-		mouseDeltaY = static_cast<int*>(malloc(batchSize*sizeof(int)));
-		if(!keyStates || !mouseDeltaX || !mouseDeltaY){ throw std::bad_alloc(); }
-		checkCUDA(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*batchSize));
-	}
-	~StateBatch(){
-		free(keyStates);
-		free(mouseDeltaX);
-		free(mouseDeltaY);
-		cudaFreeHost(stateData);
-	}
-};
-struct RecordIndex{
-	const std::string* fileName;
-	std::streampos position;
-};
 enum class InferMode{
 	Off,
 	On,
 	Correct,
 	Tune
+};
+struct __half;
+#pragma pack(1)
+struct InputState{
+	unsigned short keyStates;
+	int deltaX;
+	int deltaY;
+};
+#pragma pack()
+struct StateSingle{
+	InputState inputState;
+	unsigned char* stateData = nullptr;
+	explicit StateSingle(const InputState& inputState, const unsigned char* data, const size_t stateSize, bool fromGPU): inputState(inputState){
+		stateData = static_cast<unsigned char*>(_mm_malloc(stateSize, 32));
+		if(!stateData){ throw std::bad_alloc(); }
+		if(fromGPU) cudaMemcpy(stateData, data, stateSize, cudaMemcpyDeviceToHost);
+		else memcpy(stateData, data, stateSize);
+	}
+	~StateSingle(){ if(stateData){ _mm_free(stateData); } }
+};
+struct StateBatch{
+	int batchSize;
+	int stateSize;
+	InputState* inputStates;
+	unsigned char* stateData = nullptr;
+	explicit StateBatch(const int batchSize, const int stateSize) : batchSize(batchSize), stateSize(stateSize){
+		if(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*batchSize)!=cudaSuccess){
+			throw std::runtime_error("Failed to allocate pinned memory with cudaMallocHost");
+		}
+		inputStates = new InputState[batchSize];
+	}
+	~StateBatch(){
+		delete[] inputStates;
+		if(stateData){ cudaFreeHost(stateData); }
+	}
+};
+struct RecordIndex{
+	const std::string* fileName;
+	std::streampos position;
 };
 struct ConvolutionAlgorithms{
 	cudnnConvolutionFwdAlgo_t fwdAlgo;
@@ -84,7 +82,7 @@ extern std::vector<RecordIndex> recordIndices;
 extern ThreadPool threadPool;
 void LoadBatch(StateBatch* batch, int batchSize, int stateSize);
 void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, int stateSize);
-void LoadBatchFromVector(const std::vector<RecordState>& recordStates, StateBatch* batch, int batchSize, int stateSize);
+void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
 ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t xDesc, cudnnFilterDescriptor_t wDesc, cudnnConvolutionDescriptor_t convDesc, cudnnTensorDescriptor_t yDesc, bool isTraining);
 template <typename T>
 void CUDAMallocZero(T** ptr, size_t size){

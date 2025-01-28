@@ -228,15 +228,15 @@ void LoadBatch(StateBatch* batch, int batchSize, const int stateSize){
 				std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<record.fileName<<"\r\n";
 				return;
 			}
-			if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i]), sizeof(unsigned short))){
+			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned short))){
 				std::cerr<<"Failed to read keyStates at index "<<i<<" from file: "<<record.fileName<<"\r\n";
 				return;
 			}
-			if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i]), sizeof(int))){
+			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaX), sizeof(int))){
 				std::cerr<<"Failed to read mouseDeltaX at index "<<i<<" from file: "<<record.fileName<<"\r\n";
 				return;
 			}
-			if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i]), sizeof(int))){
+			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaY), sizeof(int))){
 				std::cerr<<"Failed to read mouseDeltaY at index "<<i<<" from file: "<<record.fileName<<"\r\n";
 				return;
 			}
@@ -269,15 +269,15 @@ void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int st
 				const auto index = j*batchSize+i;
 				// For the last timestep, load additional metadata (keyStates, mouseDeltaX, mouseDeltaY)
 				if(j==seqLength-1){
-					if(!file.read(reinterpret_cast<char*>(&batch->keyStates[i]), sizeof(unsigned short))){
+					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned short))){
 						std::cerr<<"Failed to read keyStates for sequence "<<i<<" from file: "<<*record.fileName<<"\r\n";
 						return;
 					}
-					if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaX[i]), sizeof(int))){
+					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaX), sizeof(int))){
 						std::cerr<<"Failed to read mouseDeltaX for sequence "<<i<<" from file: "<<*record.fileName<<"\r\n";
 						return;
 					}
-					if(!file.read(reinterpret_cast<char*>(&batch->mouseDeltaY[i]), sizeof(int))){
+					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaY), sizeof(int))){
 						std::cerr<<"Failed to read mouseDeltaY for sequence "<<i<<" from file: "<<*record.fileName<<"\r\n";
 						return;
 					}
@@ -293,21 +293,19 @@ void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int st
 		});
 	}
 }
-void LoadBatchFromVector(const std::vector<RecordState>& recordStates, StateBatch* batch, int batchSize, const int stateSize){
-	if(recordStates.size() < batchSize){
+void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, const int stateSize){
+	if(states.size() < batchSize){
 		std::cerr << "Not enough RecordState instances to fill the batch.\r\n";
 		return;
 	}
-	std::uniform_int_distribution<size_t> dist(0, recordStates.size() - 1);
+	std::uniform_int_distribution<size_t> dist(0, states.size() - 1);
 	for(size_t i = 0; i < batchSize; ++i){
-		threadPool.Enqueue([i, batch, stateSize, &recordStates, dist]() mutable{
+		threadPool.Enqueue([i, batch, stateSize, &states, dist]() mutable{
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
-			const auto& record = recordStates[randomIndex];
-			batch->keyStates[i] = record.keyStates_;
-			batch->mouseDeltaX[i] = record.mouseDeltaX_;
-			batch->mouseDeltaY[i] = record.mouseDeltaY_;
-			if(batch->stateData && record.stateData_){
-				std::memcpy(batch->stateData + i*stateSize, record.stateData_, stateSize);
+			const auto& record = states[randomIndex];
+			batch->inputStates[i] = record->inputState;
+			if(batch->stateData && record->stateData){
+				std::memcpy(batch->stateData + i*stateSize, record->stateData, stateSize);
 			} else{
 				std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << ".\r\n";
 			}

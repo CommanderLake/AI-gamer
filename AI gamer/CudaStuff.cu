@@ -22,12 +22,12 @@ bool inited = false;
 extern "C" void InitCUDA(){
 	if(inited) return;
 	const CUresult cudaRes = cuInit(0);
-	inited = true;
 	if(cudaRes != CUDA_SUCCESS){
 		const char* pStr = nullptr;
 		cuGetErrorString(cudaRes, &pStr);
 		throw std::runtime_error("CUDA Init failed, error string:\n\n" + std::string(pStr));
 	}
+	inited = true;
 	cudaDeviceProp prop;
 	cudaGetDeviceProperties(&prop, 0);
 	int major;
@@ -674,7 +674,7 @@ __global__ void ApplyAttentionBackwardKernel(const __half* __restrict__ gradIn, 
 	i /= inW;
 	const int h = i%inH;
 	i /= inH;
-	int c = i%inC;
+	//int c = i%inC;
 	i /= inC;
 	const int n = i;
 	const float dOut = __half2float(gradIn[idx]);

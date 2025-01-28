@@ -2,7 +2,7 @@
 #include "common.h"
 #include <iostream>
 FCLayer::FCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay) : cudaStream_(cudaStream), cudnnHandle_(cudnnHandle),
-	cublasHandle_(cublasHandle), batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay){
+	cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
@@ -106,4 +106,16 @@ size_t FCLayer::GetParameterSize(){
 }
 size_t FCLayer::GetOptimizerStateSize(){
 	return weightCount_*sizeof(__half);
+}
+void FCLayer::SetTrain(bool enable){
+	int bs;
+	if(enable){
+		train_ = true;
+		batchSize_ = ogbs_;
+	} else{
+		train_ = false;
+		batchSize_ = 1;
+	}
+	outNCHW_ = batchSize_*outC_;
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 }

@@ -20,9 +20,11 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
+	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t inDesc_;
-	int batchSize_;
+	int batchSize_, outC_, outHeight_, outWidth_;
+	int inC_, inHeight_, inWidth_;
 	std::vector<Layer*> layers_;
 	ConvLayer* residue_;
 	Activate* resAct_;

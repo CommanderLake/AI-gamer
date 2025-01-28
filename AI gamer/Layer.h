@@ -14,6 +14,7 @@ public:
 	virtual void LoadOptimizerState(std::ifstream& file, unsigned char* buffer){}
 	virtual size_t GetParameterSize(){ return 0; }
 	virtual size_t GetOptimizerStateSize(){ return 0; }
+	virtual void SetTrain(bool enable){}
 	cudnnTensorDescriptor_t outDesc_;
 	int outNCHW_;
 	const char* layerName_ = "";

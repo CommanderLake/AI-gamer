@@ -114,7 +114,6 @@
     <ClInclude Include="ResFCLayer.h" />
     <ClInclude Include="SpatialAttentionLayer.h" />
     <ClInclude Include="Swish.h" />
-    <ClInclude Include="Tune.h" />
     <ClInclude Include="Viewer.h" />
     <ClInclude Include="FCLayer.h" />
     <ClInclude Include="Record.h" />
@@ -142,7 +141,6 @@
     <ClCompile Include="ResFCLayer.cpp" />
     <ClCompile Include="SpatialAttentionLayer.cpp" />
     <ClCompile Include="Swish.cpp" />
-    <ClCompile Include="Tune.cpp" />
     <ClCompile Include="Viewer.cpp" />
     <ClCompile Include="FCLayer.cpp" />
     <ClCompile Include="Record.cpp" />

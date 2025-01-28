@@ -15,11 +15,12 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
+	void SetTrain(bool enable) override;
 	cudaStream_t buttonStream_, axisStream_;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
-	int batchSize_;
+	int batchSize_, inC_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
 	__half* outData_;

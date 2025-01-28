@@ -1,6 +1,5 @@
 #pragma once
 #include "Layer.h"
-#include <cuda_fp16.hpp>
 #include <cudnn.h>
 class Activate final : public Layer{
 public:
@@ -8,10 +7,11 @@ public:
 	~Activate() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
+	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnActivationDescriptor_t activDesc_;
-	cudnnTensorDescriptor_t gradDesc_;
-	__half *dataIn_, *dataOut_;
+	int batchSize_, outC_, outHeight_, outWidth_;
+	__half *dataIn_ = nullptr, *dataOut_ = nullptr;
 	const float alpha = 1.0f;
 	const float beta0 = 0.0f;
 	const float beta1 = 1.0f;

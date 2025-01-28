@@ -5,13 +5,11 @@
 #include "ResConvLayer.h"
 #include "ResFCLayer.h"
 #include "Sigmoid.h"
-CustomOutLayer::CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, const char* layerName, bool train, float weightDecay) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize){
+CustomOutLayer::CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, const char* layerName, bool train, float weightDecay) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), inC_(inputSize){
 	layerName_ = layerName;
 	train_ = train;
 	cudaStreamCreate(&buttonStream_);
 	cudaStreamCreate(&axisStream_);
-	cudnnCreateTensorDescriptor(&outDesc_);
-	cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, numCtrls_, 1, 1);
 	cudnnCreateTensorDescriptor(&inDesc_);
 	cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inputSize, 1, 1);
 	auto outC = 512;
@@ -22,7 +20,6 @@ CustomOutLayer::CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasH
 	outC = numButs_;
 	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, 512, outC, "Binary_FC_Out", train, weightDecay));
 	buttonLayers_.push_back(new Sigmoid(buttonStream_, numButs_, batchSize_, outC, "Binary_Sigmoid"));
-
 	outC = 512;
 	axisLayers_.push_back(new ResFCLayer(axisStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Continuous_ResFC1", train, weightDecay));
 	axisLayers_.push_back(new ResFCLayer(axisStream_, cudnn_, cublas_, batchSize_, outC, outC, "Continuous_ResFC2", train, weightDecay));
@@ -147,4 +144,21 @@ size_t CustomOutLayer::GetOptimizerStateSize(){
 		maxSize = std::max(maxSize, axisLayers_[i]->GetOptimizerStateSize());
 	}
 	return maxSize;
+}
+void CustomOutLayer::SetTrain(bool enable){
+	int bs;
+	if(enable){
+		train_ = true;
+		bs = batchSize_;
+	} else{
+		train_ = false;
+		bs = 1;
+	}
+	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, inC_, 1, 1));
+	for(int i = 0; i<buttonLayers_.size(); ++i){
+		buttonLayers_[i]->SetTrain(enable);
+	}
+	for(int i = 0; i<axisLayers_.size(); ++i){
+		axisLayers_[i]->SetTrain(enable);
+	}
 }

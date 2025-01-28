@@ -6,13 +6,14 @@
 #include <vector>
 class NN{
 public:
-	NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train, float lr = 0.00001f);
+	NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train, float lr);
 	~NN();
 	__half* Forward(__half* data);
 	__half* Backward(__half* grad);
 	void UpdateParams();
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
+	void SetTrain(bool enable);
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	std::vector<Layer*> layers_;

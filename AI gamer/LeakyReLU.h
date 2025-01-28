@@ -1,13 +1,14 @@
 #pragma once
 #include "Layer.h"
 #include <cuda_fp16.hpp>
-#include <cudnn.h>
 class LeakyReLU final : public Layer{
 public:
-	explicit LeakyReLU(int size, const char* layerName);
+	explicit LeakyReLU(int batchSize, int channels, int height, int width, const char* layerName);
 	~LeakyReLU() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
+	void SetTrain(bool enable) override;
+	int batchSize_, outC_, outHeight_, outWidth_;
 	__half* data_ = nullptr;
 	float slope_;
 };

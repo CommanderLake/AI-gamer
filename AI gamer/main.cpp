@@ -58,7 +58,7 @@ int main(){
 	SetEnvironmentVariableA("CUDNN_LOGLEVEL_DBG", "3");
 	std::ios::sync_with_stdio(false);
 	std::cout << std::fixed << std::setprecision(8);
-	std::cout << "R for record mode, T for train mode, V for view mode, I for Infer mode... ";
+	std::cout << "R for Record mode, T for Train mode, V for View mode, I for Infer mode, F for Fine tune infer mode... ";
 	char mode;
 	std::cin >> mode;
 	std::cout << "\r\n";
@@ -80,6 +80,10 @@ int main(){
 		delete viewer;
 	} else if(mode == 'i' || mode == 'I'){
 		const auto infer = new Infer(false);
+		infer->Run();
+		delete infer;
+	} else if(mode == 'f' || mode == 'F'){
+		const auto infer = new Infer(true);
 		infer->Run();
 		delete infer;
 	}
