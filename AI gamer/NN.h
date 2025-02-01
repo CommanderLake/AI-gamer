@@ -6,11 +6,11 @@
 #include <vector>
 class NN{
 public:
-	NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train, float lr);
+	NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train);
 	~NN();
 	__half* Forward(__half* data);
 	__half* Backward(__half* grad);
-	void UpdateParams();
+	void UpdateParams(float lr);
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
 	void SetTrain(bool enable);
@@ -22,6 +22,5 @@ public:
 	int batchStateTotal_;
 	int stateSize_;
 	int inWidth_, inHeight_;
-	float learningRate_;
 	size_t maxBufferSize_;
 };

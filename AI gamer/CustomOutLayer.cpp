@@ -1,5 +1,6 @@
 #include "CustomOutLayer.h"
 #include "Activate.h"
+#include "BatchNorm.h"
 #include "common.h"
 #include "FCLayer.h"
 #include "ResConvLayer.h"
@@ -12,19 +13,25 @@ CustomOutLayer::CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasH
 	cudaStreamCreate(&axisStream_);
 	cudnnCreateTensorDescriptor(&inDesc_);
 	cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inputSize, 1, 1);
-	auto outC = 512;
-	buttonLayers_.push_back(new ResFCLayer(buttonStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Binary_ResFC1", train, weightDecay));
-	buttonLayers_.push_back(new ResFCLayer(buttonStream_, cudnn_, cublas_, batchSize_, outC, outC, "Binary_ResFC2", train, weightDecay));
-	buttonLayers_.push_back(new ResFCLayer(buttonStream_, cudnn_, cublas_, batchSize_, outC, outC, "Binary_ResFC3", train, weightDecay));
-	buttonLayers_.push_back(new ResFCLayer(buttonStream_, cudnn_, cublas_, batchSize_, outC, outC, "Binary_ResFC4", train, weightDecay));
+	auto outC = 1024;
+	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Binary_FC1", train, weightDecay));
+	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Binary_FC1_BatchNorm", train, weightDecay));
+	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Binary_FC1_ReLU"));
+	outC = 512;
+	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, 1024, outC, "Binary_FC2", train, weightDecay));
+	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Binary_FC2_BatchNorm", train, weightDecay));
+	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Binary_FC2_ReLU"));
 	outC = numButs_;
 	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, 512, outC, "Binary_FC_Out", train, weightDecay));
 	buttonLayers_.push_back(new Sigmoid(buttonStream_, numButs_, batchSize_, outC, "Binary_Sigmoid"));
+	outC = 1024;
+	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Continuous_FC1", train, weightDecay));
+	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Continuous_FC1_BatchNorm", train, weightDecay));
+	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Continuous_FC1_ReLU"));
 	outC = 512;
-	axisLayers_.push_back(new ResFCLayer(axisStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Continuous_ResFC1", train, weightDecay));
-	axisLayers_.push_back(new ResFCLayer(axisStream_, cudnn_, cublas_, batchSize_, outC, outC, "Continuous_ResFC2", train, weightDecay));
-	axisLayers_.push_back(new ResFCLayer(axisStream_, cudnn_, cublas_, batchSize_, outC, outC, "Continuous_ResFC3", train, weightDecay));
-	axisLayers_.push_back(new ResFCLayer(axisStream_, cudnn_, cublas_, batchSize_, outC, outC, "Continuous_ResFC4", train, weightDecay));
+	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, 1024, outC, "Continuous_FC2", train, weightDecay));
+	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Continuous_FC2_BatchNorm", train, weightDecay));
+	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Continuous_FC2_ReLU"));
 	outC = numAxes_;
 	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, 512, outC, "Continuous_FC_Out", train, weightDecay));
 	const auto outSizeBytes = (numButs_+numAxes_)*batchSize_*sizeof(__half);
@@ -48,14 +55,14 @@ __half* CustomOutLayer::Forward(__half* data){
 	for(int i = 0; i<buttonLayers_.size(); ++i){
 		//std::cout << "\r\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonData = buttonLayers_[i]->Forward(buttonData);
-		//PrintDataHalf(buttonData, 14, "buttonData");
+		//PrintDataHalf(buttonData, 16, "buttonData");
 	}
 	cublasSetStream(cublas_, axisStream_);
 	cudnnSetStream(cudnn_, axisStream_);
 	for(int i = 0; i<axisLayers_.size(); ++i){
 		//std::cout << "\r\n" << axisLayers_[i]->layerName_ << " ";
 		axisData = axisLayers_[i]->Forward(axisData);
-		//PrintDataHalf(axisData, 8, "axisData");
+		//PrintDataHalf(axisData, 16, "axisData");
 	}
 	cudaStreamSynchronize(buttonStream_);
 	cudaStreamSynchronize(axisStream_);
@@ -71,14 +78,14 @@ __half* CustomOutLayer::Backward(__half* grad){
 	for(int i = buttonLayers_.size(); --i >= 0; ){
 		//std::cout << "\r\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonGrad = buttonLayers_[i]->Backward(buttonGrad);
-		//PrintDataHalf(buttonGrad, 8, "buttonGrad");
+		//PrintDataHalf(buttonGrad, 16, "buttonGrad");
 	}
 	cublasSetStream(cublas_, axisStream_);
 	cudnnSetStream(cudnn_, axisStream_);
 	for(int i = axisLayers_.size(); --i >= 0; ){
 		//std::cout << "\r\n" << axisLayers_[i]->layerName_ << " ";
 		axisGrad = axisLayers_[i]->Backward(axisGrad);
-		//PrintDataHalf(axisGrad, 8, "axisGrad");
+		//PrintDataHalf(axisGrad, 16, "axisGrad");
 	}
 	cudaStreamSynchronize(buttonStream_);
 	cudaStreamSynchronize(axisStream_);

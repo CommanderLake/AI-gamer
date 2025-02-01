@@ -1,11 +1,10 @@
 #include "NN.h"
-#include "Activate.h"
 #include "ConvLayer.h"
 #include "BatchNorm.h"
+#include "Activate.h"
+#include "LSTMLayer.h"
 #include "CustomOutLayer.h"
-#include "ResConvLayer.h"
-#include "SpatialAttentionLayer.h"
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train, float lr): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(20), seqLength_(1), inWidth_(0), inHeight_(0), learningRate_(lr), maxBufferSize_(0){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), seqLength_(1), inWidth_(0), inHeight_(0), maxBufferSize_(0){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
@@ -16,6 +15,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 		ckptFile.read(reinterpret_cast<char*>(&netWidth), sizeof(int));
 		ckptFile.read(reinterpret_cast<char*>(&netHeight), sizeof(int));
 		if(w > 0 && w != netWidth || h > 0 && h != netHeight) throw std::invalid_argument("Training data resolution does not match checkpoint resolution");
+		std::cout << "Checkpoint resolution: " << netWidth << "x" << netHeight << "\r\n";
 	}else{
 		std::cout << "Checkpoint file not found\r\n";
 		if(w <= 0 || h <= 0){
@@ -26,18 +26,31 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout << "Initializing layers... ";
-	constexpr auto wd = 0.0000001f;
+	constexpr auto wd = 0.000001f;
 	auto outC = 32;
-	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 3, 2, 1, &netHeight, &netWidth, "Conv0", train, wd));
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 8, 4, 0, &netHeight, &netWidth, "Conv0", train, wd));
 	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0 BatchNorm", train, wd));
 	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv0 ReLU"));
-	outC = 32;
-	layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv0", train, wd));
 	outC = 64;
-	layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv1", train, wd));
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 32, outC, 4, 2, 0, &netHeight, &netWidth, "Conv1", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv1 BatchNorm", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv1 ReLU"));
 	outC = 128;
-	layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 64, outC, &netHeight, &netWidth, "ResConv2", train, wd));
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 64, outC, 4, 2, 0, &netHeight, &netWidth, "Conv2", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv2 BatchNorm", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv2 ReLU"));
+	//outC = 32;
+	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv0", train, wd));
+	//outC = 64;
+	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv1", train, wd));
+	//outC = 128;
+	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 64, outC, &netHeight, &netWidth, "ResConv2", train, wd));
+	//outC = 256;
+	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 128, outC, &netHeight, &netWidth, "ResConv3", train, wd));
+	//outC = 512;
+	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 256, outC, &netHeight, &netWidth, "ResConv4", train, wd));
 	//layers_.push_back(new SpatialAttentionLayer(cudnn_, 32, 8, batchSize_, outC, netHeight, netWidth, "SpatAtt", train, wd));
+	//layers_.push_back(new LSTMLayer(cudnn_, seqLength_, 2, 512, batchSize_, outC, "LSTM", train, wd));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, outC*netHeight*netWidth, "SplitOut", train, wd));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
@@ -61,7 +74,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 					layer->LoadOptimizerState(optFile, buffer);
 				}
 				optFile.close();
-				std::cout << "Done.\r\n";
+				std::cout << "Done\r\n";
 			} else{
 				std::cerr << "No optimizer state file: " << optFileName << "\r\n";
 			}
@@ -89,8 +102,8 @@ __half* NN::Backward(__half* grad){
 	}
 	return outGrad;
 }
-void NN::UpdateParams(){
-	for(const auto layer : layers_){ layer->UpdateParameters(learningRate_); }
+void NN::UpdateParams(float lr){
+	for(const auto layer : layers_){ layer->UpdateParameters(lr); }
 }
 void NN::SaveModel(const std::string& filename){
 	std::ofstream file(filename, std::ios::binary);

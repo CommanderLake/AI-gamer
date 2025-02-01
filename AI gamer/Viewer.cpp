@@ -98,7 +98,13 @@ void Viewer::Play(std::string fileName){
 	int32_t mouseDeltaX;
 	int32_t mouseDeltaY;
 	const auto state_data = static_cast<unsigned char*>(_aligned_malloc(stateSize, 64));
+	//constexpr std::chrono::microseconds frameDuration(33333);
+	//auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	while(file.peek() != EOF){
+		//auto currentTime = std::chrono::high_resolution_clock::now();
+		//nextFrameTime += frameDuration;
+		//if(currentTime > nextFrameTime) nextFrameTime = currentTime + frameDuration;
+		//std::this_thread::sleep_until(nextFrameTime);
 		file.read(reinterpret_cast<char*>(&keyStates), sizeof keyStates);
 		file.read(reinterpret_cast<char*>(&mouseDeltaX), sizeof mouseDeltaX);
 		file.read(reinterpret_cast<char*>(&mouseDeltaY), sizeof mouseDeltaY);

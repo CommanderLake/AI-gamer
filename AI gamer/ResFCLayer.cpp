@@ -12,7 +12,7 @@ ResFCLayer::ResFCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cubla
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 	layers_.push_back(new FCLayer(cudaStream, cudnnHandle, cublasHandle, batchSize_, inC_, outC_, "FC0", train, weightDecay));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, 1, 1, "FC0 BatchNorm", train_, weightDecay));
+	//layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, 1, 1, "FC0 BatchNorm", train_, weightDecay));
 	layers_.push_back(new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC_, 1, 1, "FC0 ReLU"));
 	layers_.push_back(new FCLayer(cudaStream, cudnnHandle_, cublasHandle, batchSize_, outC_, outC_, "FC1", train, weightDecay));
 	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, 1, 1, "FC1 BatchNorm", train_, weightDecay));

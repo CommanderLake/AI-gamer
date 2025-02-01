@@ -198,7 +198,7 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin"};
+std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin"};
 std::vector<RecordIndex> recordIndices;
 std::mutex recordIndicesMutex;
 ThreadPool threadPool(8);
@@ -253,8 +253,8 @@ void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int st
 		threadPool.Enqueue([i, batch, seqLength, batchSize, stateSize]() mutable{
 			const std::uniform_int_distribution<size_t> dist(0, recordIndices.size()-seqLength);
 			const size_t randomStartIndex = dist(threadPool.GetThreadGenerator());
-			for(int j = 0; j<seqLength; ++j){
-				const size_t recordIndex = randomStartIndex+j;
+			for(int t = 0; t<seqLength; ++t){
+				const size_t recordIndex = randomStartIndex+t;
 				const auto& record = recordIndices[recordIndex];
 				std::ifstream file(*record.fileName, std::ios::binary|std::ios::in);
 				if(!file.is_open()){
@@ -266,9 +266,9 @@ void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int st
 					std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<*record.fileName<<"\r\n";
 					return;
 				}
-				const auto index = j*batchSize+i;
+				const auto index = t*batchSize+i;
 				// For the last timestep, load additional metadata (keyStates, mouseDeltaX, mouseDeltaY)
-				if(j==seqLength-1){
+				if(t==seqLength-1){
 					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned short))){
 						std::cerr<<"Failed to read keyStates for sequence "<<i<<" from file: "<<*record.fileName<<"\r\n";
 						return;

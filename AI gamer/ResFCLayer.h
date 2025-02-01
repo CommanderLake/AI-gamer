@@ -28,5 +28,5 @@ public:
 	FCLayer* residue_;
 	Activate* resAct_;
 	const float blendFwd = 0.5f;
-	const float blendBwd = 0.1f;
+	const float blendBwd = 0.25f;
 };

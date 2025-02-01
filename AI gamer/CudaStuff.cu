@@ -192,8 +192,7 @@ extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn){
 	cudaFree(weightFloat);
 }
 #define BETA1_F 0.9f
-#define BETA2_F 0.99f
-#define BETA3_F 0.999f
+#define BETA2_F 0.999f
 #define EPSILON_F 1e-7f
 #define CLIP 1.0f
 __global__ void sgdHalfKernel(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
@@ -220,80 +219,188 @@ extern "C" void SGDFloat(float* params, const float* grads, const int size, cons
 	auto gridSize = div_ceil(size, BS);
 	sgdFloatKernel<<<gridSize, BS>>>(params, grads, size, learningRate, weightDecay);
 }
+static void GetLaunchConfig(int n, int& blocks, int& threads){
+	threads = BS;
+	constexpr int vecSize = 8;
+	const int elementsPerBlock = threads*vecSize;
+	blocks = (n + elementsPerBlock - 1)/elementsPerBlock;
+	constexpr int maxBlocks = 65535;
+	blocks = min(blocks, maxBlocks);
+}
 __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __restrict__ grads, float* __restrict__ m, float* __restrict__ v, const float lr, const int t, const float wd, const int n){
+	__shared__ float sBiasCorrection2;
+	__shared__ float sLrT;
+	__shared__ float sBeta1Complement;
+	__shared__ float sBeta3Complement;
+	if(threadIdx.x==0){
+		const float biasCorrection1 = 1.0f-powf(BETA1_F, t);
+		sBiasCorrection2 = 1.0f-powf(BETA2_F, t);
+		sLrT = lr/biasCorrection1;
+		sBeta1Complement = 1.0f-BETA1_F;
+		sBeta3Complement = 1.0f-BETA2_F;
+	}
+	__syncthreads();
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<n){
-		const float grad = fmaxf(fminf(grads[idx], CLIP), -CLIP);
-		m[idx] = BETA1_F*m[idx]+(1.0f-BETA1_F)*grad;
-		v[idx] = BETA3_F*v[idx]+(1.0f-BETA3_F)*grad*grad;
-		params[idx] *= 1.0f - wd;
-		params[idx] -= lr*static_cast<float>(m[idx]/(1.0 - pow(BETA1_F, t))/(sqrt(v[idx]/(1.0 - pow(BETA3_F, t))) + EPSILON_F));
+	const int stride = blockDim.x*gridDim.x;
+#pragma unroll 4
+	for(int i = idx; i<n/4; i += stride){
+		float4 params4 = reinterpret_cast<const float4*>(params)[i];
+		const float4 grads4 = reinterpret_cast<const float4*>(grads)[i];
+		const float4 m4 = reinterpret_cast<const float4*>(m)[i];
+		const float4 v4 = reinterpret_cast<const float4*>(v)[i];
+		// Clip gradients
+		float4 gradClipped;
+		gradClipped.x = fmaxf(fminf(grads4.x, CLIP), -CLIP);
+		gradClipped.y = fmaxf(fminf(grads4.y, CLIP), -CLIP);
+		gradClipped.z = fmaxf(fminf(grads4.z, CLIP), -CLIP);
+		gradClipped.w = fmaxf(fminf(grads4.w, CLIP), -CLIP);
+		// Update momentum
+		float4 mNew;
+		mNew.x = BETA1_F*m4.x+sBeta1Complement*gradClipped.x;
+		mNew.y = BETA1_F*m4.y+sBeta1Complement*gradClipped.y;
+		mNew.z = BETA1_F*m4.z+sBeta1Complement*gradClipped.z;
+		mNew.w = BETA1_F*m4.w+sBeta1Complement*gradClipped.w;
+		// Update velocity
+		float4 vNew;
+		vNew.x = BETA2_F*v4.x+sBeta3Complement*gradClipped.x*gradClipped.x;
+		vNew.y = BETA2_F*v4.y+sBeta3Complement*gradClipped.y*gradClipped.y;
+		vNew.z = BETA2_F*v4.z+sBeta3Complement*gradClipped.z*gradClipped.z;
+		vNew.w = BETA2_F*v4.w+sBeta3Complement*gradClipped.w*gradClipped.w;
+		// Apply weight decay
+		params4.x *= 1.0f-wd;
+		params4.y *= 1.0f-wd;
+		params4.z *= 1.0f-wd;
+		params4.w *= 1.0f-wd;
+		// Compute updates
+		float4 update;
+		update.x = sLrT*mNew.x/(sqrtf(vNew.x/sBiasCorrection2)+EPSILON_F);
+		update.y = sLrT*mNew.y/(sqrtf(vNew.y/sBiasCorrection2)+EPSILON_F);
+		update.z = sLrT*mNew.z/(sqrtf(vNew.z/sBiasCorrection2)+EPSILON_F);
+		update.w = sLrT*mNew.w/(sqrtf(vNew.w/sBiasCorrection2)+EPSILON_F);
+		// Apply updates
+		params4.x -= update.x;
+		params4.y -= update.y;
+		params4.z -= update.z;
+		params4.w -= update.w;
+		// Store results
+		reinterpret_cast<float4*>(params)[i] = params4;
+		reinterpret_cast<float4*>(m)[i] = mNew;
+		reinterpret_cast<float4*>(v)[i] = vNew;
+	}
+	// Handle remaining elements
+	const int remainStart = n/4*4;
+	for(int i = remainStart+idx; i<n; i += stride){
+		const float grad = fmaxf(fminf(grads[i], CLIP), -CLIP);
+		const float mVal = BETA1_F*m[i]+sBeta1Complement*grad;
+		const float vVal = BETA2_F*v[i]+sBeta3Complement*grad*grad;
+		params[i] = (params[i]-sLrT*mVal/(sqrtf(vVal/sBiasCorrection2)+EPSILON_F))*(1.0f-wd);
+		m[i] = mVal;
+		v[i] = vVal;
 	}
 }
 extern "C" void AdamWFloat(float* params, const float* grads, float* m, float* v, const float learningRate, const int t, const float weightDecay, const int size){
-	auto gridSize = div_ceil(size, BS);
-	AdamwKernelFloat<<<gridSize, BS>>>(params, grads, m, v, learningRate, t, weightDecay, size);
+	int blocks, tpb;
+	GetLaunchConfig(size, blocks, tpb);
+	AdamwKernelFloat<<<blocks, tpb>>>(params, grads, m, v, learningRate, t, weightDecay, size);
 }
 __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __restrict__ grads, __half* __restrict__ m, __half* __restrict__ v, const float lr, const int t, const float wd, const int n){
+	// Shared memory for frequently used constants
+	__shared__ float sBiasCorrection1;
+	__shared__ float sBiasCorrection2;
+	__shared__ float sLrT;
+	__shared__ float sBeta1Complement;
+	__shared__ float sBeta3Complement;
+	__shared__ float sWeightDecay;
+	// First thread in block computes constants
+	if(threadIdx.x==0){
+		sBiasCorrection1 = 1.0f-powf(BETA1_F, t);
+		sBiasCorrection2 = 1.0f-powf(BETA2_F, t);
+		sLrT = lr/sBiasCorrection1;
+		sBeta1Complement = 1.0f-BETA1_F;
+		sBeta3Complement = 1.0f-BETA2_F;
+		sWeightDecay = 1.0f-wd;
+	}
+	__syncthreads();
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<n){
-		const auto grad = fmaxf(fminf(__half2float(grads[idx]), CLIP), -CLIP);
-		const auto mF = BETA1_F*__half2float(m[idx])+(1.0f-BETA1_F)*grad;
-		const auto vF = BETA3_F*__half2float(v[idx])+(1.0f-BETA3_F)*grad*grad;
-		const auto param = __half2float(params[idx])*(1.0f - wd);
-		params[idx] = __float2half(param - lr*static_cast<float>(mF/(1.0 - pow(BETA1_F, t))/(sqrt(vF/(1.0 - pow(BETA3_F, t))) + EPSILON_F)));
-		m[idx] = __float2half(mF);
-		v[idx] = __float2half(vF);
+	const int stride = blockDim.x*gridDim.x;
+	// Process 4 half2 elements (8 total elements) at once
+#pragma unroll 4
+	for(int i = idx; i<n/8; i += stride){
+		// Load 4 half2 pairs (8 elements)
+		const auto paramsPtr = reinterpret_cast<__half2*>(params+8*i);
+		const auto gradsPtr = reinterpret_cast<const __half2*>(grads+8*i);
+		const auto mPtr = reinterpret_cast<__half2*>(m+8*i);
+		const auto vPtr = reinterpret_cast<__half2*>(v+8*i);
+		// Load 4 pairs of values
+		__half2 paramsH2[4], gradsH2[4], mH2[4], vH2[4];
+#pragma unroll
+		for(int j = 0; j<4; j++){
+			paramsH2[j] = paramsPtr[j];
+			gradsH2[j] = gradsPtr[j];
+			mH2[j] = mPtr[j];
+			vH2[j] = vPtr[j];
+		}
+		// Convert to float2 for computations
+		float2 paramsF2[4], gradsF2[4], mF2[4], vF2[4];
+#pragma unroll
+		for(int j = 0; j<4; j++){
+			paramsF2[j] = __half22float2(paramsH2[j]);
+			gradsF2[j] = __half22float2(gradsH2[j]);
+			mF2[j] = __half22float2(mH2[j]);
+			vF2[j] = __half22float2(vH2[j]);
+		}
+		// Process each pair
+#pragma unroll
+		for(int j = 0; j<4; j++){
+			// Clip gradients
+			gradsF2[j].x = fmaxf(fminf(gradsF2[j].x, CLIP), -CLIP);
+			gradsF2[j].y = fmaxf(fminf(gradsF2[j].y, CLIP), -CLIP);
+			// Update momentum
+			mF2[j].x = BETA1_F*mF2[j].x+sBeta1Complement*gradsF2[j].x;
+			mF2[j].y = BETA1_F*mF2[j].y+sBeta1Complement*gradsF2[j].y;
+			// Update velocity
+			vF2[j].x = BETA2_F*vF2[j].x+sBeta3Complement*gradsF2[j].x*gradsF2[j].x;
+			vF2[j].y = BETA2_F*vF2[j].y+sBeta3Complement*gradsF2[j].y*gradsF2[j].y;
+			// Apply weight decay
+			paramsF2[j].x *= sWeightDecay;
+			paramsF2[j].y *= sWeightDecay;
+			// Compute denominator
+			float2 denom;
+			denom.x = sqrtf(vF2[j].x/sBiasCorrection2)+EPSILON_F;
+			denom.y = sqrtf(vF2[j].y/sBiasCorrection2)+EPSILON_F;
+			// Update parameters
+			paramsF2[j].x -= sLrT*mF2[j].x/denom.x;
+			paramsF2[j].y -= sLrT*mF2[j].y/denom.y;
+			// Convert back to half2
+			paramsH2[j] = __float22half2_rn(paramsF2[j]);
+			mH2[j] = __float22half2_rn(mF2[j]);
+			vH2[j] = __float22half2_rn(vF2[j]);
+		}
+		// Store results
+#pragma unroll
+		for(int j = 0; j<4; j++){
+			paramsPtr[j] = paramsH2[j];
+			mPtr[j] = mH2[j];
+			vPtr[j] = vH2[j];
+		}
+	}
+	// Handle remaining elements
+	const int remainStart = n/8*8;
+	for(int i = remainStart+idx; i<n; i += stride){
+		const float grad = fmaxf(fminf(__half2float(grads[i]), CLIP), -CLIP);
+		const float mVal = BETA1_F*__half2float(m[i])+sBeta1Complement*grad;
+		const float vVal = BETA2_F*__half2float(v[i])+sBeta3Complement*grad*grad;
+		const float param = __half2float(params[i])*sWeightDecay;
+		const float denom = sqrtf(vVal/sBiasCorrection2)+EPSILON_F;
+		params[i] = __float2half(param-sLrT*mVal/denom);
+		m[i] = __float2half(mVal);
+		v[i] = __float2half(vVal);
 	}
 }
 extern "C" void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, const float lr, const int t, const float weightDecay, const int size){
-	auto gridSize = div_ceil(size, BS);
-	AdamwKernelHalf<<<gridSize, BS>>>(params, grads, m, v, lr, t, weightDecay, size);
-}
-__global__ void AdanKernelFloat(float* __restrict__ params, const float* __restrict__ grads, float* __restrict__ m, float* __restrict__ v, float* __restrict__ n, float* __restrict__ velocity, const float lr, const float wd, const int size){
-	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<size){
-		float grad = grads[idx];
-		grad += params[idx]*wd;
-		m[idx] = BETA1_F*m[idx]+(1-BETA1_F)*grad;
-		v[idx] = BETA2_F*v[idx]+(1-BETA2_F)*grad*grad;
-		n[idx] = BETA3_F*n[idx]+(1-BETA3_F)*grad*grad*grad;
-		velocity[idx] = BETA1_F*velocity[idx]+lr*grad;
-		const float mHat = m[idx]/(1-powf(BETA1_F, idx+1));
-		const float vHat = v[idx]/(1-powf(BETA2_F, idx+1));
-		const float nHat = n[idx]/(1-powf(BETA3_F, idx+1));
-		const float update = mHat/(sqrtf(vHat)+EPSILON_F)+nHat*velocity[idx];
-		params[idx] = params[idx]-update;
-	}
-}
-extern "C" void AdanFloat(float* params, const float* grads, float* m, float* v, float* n, float* velocity, const float learningRate, const float weightDecay, const int size){
-	auto gridSize = div_ceil(size, BS);
-	AdanKernelFloat<<<gridSize, BS>>>(params, grads, m, v, n, velocity, learningRate, weightDecay, size);
-}
-__global__ void AdanKernelHalf(__half* __restrict__ params, const __half* __restrict__ grads, __half* __restrict__ m, __half* __restrict__ v, __half* __restrict__ n, __half* __restrict__ velocity, const float lr, const int t, const float wd, const int size){
-	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if(idx<size){
-		float grad = __half2float(grads[idx]);
-		const float param = __half2float(params[idx]);
-		grad += param*wd;
-		const float mF = BETA1_F*__half2float(m[idx])+(1.0f-BETA1_F)*grad;
-		const float vF = BETA2_F*__half2float(v[idx])+(1.0f-BETA2_F)*grad*grad;
-		const float nF = BETA3_F*__half2float(n[idx])+(1.0f-BETA3_F)*grad*grad*grad;
-		const float velocityF = BETA1_F*__half2float(velocity[idx])+lr*grad;
-		const float mHat = mF/(1.0f-powf(BETA1_F, t));
-		const float vHat = vF/(1.0f-powf(BETA2_F, t));
-		const float nHat = nF/(1.0f-powf(BETA3_F, t));
-		const float update = mHat/(sqrtf(vHat)+EPSILON_F)+nHat*velocityF;
-		params[idx] = __float2half(param-update);
-		m[idx] = __float2half(mF);
-		v[idx] = __float2half(vF);
-		n[idx] = __float2half(nF);
-		velocity[idx] = __float2half(velocityF);
-	}
-}
-extern "C" void AdanHalf(__half* params, const __half* grads, __half* m, __half* v, __half* n, __half* velocity, const float learningRate, const int t, const float weightDecay, const int size){
-	auto gridSize = div_ceil(size, BS);
-	AdanKernelHalf<<<gridSize, BS>>>(params, grads, m, v, n, velocity, learningRate, t, weightDecay, size);
+	int blocks, tpb;
+	GetLaunchConfig(size, blocks, tpb);
+	AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
 }
 __global__ void gradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;

@@ -22,7 +22,7 @@ public:
 	bool tune_ = false;
 	std::atomic<bool> stop_ = false;
 	InferMode activeMode_ = InferMode::Off;
-	InferMode previousMode_ = InferMode::Off;
+	InferMode lastMode_ = InferMode::Off;
 	std::vector<StateSingle*> states_;
 	cudnnContext* cudnn_ = nullptr;
 	cublasContext* cublas_ = nullptr;

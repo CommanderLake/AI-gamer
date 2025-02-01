@@ -9,14 +9,15 @@ Infer::Infer(const bool tune) : tune_(tune){
 	AllocHost(fbSize_);
 	cudnnCreate(&cudnn_);
 	cublasCreate(&cublas_);
-	nn_ = new NN(cudnn_, cublas_, 0, 0, tune_, 0.000001f);
+	nn_ = new NN(cudnn_, cublas_, 0, 0, tune_);
 	checkCUDA(cudaMallocHost(&hPredictionsF_, numCtrls_*sizeof(float)));
 	CUDAMallocZero(&dPredictionsF_, numCtrls_*sizeof(float));
 	CUDAMallocZero(&sequenceHalf_, nn_->stateSize_*nn_->seqLength_*sizeof(__half));
-	if(!tune_) return;
-	nn_->SetTrain(false);
-	record_ = new Record();
-	train_ = new Train();
+	if(tune_){
+		nn_->SetTrain(false);
+		record_ = new Record();
+		train_ = new Train();
+	}
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
 	listenThread_.detach();
 }
@@ -36,17 +37,19 @@ void Infer::Dispose(){
 	cudaDeviceReset();
 }
 void Infer::ListenForKey(){
-	std::cout << "\r\nF9 to start Inference\r\nF10 to record a correction\r\nF11 to tune network with correction\r\nEscape to stop\r\n";
+	std::cout << "\r\nF9 to start Inference\r\n";
+	if(tune_) std::cout << "F10 to record a correction\r\nF11 to tune network with correction\r\n";
+	std::cout << "Escape to stop\r\n";
 	while(!stop_){
 		if(activeMode_ == InferMode::Off && GetAsyncKeyState(VK_F9) & 0x8000){
 			StartInfer();
 			while(GetAsyncKeyState(VK_F9) & 0x8000){ Sleep(10); }
 		}
-		if(activeMode_ != InferMode::Correct && GetAsyncKeyState(VK_F10) & 0x8000){
+		if(tune_ && activeMode_ != InferMode::Correct && GetAsyncKeyState(VK_F10) & 0x8000){
 			activeMode_ = InferMode::Correct;
 			while(GetAsyncKeyState(VK_F10) & 0x8000){ Sleep(10); }
 		}
-		if(activeMode_ == InferMode::Correct && GetAsyncKeyState(VK_F12) & 0x8000){
+		if(tune_ && activeMode_ == InferMode::Correct && GetAsyncKeyState(VK_F12) & 0x8000){
 			activeMode_ = InferMode::Tune;
 			while(GetAsyncKeyState(VK_F11) & 0x8000){ Sleep(10); }
 		}
@@ -117,17 +120,23 @@ void Infer::ProcessOutput(const float* predictions){
 }
 void Infer::Step(InferMode mode){
 	int capWidth = 0, capHeight = 0;
-	const InputState inputState = record_->GetInputStates();
-	const auto frame = GrabFrameInt8(&capWidth, &capHeight, true, false);
-	if(capWidth != nn_->inWidth_ || capHeight != nn_->inHeight_){
-		PauseInfer();
-		std::cerr << "Capture resolution mismatch\r\n";
-		return;
+	InputState inputState;
+	const unsigned char* frame = nullptr;
+	if(mode != InferMode::Off){
+		if(tune_) inputState = record_->GetInputStates();
+		frame = GrabFrameInt8(&capWidth, &capHeight, true, false);
+		if(capWidth != nn_->inWidth_ || capHeight != nn_->inHeight_){
+			PauseInfer();
+			std::cerr << "Capture resolution mismatch\r\n";
+			return;
+		}
 	}
-	if(mode != previousMode_){
+	if(mode != lastMode_){
+		memset(hPredictionsF_, 0, numCtrls_*sizeof(float));
+		ProcessOutput(hPredictionsF_);
 		if(mode == InferMode::Tune && states_.size() >= nn_->batchSize_){
 			nn_->SetTrain(true);
-			train_->TuneModel(nn_, states_, 5);
+			train_->TuneModel(nn_, states_, 5, 0.000001);
 			nn_->SetTrain(false);
 			std::cout << "Tuned with " << states_.size() << " states\r\n";
 			activeMode_ = InferMode::On;
@@ -141,7 +150,7 @@ void Infer::Step(InferMode mode){
 			}
 			states_.clear();
 		}
-		previousMode_ = mode;
+		lastMode_ = mode;
 	}
 	if(mode == InferMode::Correct){
 		const auto state = new StateSingle(inputState, frame, nn_->stateSize_, true);
@@ -166,7 +175,7 @@ void Infer::Run(){
 			nextFrameTime += frameDuration;
 			if(currentTime > nextFrameTime) nextFrameTime = currentTime + frameDuration;
 			std::this_thread::sleep_until(nextFrameTime);
-			if(activeMode_ != InferMode::Off) Step(activeMode_);
+			Step(activeMode_);
 		}
 		PostQuitMessage(0);
 	} catch(const std::exception& e){

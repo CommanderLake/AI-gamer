@@ -7,9 +7,9 @@ public:
 	~Train();
 	void Allocate(int batchSize, int sequenceLength, int stateSize);
 	void Free();
-	int TrainBatch(NN* generator, const StateBatch* sb, const int stateSize, bool averageLoss);
+	int TrainBatch(NN* generator, const StateBatch* sb, const int stateSize, bool averageLoss, float lr);
 	void TrainModel(int width, int height);
-	void TuneModel(NN* generator, const std::vector<StateSingle*>& states, int epochs);
+	void TuneModel(NN* generator, const std::vector<StateSingle*>& states, int epochs, float lr);
 	float lossButs_ = 0.0f;
 	float lossAxes_ = 0.0f;
 	float emaLossButs_ = 0.0f;

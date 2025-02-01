@@ -118,7 +118,6 @@ extern "C" void SGDHalf(__half* param, const __half* grads, int size, float lear
 extern "C" void SGDFloat(float* param, const float* grads, int size, float learningRate, float weightDecay);
 extern "C" void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
 extern "C" void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
-extern "C" void AdanHalf(__half* params, const __half* grads, __half* m, __half* v, __half* n, __half* velocity, float learningRate, int t, float weightDecay, int size);
 extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, float clip, int size);
 extern "C" void SplitGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
 extern "C" void MergeOutputs(__half* outData, const __half* buttonData, const __half* axisData, int size, int numCtrls, int numButs);
