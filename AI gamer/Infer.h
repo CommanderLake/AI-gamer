@@ -32,5 +32,5 @@ public:
 	float* hPredictionsF_ = nullptr;
 	float* dPredictionsF_ = nullptr;
 	__half* sequenceHalf_ = nullptr;
-	unsigned long long fbSize_ = 0;
+	int scaleFactor_ = 2;
 };

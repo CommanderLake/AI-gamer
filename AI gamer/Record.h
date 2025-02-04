@@ -3,9 +3,7 @@
 #include <atomic>
 #include <windows.h>
 #include <fstream>
-#include <chrono>
 #include <thread>
-#include <cstdint>
 class Record{
 public:
 	explicit Record();
@@ -20,6 +18,7 @@ public:
 	void PauseCapture();
 	void Step(InputState& inputState);
 	InputState GetInputStates();
+	cudnnContext* cudnn_ = nullptr;
 	HWND hwnd_ = nullptr;
 	std::ofstream outputFile_;
 	std::atomic<bool> stop_ = false;
@@ -27,6 +26,7 @@ public:
 	int keyEvents_[256]{0};
 	InputState inputState_{0};
 	int frameSize_ = 0;
-	unsigned long long fbSize_ = 0;
 	int* keyCodeToBitPos;
+	const int tgtStateWidth_ = 320;
+	int scaleFactor_ = 2;
 };

@@ -53,14 +53,14 @@ __half* CustomOutLayer::Forward(__half* data){
 	cublasSetStream(cublas_, buttonStream_);
 	cudnnSetStream(cudnn_, buttonStream_);
 	for(int i = 0; i<buttonLayers_.size(); ++i){
-		//std::cout << "\r\n" << buttonLayers_[i]->layerName_ << " ";
+		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonData = buttonLayers_[i]->Forward(buttonData);
 		//PrintDataHalf(buttonData, 16, "buttonData");
 	}
 	cublasSetStream(cublas_, axisStream_);
 	cudnnSetStream(cudnn_, axisStream_);
 	for(int i = 0; i<axisLayers_.size(); ++i){
-		//std::cout << "\r\n" << axisLayers_[i]->layerName_ << " ";
+		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
 		axisData = axisLayers_[i]->Forward(axisData);
 		//PrintDataHalf(axisData, 16, "axisData");
 	}
@@ -76,14 +76,14 @@ __half* CustomOutLayer::Backward(__half* grad){
 	cublasSetStream(cublas_, buttonStream_);
 	cudnnSetStream(cudnn_, buttonStream_);
 	for(int i = buttonLayers_.size(); --i >= 0; ){
-		//std::cout << "\r\n" << buttonLayers_[i]->layerName_ << " ";
+		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonGrad = buttonLayers_[i]->Backward(buttonGrad);
 		//PrintDataHalf(buttonGrad, 16, "buttonGrad");
 	}
 	cublasSetStream(cublas_, axisStream_);
 	cudnnSetStream(cudnn_, axisStream_);
 	for(int i = axisLayers_.size(); --i >= 0; ){
-		//std::cout << "\r\n" << axisLayers_[i]->layerName_ << " ";
+		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
 		axisGrad = axisLayers_[i]->Backward(axisGrad);
 		//PrintDataHalf(axisGrad, 16, "axisGrad");
 	}

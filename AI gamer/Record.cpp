@@ -29,7 +29,9 @@ Record::~Record(){
 void Record::Init(){
 	try{
 		int width, height;
-		GrabFrameInt8(&width, &height, true, false);
+		GrabFrameUInt8(&width, &height, true, false);
+		scaleFactor_ = width/tgtStateWidth_;
+		GrabFrameScaleUInt8(cudnn_, &width, &height, scaleFactor_, true, true);
 		frameSize_ = width*height*3;
 		outputFile_.open(trainDataOutFileName, std::ios::binary);
 		if(!outputFile_.is_open()){ throw std::runtime_error("Failed to open output file"); }
@@ -42,13 +44,14 @@ void Record::Dispose(){
 		outputFile_.close();
 		std::cout<<"Output file closed"<<std::endl;
 	}
+	cudnnDestroy(cudnn_);
 	FreeHost();
 	FreeGPU();
 	DisposeNvFBC();
 	cudaDeviceReset();
 }
 void Record::ListenForKey(){
-	std::cout<<"Press F9 to start recording and Escape to pause\r\n";
+	std::cout<<"Press F9 to start recording and Escape to pause\n";
 	while(true){
 		if(GetAsyncKeyState(VK_F9)&0x8000){
 			if(!recording_) StartCapture();
@@ -119,11 +122,11 @@ void Record::ProcessRawInput(LPARAM lParam){
 }
 void Record::StartCapture(){
 	recording_ = true;
-	std::cout<<"Capture started"<<std::endl;
+	std::cout<<"Capture started\n";
 }
 void Record::PauseCapture(){
 	recording_ = false;
-	std::cout<<"Capture paused"<<std::endl;
+	std::cout<<"Capture paused\n";
 }
 InputState Record::GetInputStates(){
 	for(int keyCode = 0; keyCode<256; ++keyCode){
@@ -137,15 +140,19 @@ InputState Record::GetInputStates(){
 }
 void Record::Step(InputState& inputState){
 	int width, height;
-	const auto buf = GrabFrameInt8(&width, &height, true, true);
+	const auto buf = GrabFrameScaleUInt8(cudnn_, &width, &height, scaleFactor_, true, true);
+	if(width*height*3 != frameSize_){
+		std::cout << "Resolution changed\n";
+		PauseCapture();
+		return;
+	}
 	outputFile_.write(reinterpret_cast<char*>(&inputState), sizeof inputState);
 	outputFile_.write(reinterpret_cast<char*>(buf), frameSize_);
 }
 void Record::Run(){
 	InitCUDA();
 	InitNvFBC();
-	AllocGPU();
-	AllocHost(fbSize_);
+	cudnnCreate(&cudnn_);
 	std::thread t0(&Record::ListenForKey, this);
 	t0.detach();
 	while(!recording_) Sleep(10);

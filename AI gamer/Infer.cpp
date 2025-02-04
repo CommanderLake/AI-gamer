@@ -5,8 +5,6 @@
 Infer::Infer(const bool tune) : tune_(tune){
 	InitCUDA();
 	InitNvFBC();
-	AllocGPU();
-	AllocHost(fbSize_);
 	cudnnCreate(&cudnn_);
 	cublasCreate(&cublas_);
 	nn_ = new NN(cudnn_, cublas_, 0, 0, tune_);
@@ -37,9 +35,9 @@ void Infer::Dispose(){
 	cudaDeviceReset();
 }
 void Infer::ListenForKey(){
-	std::cout << "\r\nF9 to start Inference\r\n";
-	if(tune_) std::cout << "F10 to record a correction\r\nF11 to tune network with correction\r\n";
-	std::cout << "Escape to stop\r\n";
+	std::cout << "\nF9 to start Inference\n";
+	if(tune_) std::cout << "F10 to record a correction\nF11 to tune network with correction\n";
+	std::cout << "Escape to stop\n";
 	while(!stop_){
 		if(activeMode_ == InferMode::Off && GetAsyncKeyState(VK_F9) & 0x8000){
 			StartInfer();
@@ -124,10 +122,10 @@ void Infer::Step(InferMode mode){
 	const unsigned char* frame = nullptr;
 	if(mode != InferMode::Off){
 		if(tune_) inputState = record_->GetInputStates();
-		frame = GrabFrameInt8(&capWidth, &capHeight, true, false);
+		frame = GrabFrameScaleUInt8(cudnn_, &capWidth, &capHeight, 2, true, false);
 		if(capWidth != nn_->inWidth_ || capHeight != nn_->inHeight_){
 			PauseInfer();
-			std::cerr << "Capture resolution mismatch\r\n";
+			std::cerr << "Capture resolution mismatch\n";
 			return;
 		}
 	}
@@ -138,10 +136,10 @@ void Infer::Step(InferMode mode){
 			nn_->SetTrain(true);
 			train_->TuneModel(nn_, states_, 5, 0.000001);
 			nn_->SetTrain(false);
-			std::cout << "Tuned with " << states_.size() << " states\r\n";
+			std::cout << "Tuned with " << states_.size() << " states\n";
 			activeMode_ = InferMode::On;
 		} else if(mode == InferMode::Tune && states_.size() < nn_->batchSize_){
-			std::cout << "Sample size too small to tune\r\n";
+			std::cout << "Sample size too small to tune\n";
 			activeMode_ = InferMode::On;
 		}
 		if(mode == InferMode::Tune || mode == InferMode::Off || mode == InferMode::On){
@@ -157,7 +155,8 @@ void Infer::Step(InferMode mode){
 		states_.push_back(state);
 	} else if(mode == InferMode::On){
 		//checkCUDA(cudaMemcpy(sequenceHalf, sequenceHalf + frameSize, (nn->seqLength_ - 1)*frameSize, cudaMemcpyDeviceToDevice));
-		ConvertAndNormalize(sequenceHalf_/* + (nn->seqLength_ - 1)*frameSize*/, frame, nn_->stateSize_);
+		//ConvertByteToHalf(sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, frame, nn_->stateSize_, true);
+		ConvertByteToHalf(sequenceHalf_, frame, nn_->stateSize_, true);
 		const auto output = nn_->Forward(sequenceHalf_);
 		ConvertHalfToFloat(output, dPredictionsF_, numCtrls_);
 		checkCUDA(cudaMemcpy(hPredictionsF_, dPredictionsF_, numCtrls_*sizeof(float), cudaMemcpyDeviceToHost));
@@ -166,7 +165,6 @@ void Infer::Step(InferMode mode){
 }
 void Infer::Run(){
 	while(activeMode_ == InferMode::Off) Sleep(10);
-	MSG msg = {};
 	constexpr std::chrono::microseconds frameDuration(33333);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	try{

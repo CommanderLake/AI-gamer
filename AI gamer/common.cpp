@@ -85,11 +85,11 @@ int ConvertSmVer2Cores(int major, int minor){
 	return nGpuArchCoresPerSM[index - 1].Cores;
 }
 void H2F128Asm(float* dst, __half* src, int numElements){
-	int num_iterations = numElements / 128;
 	__asm {
 		mov rsi, src
 		mov rdi, dst
-		mov ecx, num_iterations
+		mov ecx, numElements
+		shr ecx, 7
 		loop_start:
 		movdqa xmm0, [rsi]
 		movdqa xmm1, [rsi+16]
@@ -148,9 +148,9 @@ void H2F128Asm(float* dst, __half* src, int numElements){
 void PrintDataHalf2(const __half* data, const size_t size, const char* label){
 	std::vector<__half> h_data(size);
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(__half), cudaMemcpyDeviceToHost));
-	std::cout << label << ":\r\n";
+	std::cout << label << ":\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << __half2float(h_data[i]) << " "; }
-	std::cout << "\r\n";
+	std::cout << "\n";
 }
 void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	const size_t truncatedSize = size / 128*128;
@@ -162,30 +162,30 @@ void PrintDataHalf(const __half* data, const size_t size, const char* label){
 	const auto fData = static_cast<float*>(_mm_malloc(truncatedSize*sizeof(float), 32));
 	checkCUDA(cudaMemcpy(hData, data, truncatedSize*sizeof(__half), cudaMemcpyDeviceToHost));
 	H2F128Asm(fData, hData, truncatedSize);
-	std::cout << label << ":\r\n";
+	std::cout << label << ":\n";
 	for(size_t i = 0; i < truncatedSize; ++i){
 		std::cout << fData[i] << " ";
 	}
-	std::cout << "\r\n";
+	std::cout << "\n";
 	_mm_free(hData);
 	_mm_free(fData);
 }
 void PrintDataFloat(const float* data, const size_t size, const char* label){
 	std::vector<float> h_data(size);
 	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
-	std::cout << label << ":\r\n";
+	std::cout << label << ":\n";
 	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << h_data[i] << " "; }
-	std::cout << "\r\n";
+	std::cout << "\n";
 }
 void PrintDataFloatHost(const float* data, const size_t size, const char* label){
-	std::cout << label << ":\r\n";
+	std::cout << label << ":\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << " "; }
-	std::cout << "\r\n";
+	std::cout << "\n";
 }
 void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
-	std::cout << label << ":\r\n";
+	std::cout << label << ":\n";
 	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << " "; }
-	std::cout << "\r\n";
+	std::cout << "\n";
 }
 void ClearScreen(char fill){
 	const COORD tl = {0, 0};
@@ -198,87 +198,97 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin"};
-std::vector<RecordIndex> recordIndices;
+//std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin"};
+std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\scaled1.bin", "E:\\TrainingData\\scaled2.bin", "E:\\TrainingData\\scaled3.bin"};
+std::string valDataFile = "E:\\TrainingData\\test_data.bin";
+std::vector<RecordIndex> trainRecordIndices;
+std::vector<RecordIndex> valRecordIndices;
 std::mutex recordIndicesMutex;
 ThreadPool threadPool(8);
 void ReportStreamState(std::ifstream& file){
-	if(file.eof()){ std::cerr<<"End of file reached prematurely.\r\n"; } else if(file.fail()){ std::cerr<<"Logical error on I/O operation.\r\n"; } else if(file.bad()){ std::cerr<<"Read/writing error on I/O operation.\r\n"; } else{
-		std::cerr<<"Unknown error occurred.\r\n";
+	if(file.eof()){ std::cerr<<"End of file reached prematurely\n"; } else if(file.fail()){ std::cerr<<"Logical error on I/O operation\n"; } else if(file.bad()){ std::cerr<<"Read/writing error on I/O operation\n"; } else{
+		std::cerr<<"Unknown error occurred\n";
 	}
-	std::cerr<<"Current stream position: "<<file.tellg()<<"\r\n";
+	std::cerr<<"Current stream position: "<<file.tellg()<<"\n";
 }
-void LoadBatch(StateBatch* batch, int batchSize, const int stateSize){
-	if(recordIndices.size()<batchSize){
-		std::cerr<<"Not enough records to fill the batch.\r\n";
+void LoadBatch(StateBatch* batch, int batchSize, const int stateSize, const bool validation){
+	if((validation ? valRecordIndices.size() : trainRecordIndices.size())<batchSize){
+		std::cerr<<"Not enough records to fill the batch\n";
 		return;
 	}
 	for(size_t i = 0; i<batchSize; ++i){
-		threadPool.Enqueue([i, batch, stateSize]{
-			const std::uniform_int_distribution<size_t> dist(0, recordIndices.size()-1);
-			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
-			const auto& record = recordIndices[randomIndex];
+		threadPool.Enqueue([i, batch, stateSize, validation]{
+			RecordIndex record;
+			if(validation){
+				const std::uniform_int_distribution<size_t> dist(0, valRecordIndices.size()-1);
+				const size_t randomIndex = dist(threadPool.GetThreadGenerator());
+				record = valRecordIndices[randomIndex];
+			}else{
+				const std::uniform_int_distribution<size_t> dist(0, trainRecordIndices.size()-1);
+				const size_t randomIndex = dist(threadPool.GetThreadGenerator());
+				record = trainRecordIndices[randomIndex];
+			}
 			std::ifstream file(*record.fileName, std::ios::binary|std::ios::in);
 			if(!file.is_open()){
-				std::cerr<<"Failed to open file: "<<record.fileName<<"\r\n";
+				std::cerr<<"Failed to open file: "<<record.fileName<<"\n";
 				return;
 			}
 			file.seekg(record.position);
 			if(file.fail()){
-				std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<record.fileName<<"\r\n";
+				std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<record.fileName<<"\n";
 				return;
 			}
 			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned short))){
-				std::cerr<<"Failed to read keyStates at index "<<i<<" from file: "<<record.fileName<<"\r\n";
+				std::cerr<<"Failed to read keyStates at index "<<i<<" from file: "<<record.fileName<<"\n";
 				return;
 			}
 			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaX), sizeof(int))){
-				std::cerr<<"Failed to read mouseDeltaX at index "<<i<<" from file: "<<record.fileName<<"\r\n";
+				std::cerr<<"Failed to read mouseDeltaX at index "<<i<<" from file: "<<record.fileName<<"\n";
 				return;
 			}
 			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaY), sizeof(int))){
-				std::cerr<<"Failed to read mouseDeltaY at index "<<i<<" from file: "<<record.fileName<<"\r\n";
+				std::cerr<<"Failed to read mouseDeltaY at index "<<i<<" from file: "<<record.fileName<<"\n";
 				return;
 			}
-			if(!file.read(reinterpret_cast<char*>(batch->stateData+i*stateSize), stateSize)){ std::cerr<<"Failed to read stateData at index "<<i<<" from file: "<<record.fileName<<"\r\n"; }
+			if(!file.read(reinterpret_cast<char*>(batch->stateData+i*stateSize), stateSize)){ std::cerr<<"Failed to read stateData at index "<<i<<" from file: "<<record.fileName<<"\n"; }
 		});
 	}
 }
 void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int stateSize){
-	if(recordIndices.size()<seqLength*batchSize){
-		std::cerr<<"Not enough records in the index to load the batch.\r\n";
+	if(trainRecordIndices.size()<seqLength*batchSize){
+		std::cerr<<"Not enough records in the index to load the batch\n";
 		return;
 	}
 	for(size_t i = 0; i<batchSize; ++i){
 		threadPool.Enqueue([i, batch, seqLength, batchSize, stateSize]() mutable{
-			const std::uniform_int_distribution<size_t> dist(0, recordIndices.size()-seqLength);
+			const std::uniform_int_distribution<size_t> dist(0, trainRecordIndices.size()-seqLength);
 			const size_t randomStartIndex = dist(threadPool.GetThreadGenerator());
 			for(int t = 0; t<seqLength; ++t){
 				const size_t recordIndex = randomStartIndex+t;
-				const auto& record = recordIndices[recordIndex];
+				const auto& record = trainRecordIndices[recordIndex];
 				std::ifstream file(*record.fileName, std::ios::binary|std::ios::in);
 				if(!file.is_open()){
-					std::cerr<<"Failed to open file: "<<*record.fileName<<"\r\n";
+					std::cerr<<"Failed to open file: "<<*record.fileName<<"\n";
 					return;
 				}
 				file.seekg(record.position);
 				if(file.fail()){
-					std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<*record.fileName<<"\r\n";
+					std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<*record.fileName<<"\n";
 					return;
 				}
 				const auto index = t*batchSize+i;
 				// For the last timestep, load additional metadata (keyStates, mouseDeltaX, mouseDeltaY)
 				if(t==seqLength-1){
 					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned short))){
-						std::cerr<<"Failed to read keyStates for sequence "<<i<<" from file: "<<*record.fileName<<"\r\n";
+						std::cerr<<"Failed to read keyStates for sequence "<<i<<" from file: "<<*record.fileName<<"\n";
 						return;
 					}
 					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaX), sizeof(int))){
-						std::cerr<<"Failed to read mouseDeltaX for sequence "<<i<<" from file: "<<*record.fileName<<"\r\n";
+						std::cerr<<"Failed to read mouseDeltaX for sequence "<<i<<" from file: "<<*record.fileName<<"\n";
 						return;
 					}
 					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].deltaY), sizeof(int))){
-						std::cerr<<"Failed to read mouseDeltaY for sequence "<<i<<" from file: "<<*record.fileName<<"\r\n";
+						std::cerr<<"Failed to read mouseDeltaY for sequence "<<i<<" from file: "<<*record.fileName<<"\n";
 						return;
 					}
 				} else{
@@ -286,7 +296,7 @@ void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int st
 				}
 				// Load stateData for all time steps
 				if(!file.read(reinterpret_cast<char*>(batch->stateData+index*stateSize), stateSize)){
-					std::cerr<<"Failed to read stateData at index "<<index<<" from file: "<<*record.fileName<<"\r\n";
+					std::cerr<<"Failed to read stateData at index "<<index<<" from file: "<<*record.fileName<<"\n";
 					return;
 				}
 			}
@@ -295,7 +305,7 @@ void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int st
 }
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, const int stateSize){
 	if(states.size() < batchSize){
-		std::cerr << "Not enough RecordState instances to fill the batch.\r\n";
+		std::cerr << "Not enough RecordState instances to fill the batch.\n";
 		return;
 	}
 	std::uniform_int_distribution<size_t> dist(0, states.size() - 1);
@@ -307,7 +317,7 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 			if(batch->stateData && record->stateData){
 				std::memcpy(batch->stateData + i*stateSize, record->stateData, stateSize);
 			} else{
-				std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << ".\r\n";
+				std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << ".\n";
 			}
 		});
 	}

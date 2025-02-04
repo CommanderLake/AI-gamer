@@ -9,11 +9,21 @@ LRESULT CALLBACK Viewer::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
 		default: return DefWindowProc(hwnd, uMsg, wParam, lParam);
 	}
 }
-Viewer::Viewer() : hwnd_(nullptr), hdc_(nullptr), gdiplusToken_(0){}
+Viewer::Viewer() : hwnd_(nullptr), hdc_(nullptr), gdiplusToken_(0){
+	InitCUDA();
+	cudnnCreate(&cudnn_);
+}
 Viewer::~Viewer(){
 	Gdiplus::GdiplusShutdown(gdiplusToken_);
 	ReleaseDC(hwnd_, hdc_);
 	DestroyWindow(hwnd_);
+}
+void Viewer::ProcessMessages(){
+	MSG msg = {nullptr};
+	while(PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)){
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
 }
 void Viewer::InitializeWindow(const int width, const int height){
 	GdiplusStartup(&gdiplusToken_, &gdiplusStartupInput_, nullptr);
@@ -62,23 +72,23 @@ std::ostringstream output;
 void Viewer::ShowKeyState(const unsigned short keyStates, const int mouseDeltaX, const int mouseDeltaY){
 	output.str("");
 	//if(keyStates & 1) DebugBreak();
-	output << "Key States:\r\n";
-	output << "Move forward (W): " << (keyStates & 1 ? DOWN : UP) << "\r\n";
-	output << "Move left (A): " << (keyStates & 1 << 1 ? DOWN : UP) << "\r\n";
-	output << "Move backward (S): " << (keyStates & 1 << 2 ? DOWN : UP) << "\r\n";
-	output << "Move right (D): " << (keyStates & 1 << 3 ? DOWN : UP) << "\r\n";
-	output << "Jump (Space): " << (keyStates & 1 << 4 ? DOWN : UP) << "\r\n";
-	output << "Crouch (CTRL): " << (keyStates & 1 << 5 ? DOWN : UP) << "\r\n";
-	output << "Melee (Q): " << (keyStates & 1 << 6 ? DOWN : UP) << "\r\n";
-	output << "Reload (R): " << (keyStates & 1 << 7 ? DOWN : UP) << "\r\n";
-	output << "Action (E): " << (keyStates & 1 << 8 ? DOWN : UP) << "\r\n";
-	output << "Switch weapon (1): " << (keyStates & 1 << 9 ? DOWN : UP) << "\r\n";
-	output << "Switch grenade (2): " << (keyStates & 1 << 10 ? DOWN : UP) << "\r\n";
-	output << "Shoot (Mouse button 1): " << (keyStates & 1 << 11 ? DOWN : UP) << "\r\n";
-	output << "Zoom in (Mouse button 2): " << (keyStates & 1 << 12 ? DOWN : UP) << "\r\n";
-	output << "Throw grenade (Mouse button 3): " << (keyStates & 1 << 13 ? DOWN : UP) << "\r\n";
-	output << "Mouse Delta X: " << mouseDeltaX << "\r\n";
-	output << "Mouse Delta Y: " << mouseDeltaY << "\r\n";
+	output << "Key States:\n";
+	output << "Move forward (W): " << (keyStates & 1 ? DOWN : UP) << "\n";
+	output << "Move left (A): " << (keyStates & 1 << 1 ? DOWN : UP) << "\n";
+	output << "Move backward (S): " << (keyStates & 1 << 2 ? DOWN : UP) << "\n";
+	output << "Move right (D): " << (keyStates & 1 << 3 ? DOWN : UP) << "\n";
+	output << "Jump (Space): " << (keyStates & 1 << 4 ? DOWN : UP) << "\n";
+	output << "Crouch (CTRL): " << (keyStates & 1 << 5 ? DOWN : UP) << "\n";
+	output << "Melee (Q): " << (keyStates & 1 << 6 ? DOWN : UP) << "\n";
+	output << "Reload (R): " << (keyStates & 1 << 7 ? DOWN : UP) << "\n";
+	output << "Action (E): " << (keyStates & 1 << 8 ? DOWN : UP) << "\n";
+	output << "Switch weapon (1): " << (keyStates & 1 << 9 ? DOWN : UP) << "\n";
+	output << "Switch grenade (2): " << (keyStates & 1 << 10 ? DOWN : UP) << "\n";
+	output << "Shoot (Mouse button 1): " << (keyStates & 1 << 11 ? DOWN : UP) << "\n";
+	output << "Zoom in (Mouse button 2): " << (keyStates & 1 << 12 ? DOWN : UP) << "\n";
+	output << "Throw grenade (Mouse button 3): " << (keyStates & 1 << 13 ? DOWN : UP) << "\n";
+	output << "Mouse Delta X: " << mouseDeltaX << "\n";
+	output << "Mouse Delta Y: " << mouseDeltaY << "\n";
 	ClearScreen();
 	std::cout << output.str();
 }
@@ -88,7 +98,6 @@ void Viewer::Play(std::string fileName){
 		std::cerr << "Failed to open training data file!" << std::endl;
 		return;
 	}
-	// Read width and height
 	int width, height;
 	file.read(reinterpret_cast<char*>(&width), sizeof width);
 	file.read(reinterpret_cast<char*>(&height), sizeof height);
@@ -97,7 +106,7 @@ void Viewer::Play(std::string fileName){
 	uint16_t keyStates;
 	int32_t mouseDeltaX;
 	int32_t mouseDeltaY;
-	const auto state_data = static_cast<unsigned char*>(_aligned_malloc(stateSize, 64));
+	const auto stateData = static_cast<unsigned char*>(_mm_malloc(stateSize, 64));
 	//constexpr std::chrono::microseconds frameDuration(33333);
 	//auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	while(file.peek() != EOF){
@@ -108,13 +117,57 @@ void Viewer::Play(std::string fileName){
 		file.read(reinterpret_cast<char*>(&keyStates), sizeof keyStates);
 		file.read(reinterpret_cast<char*>(&mouseDeltaX), sizeof mouseDeltaX);
 		file.read(reinterpret_cast<char*>(&mouseDeltaY), sizeof mouseDeltaY);
-		file.read(reinterpret_cast<char*>(state_data), stateSize);
+		file.read(reinterpret_cast<char*>(stateData), stateSize);
 		ShowKeyState(keyStates, mouseDeltaX, mouseDeltaY);
-		ShowImage(state_data, width, height);
-		MSG msg = {nullptr};
-		while(PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)){
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
+		ShowImage(stateData, width, height);
+		ProcessMessages();
 	}
+	_mm_free(stateData);
 }
+//void Viewer::Play(std::string fileName){
+//	std::ifstream file(fileName, std::ios::binary|std::ios::in);
+//	if(!file.is_open()){
+//		std::cerr<<"Failed to open training data file!"<<std::endl;
+//		return;
+//	}
+//	int width, height;
+//	file.read(reinterpret_cast<char*>(&width), sizeof width);
+//	file.read(reinterpret_cast<char*>(&height), sizeof height);
+//	const std::size_t stateSize = width*height*3;
+//	constexpr int batchSize = 80;
+//	convScale = new ConvScale(cudnn_, 2, batchSize, 3, &height, &width);
+//	const std::size_t newStateSize = width*height*3;
+//	std::ofstream outputFile_;
+//	outputFile_.open(trainDataOutFileName, std::ios::binary);
+//	if(!outputFile_.is_open()){ throw std::runtime_error("Failed to open output file"); }
+//	outputFile_.write(reinterpret_cast<char*>(&width), sizeof width);
+//	outputFile_.write(reinterpret_cast<char*>(&height), sizeof height);
+//	std::vector<uint16_t> keyStatesBatch(batchSize);
+//	std::vector<int32_t> mouseDeltaXBatch(batchSize);
+//	std::vector<int32_t> mouseDeltaYBatch(batchSize);
+//	unsigned char* batchData = static_cast<unsigned char*>(_aligned_malloc(batchSize*stateSize, 64));
+//	while(file.peek()!=EOF){
+//		int actualBatchSize = 0;
+//		// Read a batch of frames
+//		for(int i = 0; i<batchSize; ++i){
+//			if(file.peek()==EOF) break;
+//			file.read(reinterpret_cast<char*>(&keyStatesBatch[i]), sizeof keyStatesBatch[i]);
+//			file.read(reinterpret_cast<char*>(&mouseDeltaXBatch[i]), sizeof mouseDeltaXBatch[i]);
+//			file.read(reinterpret_cast<char*>(&mouseDeltaYBatch[i]), sizeof mouseDeltaYBatch[i]);
+//			file.read(reinterpret_cast<char*>(batchData+i*stateSize), stateSize);
+//			actualBatchSize++;
+//		}
+//		// Process batch
+//		if(actualBatchSize>0){
+//			convScale->ScaleInPlace(batchData, true);
+//			// Write processed batch to output file
+//			for(int i = 0; i<actualBatchSize; ++i){
+//				outputFile_.write(reinterpret_cast<char*>(&keyStatesBatch[i]), sizeof keyStatesBatch[i]);
+//				outputFile_.write(reinterpret_cast<char*>(&mouseDeltaXBatch[i]), sizeof mouseDeltaXBatch[i]);
+//				outputFile_.write(reinterpret_cast<char*>(&mouseDeltaYBatch[i]), sizeof mouseDeltaYBatch[i]);
+//				outputFile_.write(reinterpret_cast<char*>(batchData+i*newStateSize), newStateSize);
+//			}
+//		}
+//	}
+//	_aligned_free(batchData);
+//}

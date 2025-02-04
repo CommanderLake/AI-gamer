@@ -20,24 +20,24 @@ void Train::Free(){
 	cudaFree(dstateBatchHalf);
 	cudaFree(dStateBatchBytes);
 }
-int Train::TrainBatch(NN* generator, const StateBatch* sb, const int stateSize, bool averageLoss, float lr){
-	for(size_t i = 0; i < generator->batchSize_; ++i){
+int Train::TrainBatch(NN* nn, const StateBatch* sb, const int stateSize, bool averageLoss, float lr){
+	for(size_t i = 0; i < nn->batchSize_; ++i){
 		for(int j = 0; j < numButs_; ++j){
 			hTargetBatchFloat[i*numCtrls_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1);
 		}
 		hTargetBatchFloat[i*numCtrls_ + 14] = static_cast<float>(sb->inputStates[i].deltaX)/128.0f;
 		hTargetBatchFloat[i*numCtrls_ + 15] = static_cast<float>(sb->inputStates[i].deltaY)/128.0f;
 	}
-	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, stateSize*generator->batchStateTotal_, cudaMemcpyHostToDevice));
-	ConvertAndNormalize(dstateBatchHalf, dStateBatchBytes, stateSize*generator->batchStateTotal_);
-	checkCUDA(cudaMemcpy(dTargetBatchFloat, hTargetBatchFloat, numCtrls_*generator->batchSize_*sizeof(float), cudaMemcpyHostToDevice));
-	ConvertFloatToHalf(dTargetBatchFloat, dTargetBatchHalf, numCtrls_*generator->batchSize_);
-	const auto dPredictions = generator->Forward(dstateBatchHalf);
-	if(IsnanHalf(dPredictions, numCtrls_*generator->batchSize_)){
-		std::cout << " NaN in predictions\r\n";
+	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, stateSize*nn->batchStateTotal_, cudaMemcpyHostToDevice));
+	ConvertByteToHalf(dstateBatchHalf, dStateBatchBytes, stateSize*nn->batchStateTotal_, true);
+	checkCUDA(cudaMemcpy(dTargetBatchFloat, hTargetBatchFloat, numCtrls_*nn->batchSize_*sizeof(float), cudaMemcpyHostToDevice));
+	ConvertFloatToHalf(dTargetBatchFloat, dTargetBatchHalf, numCtrls_*nn->batchSize_);
+	const auto dPredictions = nn->Forward(dstateBatchHalf);
+	if(IsnanHalf(dPredictions, numCtrls_*nn->batchSize_)){
+		std::cout << " NaN in predictions\n";
 		return -1;
 	}
-	MseLoss2(dPredictions, dTargetBatchFloat, numButs_, numCtrls_, generator->batchSize_, &lossButs_, &lossAxes_);
+	MseLoss2(dPredictions, dTargetBatchFloat, numButs_, numCtrls_, nn->batchSize_, &lossButs_, &lossAxes_);
 	if(averageLoss){
 		constexpr float smoothing = 0.95f;
 		emaLossButs_ = smoothing*emaLossButs_ + (1.0f - smoothing)*lossButs_;
@@ -47,63 +47,75 @@ int Train::TrainBatch(NN* generator, const StateBatch* sb, const int stateSize, 
 		emaLossAxes_ = lossAxes_;
 	}
 	std::cout << "\rButs: " << emaLossButs_ << " Axes: " << emaLossAxes_;
-	SplitGradient(dGeneratorGrad, dPredictions, dTargetBatchHalf, 128.0f, numCtrls_*generator->batchSize_, numCtrls_, numButs_, generator->batchSize_);
-	if(IsnanHalf(generator->Backward(dGeneratorGrad), stateSize*generator->batchStateTotal_)){
-		std::cout << " NaN in gradient\r\n";
+	if(lr == 0.0f) return 0;
+	SplitGradient(dGeneratorGrad, dPredictions, dTargetBatchHalf, 128.0f, numCtrls_*nn->batchSize_, numCtrls_, numButs_, nn->batchSize_);
+	if(IsnanHalf(nn->Backward(dGeneratorGrad), stateSize*nn->batchStateTotal_)){
+		std::cout << " NaN in gradient\n";
 		return -1;
 	}
-	generator->UpdateParams(lr);
+	nn->UpdateParams(lr);
 	return 0;
 }
 void Train::TrainModel(const int width, const int height){
 	int epochs = 10;
 	std::cout << "How many epochs: ";
 	std::cin >> epochs;
-	std::cout << "\r\n";
+	std::cout << "\n";
 	InitCUDA();
 	cudnnContext* cudnn;
 	cublasContext* cublas;
 	cudnnCreate(&cudnn);
 	cublasCreate(&cublas);
 	cublasSetMathMode(cublas, CUBLAS_TENSOR_OP_MATH); //S
-	const auto generator = new NN(cudnn, cublas, width, height, true);
+	const auto nn = new NN(cudnn, cublas, width, height, true);
 	//viewer->InitializeWindow(width, height);
-	StateBatch sb0(generator->batchStateTotal_, generator->stateSize_);
-	StateBatch sb1(generator->batchStateTotal_, generator->stateSize_);
+	StateBatch sb0(nn->batchStateTotal_, nn->stateSize_);
+	StateBatch sb1(nn->batchStateTotal_, nn->stateSize_);
 	auto sbRead = &sb0;
 	bool sbSwitch = false;
-	auto fetchBatch = [&]{
+	auto fetchBatch = [&](const bool validation){
 		sbSwitch = !sbSwitch;
 		StateBatch* nextBatch = sbSwitch ? &sb1 : &sb0;
-		threadPool.Enqueue([&, nextBatch]{
-			LoadBatch(nextBatch, generator->batchSize_, generator->stateSize_);
+		threadPool.Enqueue([&, nextBatch, validation]{
+			LoadBatch(nextBatch, nn->batchSize_, nn->stateSize_, validation);
 		});
 		sbRead = sbSwitch ? &sb0 : &sb1;
 	};
-	fetchBatch();
-	Allocate(generator->batchSize_, generator->seqLength_, generator->stateSize_);
+	fetchBatch(false);
+	Allocate(nn->batchSize_, nn->seqLength_, nn->stateSize_);
 	bool nan = false;
-	const auto epochBatchCount = recordIndices.size()/generator->batchStateTotal_;
+	const auto epochBatchCount = trainRecordIndices.size()/nn->batchStateTotal_;
+	const auto epochBatchCountVal = valRecordIndices.size()/nn->batchStateTotal_;
 	for(size_t epoch = 0; epoch < epochs; ++epoch){
-		std::cout << "\r\nEpoch: " << epoch << "\r\n";
+		std::cout << "\nEpoch: " << epoch << "\n";
 		for(size_t batch = 0; batch < epochBatchCount; ++batch){
 			nan = false;
 			threadPool.WaitAll();
-			fetchBatch();
+			fetchBatch(false);
 			//for(int i = 0; i<nn->batchSize_*nn->seqLength_; ++i){
 			//	viewer->ShowImage(sbRead->stateData + i*stateSize_, width, height);
 			//	Sleep(500);
 			//}
-			const auto result = TrainBatch(generator, sbRead, generator->stateSize_, true, 0.000005f);
+			const auto result = TrainBatch(nn, sbRead, nn->stateSize_, true, 0.000005f);
+			if(result == -1) nan = true;
+		}
+		threadPool.WaitAll();
+		std::cout << "\nRunning validation...\n";
+		fetchBatch(true);
+		for(size_t batch = 0; batch < epochBatchCountVal; ++batch){
+			nan = false;
+			threadPool.WaitAll();
+			fetchBatch(true);
+			const auto result = TrainBatch(nn, sbRead, nn->stateSize_, true, 0.0f);
 			if(result == -1) nan = true;
 		}
 		if(!nan){
-			generator->SaveModel(ckptFileName);
-			generator->SaveOptimizerState(optFileName);
+			nn->SaveModel(ckptFileName);
+			nn->SaveOptimizerState(optFileName);
 		}
 	}
 	Free();
-	delete generator;
+	delete nn;
 	cublasDestroy(cublas);
 	cudnnDestroy(cudnn);
 }
@@ -124,12 +136,12 @@ void Train::TuneModel(NN* generator, const std::vector<StateSingle*>& states, in
 	Allocate(generator->batchSize_, generator->seqLength_, generator->stateSize_);
 	const auto epochBatchCount = states.size()/generator->batchStateTotal_;
 	for(size_t epoch = 0; epoch < epochs; ++epoch){
-		std::cout << "Epoch: " << epoch << "\r\n";
+		std::cout << "Epoch: " << epoch << "\n";
 		for(size_t batch = 0; batch < epochBatchCount; ++batch){
 			threadPool.WaitAll();
 			fetchBatch();
 			const auto result = TrainBatch(generator, sbRead, generator->stateSize_, false, lr);
-			std::cout << "\r\n";
+			std::cout << "\n";
 		}
 	}
 	Free();
