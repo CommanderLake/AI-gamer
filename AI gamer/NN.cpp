@@ -3,7 +3,7 @@
 #include "BatchNorm.h"
 #include "Activate.h"
 #include "CustomOutLayer.h"
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), inWidth_(0), inHeight_(0), maxBufferSize_(0){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(160), seqLength_(1), inWidth_(0), inHeight_(0), maxBufferSize_(0){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
@@ -28,34 +28,22 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto wd = 0.00001f;
 	auto outC = 32;
 	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 4, 2, 0, &netHeight, &netWidth, "Conv0", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0 BatchNorm", train, wd));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv0 ReLU"));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0_BatchNorm", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv0_ReLU"));
 	outC = 64;
 	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 32, outC, 4, 2, 0, &netHeight, &netWidth, "Conv1", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv1 BatchNorm", train, wd));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv1 ReLU"));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv1_BatchNorm", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv1_ReLU"));
 	outC = 128;
 	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 64, outC, 4, 2, 0, &netHeight, &netWidth, "Conv2", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv2 BatchNorm", train, wd));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv2 ReLU"));
-	//outC = 32;
-	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv0", train, wd));
-	//outC = 64;
-	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 32, outC, &netHeight, &netWidth, "ResConv1", train, wd));
-	//outC = 128;
-	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 64, outC, &netHeight, &netWidth, "ResConv2", train, wd));
-	//outC = 256;
-	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 128, outC, &netHeight, &netWidth, "ResConv3", train, wd));
-	//outC = 512;
-	//layers_.push_back(new ResConvLayer(cudnn_, batchStateTotal_, 256, outC, &netHeight, &netWidth, "ResConv4", train, wd));
-	//layers_.push_back(new SpatialAttentionLayer(cudnn_, 32, 8, batchSize_, outC, netHeight, netWidth, "SpatAtt", train, wd));
-	//layers_.push_back(new LSTMLayer(cudnn_, seqLength_, 2, 512, batchSize_, outC, "LSTM", train, wd));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv2_BatchNorm", train, wd));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv2_ReLU"));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, outC*netHeight*netWidth, "SplitOut", train, wd));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
 	}
-	std::cout << "Done.\n";
+	std::cout << "Done\n";
 	if(ckptFile.is_open()){
 		std::cout << "Loading weights... ";
 		unsigned char* buffer = nullptr;
@@ -134,8 +122,13 @@ void NN::SaveOptimizerState(const std::string& filename){
 		std::cerr << "Unable to open file for saving optimizer state: " << filename << "\n";
 	}
 }
-void NN::SetTrain(bool enable){
+void NN::SetTrain(const bool enable){
 	for(int i = 0; i<layers_.size(); ++i){
 		layers_[i]->SetTrain(enable);
+	}
+}
+void NN::SetDropout(const bool enable){
+	for(int i = 0; i<layers_.size(); ++i){
+		layers_[i]->SetDropout(enable);
 	}
 }

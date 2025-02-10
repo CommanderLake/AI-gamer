@@ -8,7 +8,7 @@
 #include "FCLayer.h"
 class ResFCLayer : public Layer{
 public:
-	ResFCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay);
+	ResFCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int hiddenC, int outC, const char* layerName, bool train, float weightDecay);
 	~ResFCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -23,10 +23,12 @@ public:
 	cudaStream_t cudaStream_;
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t inDesc_;
-	int batchSize_, inC_, outC_;
+	int batchSize_, inC_, hiddenC_, outC_;
 	std::vector<Layer*> layers_;
 	FCLayer* residue_;
 	Activate* resAct_;
-	const float blendFwd = 0.5f;
-	const float blendBwd = 0.25f;
+	const float fwdAlpha = 0.2f;
+	const float fwdBeta = 0.8f;
+	const float bwdAlpha = 0.2f;
+	const float bwdBeta = 0.8f;
 };

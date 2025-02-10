@@ -2,9 +2,9 @@
 #include "Activate.h"
 #include "BatchNorm.h"
 #include "common.h"
+#include "Dropout.h"
 #include "FCLayer.h"
 #include "ResConvLayer.h"
-#include "ResFCLayer.h"
 #include "Sigmoid.h"
 CustomOutLayer::CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, const char* layerName, bool train, float weightDecay) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), inC_(inputSize){
 	layerName_ = layerName;
@@ -13,28 +13,28 @@ CustomOutLayer::CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasH
 	cudaStreamCreate(&axisStream_);
 	cudnnCreateTensorDescriptor(&inDesc_);
 	cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inputSize, 1, 1);
-	auto outC = 1024;
-	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Binary_FC1", train, weightDecay));
-	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Binary_FC1_BatchNorm", train, weightDecay));
-	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Binary_FC1_ReLU"));
-	outC = 512;
-	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, 1024, outC, "Binary_FC2", train, weightDecay));
-	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Binary_FC2_BatchNorm", train, weightDecay));
-	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Binary_FC2_ReLU"));
-	outC = numButs_;
-	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, 512, outC, "Binary_FC_Out", train, weightDecay));
-	buttonLayers_.push_back(new Sigmoid(buttonStream_, numButs_, batchSize_, outC, "Binary_Sigmoid"));
-	outC = 1024;
-	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Continuous_FC1", train, weightDecay));
-	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Continuous_FC1_BatchNorm", train, weightDecay));
-	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Continuous_FC1_ReLU"));
-	outC = 512;
-	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, 1024, outC, "Continuous_FC2", train, weightDecay));
-	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Continuous_FC2_BatchNorm", train, weightDecay));
-	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Continuous_FC2_ReLU"));
-	outC = numAxes_;
-	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, 512, outC, "Continuous_FC_Out", train, weightDecay));
-	const auto outSizeBytes = (numButs_+numAxes_)*batchSize_*sizeof(__half);
+	constexpr auto outC = 2048;
+	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Buts_FC1", train, weightDecay));
+	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Buts_FC1_BatchNorm", train, weightDecay));
+	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Buts_FC1_ReLU"));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_, outC, 1, 1, "Buts_Dropout1", train));
+	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, outC, outC/2, "Buts_FC2", train, weightDecay));
+	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC/2, 1, 1, "Buts_FC2_BatchNorm", train, weightDecay));
+	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC/2, 1, 1, "Buts_FC2_ReLU"));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_, outC/2, 1, 1, "Buts_Dropout2", train));
+	buttonLayers_.push_back(new FCLayer(buttonStream_, cudnn_, cublas_, batchSize_, outC/2, NUM_BUTS_, "Buts_FC_Out", train, weightDecay));
+	buttonLayers_.push_back(new Sigmoid(buttonStream_, NUM_BUTS_, batchSize_, NUM_BUTS_, "Buts_Sigmoid"));
+
+	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, inputSize, outC, "Axes_FC1", train, weightDecay));
+	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Axes_FC1_BatchNorm", train, weightDecay));
+	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC, 1, 1, "Axes_FC1_ReLU"));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_, outC, 1, 1, "Axes_Dropout1", train));
+	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, outC, outC/2, "Axes_FC2", train, weightDecay));
+	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC/2, 1, 1, "Axes_FC2_BatchNorm", train, weightDecay));
+	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC/2, 1, 1, "Axes_FC2_ReLU"));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_, outC/2, 1, 1, "Axes_Dropout2", train));
+	axisLayers_.push_back(new FCLayer(axisStream_, cudnn_, cublas_, batchSize_, outC/2, NUM_AXES_, "Axes_FC_Out", train, weightDecay));
+	const auto outSizeBytes = (NUM_BUTS_+NUM_AXES_)*batchSize_*sizeof(__half);
 	CUDAMallocZero(&outData_, outSizeBytes);
 }
 CustomOutLayer::~CustomOutLayer(){
@@ -66,12 +66,12 @@ __half* CustomOutLayer::Forward(__half* data){
 	}
 	cudaStreamSynchronize(buttonStream_);
 	cudaStreamSynchronize(axisStream_);
-	MergeOutputs(outData_, buttonData, axisData, numCtrls_*batchSize_, numCtrls_, numButs_);
+	MergeOutputs(outData_, buttonData, axisData, NUM_CTRLS_*batchSize_, NUM_CTRLS_, NUM_BUTS_);
 	return outData_;
 }
 __half* CustomOutLayer::Backward(__half* grad){
 	auto buttonGrad = grad;
-	auto axisGrad = grad + numButs_*batchSize_;
+	auto axisGrad = grad + NUM_BUTS_*batchSize_;
 	cudaDeviceSynchronize();
 	cublasSetStream(cublas_, buttonStream_);
 	cudnnSetStream(cudnn_, buttonStream_);
@@ -152,7 +152,7 @@ size_t CustomOutLayer::GetOptimizerStateSize(){
 	}
 	return maxSize;
 }
-void CustomOutLayer::SetTrain(bool enable){
+void CustomOutLayer::SetTrain(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;
@@ -167,5 +167,13 @@ void CustomOutLayer::SetTrain(bool enable){
 	}
 	for(int i = 0; i<axisLayers_.size(); ++i){
 		axisLayers_[i]->SetTrain(enable);
+	}
+}
+void CustomOutLayer::SetDropout(const bool enable){
+	for(int i = 0; i<buttonLayers_.size(); ++i){
+		buttonLayers_[i]->SetDropout(enable);
+	}
+	for(int i = 0; i<axisLayers_.size(); ++i){
+		axisLayers_[i]->SetDropout(enable);
 	}
 }

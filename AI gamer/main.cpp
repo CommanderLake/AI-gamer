@@ -26,13 +26,13 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 	while(true){
 		std::streampos pos = file.tellg();
 		std::streampos bytesRemaining = fileSize-pos;
-		if(bytesRemaining<10+stateSize){
+		if(bytesRemaining<12+stateSize){
 			std::cerr<<"Not enough bytes remaining for a full record in file: "<<*fileName<<" at position: "<<pos<<" (Remaining: "<<bytesRemaining<<" bytes)\n";
 			break;
 		}
 		index->push_back({fileName, pos});
 		++fileRecordsCount;
-		file.seekg(10+stateSize, std::ios::cur);
+		file.seekg(12+stateSize, std::ios::cur);
 		if(file.fail()){
 			std::cerr<<"Failed to seek to next record in file: "<<*fileName<<" at position: "<<pos<<"\n";
 			break;

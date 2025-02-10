@@ -16,6 +16,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void SetDropout(bool enable) override;
 	cudaStream_t buttonStream_, axisStream_;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
@@ -24,5 +25,5 @@ public:
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
 	__half* outData_;
-	const float alpha = 0.5f;
+	const float alpha = 1.0f;
 };

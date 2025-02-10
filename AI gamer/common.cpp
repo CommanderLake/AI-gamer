@@ -199,8 +199,8 @@ void ClearScreen(char fill){
 	SetConsoleCursorPosition(console, tl);
 }
 //std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin"};
-std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\scaled1.bin", "E:\\TrainingData\\scaled2.bin", "E:\\TrainingData\\scaled3.bin"};
-std::string valDataFile = "E:\\TrainingData\\test_data.bin";
+std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\trainingData0.bin"};
+std::string valDataFile = "E:\\TrainingData\\validationData.bin";
 std::vector<RecordIndex> trainRecordIndices;
 std::vector<RecordIndex> valRecordIndices;
 std::mutex recordIndicesMutex;
@@ -238,7 +238,7 @@ void LoadBatch(StateBatch* batch, int batchSize, const int stateSize, const bool
 				std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<record.fileName<<"\n";
 				return;
 			}
-			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned short))){
+			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned int))){
 				std::cerr<<"Failed to read keyStates at index "<<i<<" from file: "<<record.fileName<<"\n";
 				return;
 			}
@@ -279,7 +279,7 @@ void LoadBatchLSTM(StateBatch* batch, int seqLength, int batchSize, const int st
 				const auto index = t*batchSize+i;
 				// For the last timestep, load additional metadata (keyStates, mouseDeltaX, mouseDeltaY)
 				if(t==seqLength-1){
-					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned short))){
+					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i].keyStates), sizeof(unsigned int))){
 						std::cerr<<"Failed to read keyStates for sequence "<<i<<" from file: "<<*record.fileName<<"\n";
 						return;
 					}

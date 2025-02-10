@@ -125,9 +125,12 @@ __global__ void mseLoss2Kernel(const __half* predictions, const float* targets, 
 	float sumKeys = 0.0f;
 	float sumMouse = 0.0f;
 	while(idx<size){
-		float diff = __half2float(predictions[idx])-targets[idx];
-		diff *= diff;
-		if(idx%numCtrls<numKeys){ sumKeys += diff; } else{ sumMouse += diff; }
+		const float pred = __half2float(predictions[idx]);
+		const float target = targets[idx];
+		const bool isKey = idx%numCtrls<numKeys;
+		const float diff = isKey ? pred>=0.5f!=target>=0.5f : (pred-target)*(pred-target);
+		sumKeys += diff*isKey;
+		sumMouse += diff*!isKey;
 		idx += gridDim.x*blockDim.x;
 	}
 	sdata[tid] = sumKeys;

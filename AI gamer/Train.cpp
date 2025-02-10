@@ -7,10 +7,10 @@ Train::~Train(){}
 void Train::Allocate(const int batchSize, const int sequenceLength, const int stateSize){
 	CUDAMallocZero(&dStateBatchBytes, stateSize*batchSize*sequenceLength*sizeof(unsigned char));
 	CUDAMallocZero(&dstateBatchHalf, stateSize*batchSize*sequenceLength*sizeof(__half));
-	checkCUDA(cudaMallocHost(&hTargetBatchFloat, numCtrls_*batchSize*sizeof(float)));
-	CUDAMallocZero(&dTargetBatchFloat, numCtrls_*batchSize*sizeof(float));
-	CUDAMallocZero(&dTargetBatchHalf, numCtrls_*batchSize*sizeof(__half));
-	CUDAMallocZero(&dGeneratorGrad, numCtrls_*batchSize*sizeof(__half));
+	checkCUDA(cudaMallocHost(&hTargetBatchFloat, NUM_CTRLS_*batchSize*sizeof(float)));
+	CUDAMallocZero(&dTargetBatchFloat, NUM_CTRLS_*batchSize*sizeof(float));
+	CUDAMallocZero(&dTargetBatchHalf, NUM_CTRLS_*batchSize*sizeof(__half));
+	CUDAMallocZero(&dGeneratorGrad, NUM_CTRLS_*batchSize*sizeof(__half));
 }
 void Train::Free(){
 	cudaFree(dGeneratorGrad);
@@ -22,24 +22,24 @@ void Train::Free(){
 }
 int Train::TrainBatch(NN* nn, const StateBatch* sb, const int stateSize, bool averageLoss, float lr){
 	for(size_t i = 0; i < nn->batchSize_; ++i){
-		for(int j = 0; j < numButs_; ++j){
-			hTargetBatchFloat[i*numCtrls_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1);
+		for(int j = 0; j < NUM_BUTS_; ++j){
+			hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1);
 		}
-		hTargetBatchFloat[i*numCtrls_ + 14] = static_cast<float>(sb->inputStates[i].deltaX)/128.0f;
-		hTargetBatchFloat[i*numCtrls_ + 15] = static_cast<float>(sb->inputStates[i].deltaY)/128.0f;
+		hTargetBatchFloat[i*NUM_CTRLS_ + 14] = static_cast<float>(sb->inputStates[i].deltaX)/1024.0f;
+		hTargetBatchFloat[i*NUM_CTRLS_ + 15] = static_cast<float>(sb->inputStates[i].deltaY)/1024.0f;
 	}
 	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, stateSize*nn->batchStateTotal_, cudaMemcpyHostToDevice));
 	ConvertByteToHalf(dstateBatchHalf, dStateBatchBytes, stateSize*nn->batchStateTotal_, true);
-	checkCUDA(cudaMemcpy(dTargetBatchFloat, hTargetBatchFloat, numCtrls_*nn->batchSize_*sizeof(float), cudaMemcpyHostToDevice));
-	ConvertFloatToHalf(dTargetBatchFloat, dTargetBatchHalf, numCtrls_*nn->batchSize_);
+	checkCUDA(cudaMemcpy(dTargetBatchFloat, hTargetBatchFloat, NUM_CTRLS_*nn->batchSize_*sizeof(float), cudaMemcpyHostToDevice));
+	ConvertFloatToHalf(dTargetBatchFloat, dTargetBatchHalf, NUM_CTRLS_*nn->batchSize_);
 	const auto dPredictions = nn->Forward(dstateBatchHalf);
-	if(IsnanHalf(dPredictions, numCtrls_*nn->batchSize_)){
+	if(IsnanHalf(dPredictions, NUM_CTRLS_*nn->batchSize_)){
 		std::cout << " NaN in predictions\n";
 		return -1;
 	}
-	MseLoss2(dPredictions, dTargetBatchFloat, numButs_, numCtrls_, nn->batchSize_, &lossButs_, &lossAxes_);
+	MseLoss2(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchSize_, &lossButs_, &lossAxes_);
 	if(averageLoss){
-		constexpr float smoothing = 0.95f;
+		constexpr float smoothing = 0.98f;
 		emaLossButs_ = smoothing*emaLossButs_ + (1.0f - smoothing)*lossButs_;
 		emaLossAxes_ = smoothing*emaLossAxes_ + (1.0f - smoothing)*lossAxes_;
 	} else{
@@ -48,7 +48,7 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const int stateSize, bool av
 	}
 	std::cout << "\rButs: " << emaLossButs_ << " Axes: " << emaLossAxes_;
 	if(lr == 0.0f) return 0;
-	SplitGradient(dGeneratorGrad, dPredictions, dTargetBatchHalf, 128.0f, numCtrls_*nn->batchSize_, numCtrls_, numButs_, nn->batchSize_);
+	SplitGradient(dGeneratorGrad, dPredictions, dTargetBatchHalf, 128.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
 	if(IsnanHalf(nn->Backward(dGeneratorGrad), stateSize*nn->batchStateTotal_)){
 		std::cout << " NaN in gradient\n";
 		return -1;
@@ -96,11 +96,12 @@ void Train::TrainModel(const int width, const int height){
 			//	viewer->ShowImage(sbRead->stateData + i*stateSize_, width, height);
 			//	Sleep(500);
 			//}
-			const auto result = TrainBatch(nn, sbRead, nn->stateSize_, true, 0.000005f);
+			const auto result = TrainBatch(nn, sbRead, nn->stateSize_, true, 0.00001f);
 			if(result == -1) nan = true;
 		}
 		threadPool.WaitAll();
 		std::cout << "\nRunning validation...\n";
+		nn->SetDropout(false);
 		fetchBatch(true);
 		for(size_t batch = 0; batch < epochBatchCountVal; ++batch){
 			nan = false;
@@ -109,6 +110,7 @@ void Train::TrainModel(const int width, const int height){
 			const auto result = TrainBatch(nn, sbRead, nn->stateSize_, true, 0.0f);
 			if(result == -1) nan = true;
 		}
+		nn->SetDropout(true);
 		if(!nan){
 			nn->SaveModel(ckptFileName);
 			nn->SaveOptimizerState(optFileName);

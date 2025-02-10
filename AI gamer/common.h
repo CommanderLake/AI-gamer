@@ -33,13 +33,11 @@ enum class InferMode{
 	Tune
 };
 struct __half;
-#pragma pack(1)
 struct InputState{
-	unsigned short keyStates;
+	unsigned int keyStates;
 	int deltaX;
 	int deltaY;
 };
-#pragma pack()
 struct StateSingle{
 	InputState inputState;
 	unsigned char* stateData = nullptr;
@@ -96,9 +94,10 @@ const std::string ckptFileName("E:\\AIGamer.ckpt");
 const std::string optFileName("E:\\AIGamer.opt");
 const std::string ckptFileNameDisc("E:\\AIGamerDisc.ckpt");
 const std::string optFileNameDisc("E:\\AIGamerDisc.opt");
-constexpr int numButs_ = 14;
-constexpr int numAxes_ = 2;
-constexpr int numCtrls_ = numButs_ + numAxes_;
+constexpr int NUM_BUTS_ = 14;
+constexpr int NUM_AXES_ = 2;
+constexpr int NUM_CTRLS_ = NUM_BUTS_ + NUM_AXES_;
+constexpr int TGT_STATE_WIDTH_ = 320;
 extern unsigned char keyMap[14];
 void ClearScreen(char fill = ' ');
 int ConvertSmVer2Cores(int major, int minor);

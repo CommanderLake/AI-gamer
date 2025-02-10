@@ -23,10 +23,10 @@ public:
 	std::ofstream outputFile_;
 	std::atomic<bool> stop_ = false;
 	std::atomic<bool> recording_ = false;
-	int keyEvents_[256]{0};
-	InputState inputState_{0};
+	std::mutex inputsMutex;
+	int keyCodeToBitPos[256] = {};
+	int keyEvents_[256] = {};
+	InputState inputState_ = {};
 	int frameSize_ = 0;
-	int* keyCodeToBitPos;
-	const int tgtStateWidth_ = 320;
 	int scaleFactor_ = 2;
 };

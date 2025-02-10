@@ -16,9 +16,8 @@ static LRESULT CALLBACK WindowProcRecord(HWND hwnd, UINT uMsg, WPARAM wParam, LP
 }
 Record::Record(){
 	this_ = this;
-	keyCodeToBitPos = static_cast<int*>(_mm_malloc(256*sizeof(int), 32));
 	for(int i = 0; i<256; ++i){ keyCodeToBitPos[i] = -1; }
-	for(int i = 0; i<numButs_; ++i){ keyCodeToBitPos[keyMap[i]] = i; }
+	for(int i = 0; i<NUM_BUTS_; ++i){ keyCodeToBitPos[keyMap[i]] = i; }
 	std::thread t1(&Record::MassageLoop, this);
 	t1.detach();
 }
@@ -27,22 +26,20 @@ Record::~Record(){
 	recording_ = false;
 }
 void Record::Init(){
-	try{
-		int width, height;
-		GrabFrameUInt8(&width, &height, true, false);
-		scaleFactor_ = width/tgtStateWidth_;
-		GrabFrameScaleUInt8(cudnn_, &width, &height, scaleFactor_, true, true);
-		frameSize_ = width*height*3;
-		outputFile_.open(trainDataOutFileName, std::ios::binary);
-		if(!outputFile_.is_open()){ throw std::runtime_error("Failed to open output file"); }
-		outputFile_.write(reinterpret_cast<char*>(&width), sizeof width);
-		outputFile_.write(reinterpret_cast<char*>(&height), sizeof height);
-	} catch(const std::exception& e){ std::cerr<<"Record init error: "<<e.what()<<std::endl; }
+	int width, height;
+	GrabFrameUInt8(&width, &height, true, false);
+	scaleFactor_ = width/TGT_STATE_WIDTH_;
+	GrabFrameScaleUInt8(cudnn_, &width, &height, scaleFactor_, true, true);
+	frameSize_ = width*height*3;
+	outputFile_.open(trainDataOutFileName, std::ios::binary);
+	if(!outputFile_.is_open()){ throw std::runtime_error("Failed to open output file"); }
+	outputFile_.write(reinterpret_cast<char*>(&width), sizeof width);
+	outputFile_.write(reinterpret_cast<char*>(&height), sizeof height);
 }
 void Record::Dispose(){
 	if(outputFile_&&outputFile_.is_open()){
 		outputFile_.close();
-		std::cout<<"Output file closed"<<std::endl;
+		std::cout<<"Output file closed\n";
 	}
 	cudnnDestroy(cudnn_);
 	FreeHost();
@@ -92,24 +89,16 @@ void Record::MassageLoop(){
 	}
 }
 void Record::ProcessRawInput(LPARAM lParam){
-	//if(!recording_) return;
 	unsigned dwSize;
-	if(GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, nullptr, &dwSize, sizeof(RAWINPUTHEADER))!=0){
-		std::cerr<<"Failed to get raw input data size."<<std::endl;
-		return;
-	}
-	//const auto lpb = std::make_unique<unsigned char[]>(dwSize);
-	unsigned char lpb[128];
-	//if(!lpb){
-	//	std::cerr << "Failed to allocate memory for raw input data." << std::endl;
-	//	return;
-	//}
-	if(GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER))!=dwSize){
-		std::cerr<<"GetRawInputData does not return correct size!"<<std::endl;
-		return;
-	}
+	if(GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, nullptr, &dwSize, sizeof(RAWINPUTHEADER))!=0){ throw std::runtime_error("Failed to get raw input data size"); }
+	unsigned char lpb[1024];
+	if(GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER))!=dwSize){ throw std::runtime_error("GetRawInputData does not return correct size"); }
 	const auto raw = reinterpret_cast<RAWINPUT*>(lpb);
-	if(raw->header.dwType==RIM_TYPEKEYBOARD){ keyEvents_[raw->data.keyboard.MakeCode] = !(raw->data.keyboard.Flags&1); } else if(raw->header.dwType==RIM_TYPEMOUSE){
+	if(raw->header.dwType==RIM_TYPEKEYBOARD){
+		std::unique_lock<std::mutex> lock(inputsMutex);
+		keyEvents_[raw->data.keyboard.MakeCode] = !(raw->data.keyboard.Flags&1);
+	} else if(raw->header.dwType==RIM_TYPEMOUSE){
+		std::unique_lock<std::mutex> lock(inputsMutex);
 		if(raw->data.mouse.usButtonFlags&RI_MOUSE_BUTTON_1_DOWN) keyEvents_[11] = 1;
 		if(raw->data.mouse.usButtonFlags&RI_MOUSE_BUTTON_1_UP) keyEvents_[11] = 0;
 		if(raw->data.mouse.usButtonFlags&RI_MOUSE_BUTTON_2_DOWN) keyEvents_[12] = 1;
@@ -129,6 +118,7 @@ void Record::PauseCapture(){
 	std::cout<<"Capture paused\n";
 }
 InputState Record::GetInputStates(){
+	std::unique_lock<std::mutex> lock(inputsMutex);
 	for(int keyCode = 0; keyCode<256; ++keyCode){
 		const auto bitPos = keyCodeToBitPos[keyCode];
 		if(bitPos!=-1){ if(keyEvents_[keyCode]){ inputState_.keyStates |= 1<<bitPos; } else{ inputState_.keyStates &= ~(1<<bitPos); } }
@@ -141,8 +131,8 @@ InputState Record::GetInputStates(){
 void Record::Step(InputState& inputState){
 	int width, height;
 	const auto buf = GrabFrameScaleUInt8(cudnn_, &width, &height, scaleFactor_, true, true);
-	if(width*height*3 != frameSize_){
-		std::cout << "Resolution changed\n";
+	if(width*height*3!=frameSize_){
+		std::cout<<"Resolution changed\n";
 		PauseCapture();
 		return;
 	}
@@ -159,20 +149,15 @@ void Record::Run(){
 	Init();
 	constexpr std::chrono::microseconds frameDuration(33333);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
-	try{
-		while(!stop_){
-			auto currentTime = std::chrono::high_resolution_clock::now();
-			nextFrameTime += frameDuration;
-			if(currentTime>nextFrameTime){ nextFrameTime = currentTime+frameDuration; }
-			std::this_thread::sleep_until(nextFrameTime);
-			auto inputState = GetInputStates();
-			if(recording_){ Step(inputState); }
-		}
-		PostQuitMessage(0);
-	} catch(const std::exception& e){
-		std::cerr<<"Error: "<<e.what()<<std::endl;
-		PostQuitMessage(1);
+	while(!stop_){
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		nextFrameTime += frameDuration;
+		if(currentTime>nextFrameTime){ nextFrameTime = currentTime+frameDuration; }
+		std::this_thread::sleep_until(nextFrameTime);
+		auto inputState = GetInputStates();
+		if(recording_){ Step(inputState); }
 	}
+	PostQuitMessage(0);
 	stop_ = true;
 	Dispose();
 	std::terminate();

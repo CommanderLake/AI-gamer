@@ -8,9 +8,12 @@ Infer::Infer(const bool tune) : tune_(tune){
 	cudnnCreate(&cudnn_);
 	cublasCreate(&cublas_);
 	nn_ = new NN(cudnn_, cublas_, 0, 0, tune_);
-	checkCUDA(cudaMallocHost(&hPredictionsF_, numCtrls_*sizeof(float)));
-	CUDAMallocZero(&dPredictionsF_, numCtrls_*sizeof(float));
+	checkCUDA(cudaMallocHost(&hPredictionsF_, NUM_CTRLS_*sizeof(float)));
+	CUDAMallocZero(&dPredictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&sequenceHalf_, nn_->stateSize_*nn_->seqLength_*sizeof(__half));
+	int width, height;
+	GrabFrameUInt8(&width, &height, true, false);
+	scaleFactor_ = width/TGT_STATE_WIDTH_;
 	if(tune_){
 		nn_->SetTrain(false);
 		record_ = new Record();
@@ -60,11 +63,11 @@ void Infer::ListenForKey(){
 }
 void Infer::StartInfer(){
 	activeMode_ = InferMode::On;
-	std::cout << "Inference started" << std::endl;
+	std::cout << "Inference started\n";
 }
 void Infer::PauseInfer(){
 	activeMode_ = InferMode::Off;
-	std::cout << "Inference paused" << std::endl;
+	std::cout << "Inference paused\n";
 }
 void Infer::ProcessOutput(const float* predictions){
 	INPUT inputs[20] = {};
@@ -105,8 +108,8 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
 		inputIndex++;
 	}
-	const int mouseX = static_cast<int>(predictions[14]*128.0f);
-	const int mouseY = static_cast<int>(predictions[15]*128.0f);
+	const int mouseX = static_cast<int>(predictions[14]*1024.0f);
+	const int mouseY = static_cast<int>(predictions[15]*1024.0f);
 	if(mouseX != 0 || mouseY != 0){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dx = mouseX;
@@ -122,7 +125,7 @@ void Infer::Step(InferMode mode){
 	const unsigned char* frame = nullptr;
 	if(mode != InferMode::Off){
 		if(tune_) inputState = record_->GetInputStates();
-		frame = GrabFrameScaleUInt8(cudnn_, &capWidth, &capHeight, 2, true, false);
+		frame = GrabFrameScaleUInt8(cudnn_, &capWidth, &capHeight, scaleFactor_, true, false);
 		if(capWidth != nn_->inWidth_ || capHeight != nn_->inHeight_){
 			PauseInfer();
 			std::cerr << "Capture resolution mismatch\n";
@@ -130,7 +133,7 @@ void Infer::Step(InferMode mode){
 		}
 	}
 	if(mode != lastMode_){
-		memset(hPredictionsF_, 0, numCtrls_*sizeof(float));
+		memset(hPredictionsF_, 0, NUM_CTRLS_*sizeof(float));
 		ProcessOutput(hPredictionsF_);
 		if(mode == InferMode::Tune && states_.size() >= nn_->batchSize_){
 			nn_->SetTrain(true);
@@ -158,8 +161,8 @@ void Infer::Step(InferMode mode){
 		//ConvertByteToHalf(sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, frame, nn_->stateSize_, true);
 		ConvertByteToHalf(sequenceHalf_, frame, nn_->stateSize_, true);
 		const auto output = nn_->Forward(sequenceHalf_);
-		ConvertHalfToFloat(output, dPredictionsF_, numCtrls_);
-		checkCUDA(cudaMemcpy(hPredictionsF_, dPredictionsF_, numCtrls_*sizeof(float), cudaMemcpyDeviceToHost));
+		ConvertHalfToFloat(output, dPredictionsF_, NUM_CTRLS_);
+		checkCUDA(cudaMemcpy(hPredictionsF_, dPredictionsF_, NUM_CTRLS_*sizeof(float), cudaMemcpyDeviceToHost));
 		ProcessOutput(hPredictionsF_);
 	}
 }
@@ -177,7 +180,7 @@ void Infer::Run(){
 		}
 		PostQuitMessage(0);
 	} catch(const std::exception& e){
-		std::cerr << "Error: " << e.what() << std::endl;
+		std::cerr << "Error: " << e.what() << "\n";
 		PostQuitMessage(1);
 	}
 	stop_ = true;

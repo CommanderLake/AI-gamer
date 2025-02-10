@@ -69,10 +69,9 @@ void Viewer::ShowImage(const unsigned char* imageData, int width, int height) co
 const std::string DOWN = "1";
 const std::string UP = "0";
 std::ostringstream output;
-void Viewer::ShowKeyState(const unsigned short keyStates, const int mouseDeltaX, const int mouseDeltaY){
+void Viewer::ShowKeyState(const unsigned int keyStates, const int mouseDeltaX, const int mouseDeltaY){
 	output.str("");
 	//if(keyStates & 1) DebugBreak();
-	output << "Key States:\n";
 	output << "Move forward (W): " << (keyStates & 1 ? DOWN : UP) << "\n";
 	output << "Move left (A): " << (keyStates & 1 << 1 ? DOWN : UP) << "\n";
 	output << "Move backward (S): " << (keyStates & 1 << 2 ? DOWN : UP) << "\n";
@@ -103,17 +102,17 @@ void Viewer::Play(std::string fileName){
 	file.read(reinterpret_cast<char*>(&height), sizeof height);
 	const std::size_t stateSize = width*height*3;
 	InitializeWindow(width, height);
-	uint16_t keyStates;
-	int32_t mouseDeltaX;
-	int32_t mouseDeltaY;
+	unsigned int keyStates;
+	int mouseDeltaX;
+	int mouseDeltaY;
 	const auto stateData = static_cast<unsigned char*>(_mm_malloc(stateSize, 64));
-	//constexpr std::chrono::microseconds frameDuration(33333);
-	//auto nextFrameTime = std::chrono::high_resolution_clock::now();
+	constexpr std::chrono::microseconds frameDuration(33333);
+	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	while(file.peek() != EOF){
-		//auto currentTime = std::chrono::high_resolution_clock::now();
-		//nextFrameTime += frameDuration;
-		//if(currentTime > nextFrameTime) nextFrameTime = currentTime + frameDuration;
-		//std::this_thread::sleep_until(nextFrameTime);
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		nextFrameTime += frameDuration;
+		if(currentTime > nextFrameTime) nextFrameTime = currentTime + frameDuration;
+		std::this_thread::sleep_until(nextFrameTime);
 		file.read(reinterpret_cast<char*>(&keyStates), sizeof keyStates);
 		file.read(reinterpret_cast<char*>(&mouseDeltaX), sizeof mouseDeltaX);
 		file.read(reinterpret_cast<char*>(&mouseDeltaY), sizeof mouseDeltaY);

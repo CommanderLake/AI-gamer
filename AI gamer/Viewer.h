@@ -12,7 +12,7 @@ public:
 	static LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 	void InitializeWindow(int width, int height);
 	void ShowImage(const unsigned char* imageData, int width, int height) const;
-	static void ShowKeyState(unsigned short keyStates, int mouseDeltaX, int mouseDeltaY);
+	static void ShowKeyState(unsigned int keyStates, int mouseDeltaX, int mouseDeltaY);
 	void Play(std::string fileName);
 	HWND hwnd_;
 	HDC hdc_;
