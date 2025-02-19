@@ -15,7 +15,7 @@ struct pixRGB{
 	unsigned char G;
 	unsigned char R;
 };
-curandGenerator_t gen;
+curandGenerator_t generator_;
 int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 bool inited = false;
 extern "C" void InitCUDA(){
@@ -48,8 +48,8 @@ extern "C" void InitCUDA(){
 	RPB = sqrt(groups);
 	CPB = groups/RPB;
 	while(RPB*CPB < groups){ if(RPB < CPB){ RPB++; } else{ CPB++; } }
-	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
-	curandSetPseudoRandomGeneratorSeed(gen, 1234ULL);
+	curandCreateGenerator(&generator_, CURAND_RNG_PSEUDO_DEFAULT);
+	curandSetPseudoRandomGeneratorSeed(generator_, static_cast<unsigned long long>(time(nullptr)));
 }
 __device__ __host__ int DivCeil(const int a, const int b){ return a % b != 0 ? a/b + 1 : a/b; }
 static void GetLaunchConfig(int n, int& blocks, int& tpb){
@@ -118,7 +118,7 @@ extern "C" float MseLoss(const __half* dPredictions, const float* dTargets, int 
 }
 __device__ float dLossKeys;
 __device__ float dLossMouse;
-__global__ void mseLoss2Kernel(const __half* predictions, const float* targets, int size, int numKeys, int numCtrls){
+__global__ void mseLoss2Kernel(const __half* predictions, const float* targets, const int size, const int numKeys, const int numCtrls){
 	extern __shared__ float sdata[];
 	const int tid = threadIdx.x;
 	int idx = blockIdx.x*blockDim.x+threadIdx.x;
@@ -148,7 +148,7 @@ __global__ void mseLoss2Kernel(const __half* predictions, const float* targets, 
 		atomicAdd(&dLossMouse, sdata[blockDim.x]);
 	}
 }
-extern "C" void MseLoss2(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss){
+extern "C" void MseLoss2(const __half* dPredictions, const float* dTargets, const int numButs, const int numCtrls, const int batchSize, float* butLoss, float* axesLoss){
 	constexpr auto zero = 0.0f;
 	const auto size = numCtrls*batchSize;
 	cudaMemcpyToSymbol(dLossKeys, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
@@ -160,81 +160,100 @@ extern "C" void MseLoss2(const __half* dPredictions, const float* dTargets, int 
 	*butLoss /= numButs*batchSize;
 	*axesLoss /= (numCtrls-numButs)*batchSize;
 }
-__global__ void ConvertByteToHalfNormKernel(__half* output, const unsigned char* input, const size_t size){
+extern "C" void BlockShiftHalf(__half* hPtr, const int shiftBy, const int blocksToShift){
+	auto blockSize = shiftBy;
+	if(blockSize < 0) blockSize = -blockSize;
+	if(shiftBy > 0){
+		for(int i = blocksToShift; 0<i; --i){
+			cudaMemcpy(hPtr + i*blockSize, hPtr + (i - 1)*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice);
+		}
+	} else{
+		for(int i = 0; i<blocksToShift; ++i){
+			cudaMemcpy(hPtr + (i - 1)*blockSize, hPtr + i*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice);
+		}
+	}
+}
+__global__ void ConvertByteToHalfNormKernel(const unsigned char* input, __half* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		output[idx] = __float2half(static_cast<float>(input[idx])/255.0f);
 	}
 }
-__global__ void ConvertByteToHalfKernel(__half* output, const unsigned char* input, const size_t size){
+__global__ void ConvertByteToHalfKernel(const unsigned char* input, __half* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
-		output[idx] = __float2half(static_cast<float>(input[idx]));
+		output[idx] = __float2half(input[idx]);
 	}
 }
-extern "C" void ConvertByteToHalf(__half* output, const unsigned char* input, const size_t size, bool normalize){
+extern "C" void ConvertByteToHalf(const unsigned char* input, __half* output, const size_t size, bool normalize){
 	int blocks, tpb = 256;
 	GetLaunchConfig(size, blocks, tpb);
-	if(normalize) ConvertByteToHalfNormKernel<<<blocks, tpb>>>(output, input, size);
-	else ConvertByteToHalfKernel<<<blocks, tpb>>>(output, input, size);
+	if(normalize) ConvertByteToHalfNormKernel<<<blocks, tpb>>>(input, output, size);
+	else ConvertByteToHalfKernel<<<blocks, tpb>>>(input, output, size);
 }
 
-__global__ void ConvertHalfToByteNormKernel(unsigned char* output, const __half* input, const size_t size){
+__global__ void ConvertHalfToByteNormKernel(const __half* input, unsigned char* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		output[idx] = static_cast<unsigned char>(__half2float(input[idx])*255.0f);
 	}
 }
-__global__ void ConvertHalfToByteKernel(unsigned char* output, const __half* input, const size_t size){
+__global__ void ConvertHalfToByteKernel(const __half* input, unsigned char* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		output[idx] = static_cast<unsigned char>(__half2float(input[idx]));
 	}
 }
-extern "C" void ConvertHalfToByte(unsigned char* output, const __half* input, const size_t size, bool normalize){
+extern "C" void ConvertHalfToByte(const __half* input, unsigned char* output, const size_t size, const bool normalize){
 	int blocks, tpb = 256;
 	GetLaunchConfig(size, blocks, tpb);
-	if(normalize) ConvertHalfToByteNormKernel<<<blocks, tpb>>>(output, input, size);
-	else ConvertHalfToByteKernel<<<blocks, tpb>>>(output, input, size);
+	if(normalize) ConvertHalfToByteNormKernel<<<blocks, tpb>>>(input, output, size);
+	else ConvertHalfToByteKernel<<<blocks, tpb>>>(input, output, size);
 }
 
-__global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t size){
+__global__ void ConvertFloatToHalfKernel(const float* input, __half* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ dst[idx] = __float2half(src[idx]); }
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __float2half(input[idx]); }
 }
-extern "C" void ConvertFloatToHalf(float* src, __half* dst, size_t size){
+extern "C" void ConvertFloatToHalf(const float* input, __half* output, const size_t size){
 	int blocks, tpb = 256;
 	GetLaunchConfig(size, blocks, tpb);
-	convertFloatToHalfKernel<<<blocks, tpb>>>(src, dst, size);
+	ConvertFloatToHalfKernel<<<blocks, tpb>>>(input, output, size);
 }
 
-__global__ void convertHalfToFloatKernel(__half* src, float* dst, size_t size){
+__global__ void ConvertHalfToFloatKernel(const __half* input, float* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ dst[idx] = __half2float(src[idx]); }
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __half2float(input[idx]); }
 }
-extern "C" void ConvertHalfToFloat(__half* src, float* dst, size_t size){
+extern "C" void ConvertHalfToFloat(const __half* input, float* output, const size_t size){
 	int blocks, tpb = 256;
 	GetLaunchConfig(size, blocks, tpb);
-	convertHalfToFloatKernel<<<blocks, tpb>>>(src, dst, size);
+	ConvertHalfToFloatKernel<<<blocks, tpb>>>(input, output, size);
 }
-
-__global__ void HeInitKernel(__half* halfWeights, const float* weights, int n, float scale){
-	const int i = blockIdx.x*blockDim.x + threadIdx.x;
-	if(i < n){ halfWeights[i] = __float2half(weights[i]*scale); }
+__global__ void ConvertFloatToHalfScaleKernel(__half* halfWeights, const float* weights, const size_t size, const float scale){
+	const auto stride = blockDim.x*gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x+threadIdx.x; idx<size; idx += stride){ halfWeights[idx] = __float2half(weights[idx]*scale); }
 }
-extern "C" void HeInit(__half* weightHalf, int numWeights, float fanIn){
-	float* weightFloat;
-	cudaMalloc(&weightFloat, numWeights*sizeof(float));
-	curandGenerateNormal(gen, weightFloat, numWeights, 0.0f, 1.0f);
-	auto gridSize = DivCeil(numWeights, BS);
-	HeInitKernel<<<gridSize, BS>>>(weightHalf, weightFloat, numWeights, sqrtf(2.0f/fanIn));
-	cudaFree(weightFloat);
+extern "C" void ConvertFloatToHalfScale(__half* halfWeights, const float* weights, const size_t size, const float scale){
+	int blocks, tpb = 256;
+	GetLaunchConfig(size, blocks, tpb);
+	ConvertFloatToHalfScaleKernel<<<blocks, tpb>>>(halfWeights, weights, size, scale);
+}
+extern "C" void WeightInit(__half* weightHalf, const int numWeights, const int fanIn, const int fanOut, const WeightInitMethod method){
+	if(method==Orthogonal){ OrthogonalInit(weightHalf, fanIn, fanOut); } else{
+		float* weightFloat;
+		checkCUDA(cudaMalloc(&weightFloat, numWeights*sizeof(float)));
+		const float factor = method==Xavier ? 1.0f : 2.0f;
+		curandGenerateNormal(generator_, weightFloat, numWeights, 0.0f, 1.0f);
+		ConvertFloatToHalfScale(weightHalf, weightFloat, numWeights, sqrtf(factor/fanIn));
+		cudaFree(weightFloat);
+	}
 }
 #define BETA1_F 0.9f
 #define BETA2_F 0.999f
 #define EPSILON_F 1e-7f
 #define CLIP 1.0f
-__global__ void sgdHalfKernel(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
+__global__ void SGDHalfKernel(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		params[idx] *= 1.0f - weightDecay;
@@ -245,9 +264,9 @@ __global__ void sgdHalfKernel(__half* params, const __half* grads, const int siz
 extern "C" void SGDHalf(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
 	int blocks, tpb = 256;
 	GetLaunchConfig(size, blocks, tpb);
-	sgdHalfKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
+	SGDHalfKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
 }
-__global__ void sgdFloatKernel(float* params, const float* grads, const int size, const float learningRate, const float weightDecay){
+__global__ void SGDFloatKernel(float* params, const float* grads, const int size, const float learningRate, const float weightDecay){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		params[idx] *= 1.0f - weightDecay;
@@ -258,7 +277,7 @@ __global__ void sgdFloatKernel(float* params, const float* grads, const int size
 extern "C" void SGDFloat(float* params, const float* grads, const int size, const float learningRate, const float weightDecay){
 	int blocks, tpb = 256;
 	GetLaunchConfig(size, blocks, tpb);
-	sgdFloatKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
+	SGDFloatKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
 }
 __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __restrict__ grads, float* __restrict__ m, float* __restrict__ v, const float lr, const int t, const float wd, const int n){
 	__shared__ float sBiasCorrection2;
@@ -435,7 +454,7 @@ extern "C" void AdamWHalf(__half* params, const __half* grads, __half* m, __half
 	GetLaunchConfig(size, blocks, tpb);
 	AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
 }
-__global__ void gradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
+__global__ void GradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		grads[idx] = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx] - targets[idx]))));
@@ -443,42 +462,54 @@ __global__ void gradientKernel(__half* grads, const __half* predictions, const _
 }
 extern "C" void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const float clip, const int size){
 	auto gridSize = DivCeil(size, BS);
-	gradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size);
+	GradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size);
 }
-__global__ void SplitGradKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
+__global__ void SplitGradKernel(__half* gradients, const __half* predictions, const float* targets, const float clip, const int numCtrls, const int numButs, const int batchSize, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const int batchId = idx/numCtrls;
 		const int ctrlId = idx%numCtrls;
-		const auto diff = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx] - targets[idx]))));
+		const auto diff = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx]) - targets[idx])));
 		if(ctrlId < numButs){
 			const auto gradIdx = batchId*numButs + ctrlId;
-			grads[gradIdx] = diff;
+			gradients[gradIdx] = diff;
 		} else{
 			const auto gradIdx = numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs);
-			grads[gradIdx] = diff;
+			gradients[gradIdx] = diff;
 		}
 	}
 }
-extern "C" void SplitGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
+extern "C" void SplitGradient(__half* dGradient, const __half* dPredictions, const float* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
 	auto gridSize = DivCeil(size, BS);
-	SplitGradKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size, numCtrls, numButs, batchSize);
+	SplitGradKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
 }
-__global__ void MergeOutputsKernel(__half* outData, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
+__global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
 	if(idx<size){
 		const int batchId = idx/numCtrls;
-		const int outputId = idx%numCtrls;
-		if(outputId<numButs){
-			outData[idx] = buttonData[batchId*numButs+outputId];
+		const int ctrlId = idx%numCtrls;
+		if(ctrlId<numButs){
+			predOut[idx] = buttonData[batchId*numButs+ctrlId];
 		} else{
-			outData[idx] = axisData[batchId*(numCtrls - numButs)+(outputId-numButs)];
+			predOut[idx] = axisData[batchId*(numCtrls - numButs)+(ctrlId-numButs)];
 		}
 	}
 }
-extern "C" void MergeOutputs(__half* outData, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
+extern "C" void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, const int numCtrls, const int numButs, const int size){
 	auto gridSize = DivCeil(size, BS);
-	MergeOutputsKernel<<<gridSize, BS>>>(outData, buttonData, axisData, size, numCtrls, numButs);
+	MergeOutputsKernel<<<gridSize, BS>>>(predOut, buttonData, axisData, size, numCtrls, numButs);
+}
+__global__ void GetPredictionKernel(const __half* predBatch, float* prediction, const int numCtrls, const int size){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx < numCtrls){
+		prediction[idx] = __half2float(predBatch[idx + size - numCtrls]);
+	}
+}
+extern "C" void GetPrediction(const __half* predBatch, float* prediction, const int numCtrls, const int batchSize){
+	float* devPtr = nullptr;
+	cudaHostGetDevicePointer(&devPtr, prediction, 0);
+	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize*numCtrls);
+	cudaDeviceSynchronize();
 }
 __global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const float scale){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -500,7 +531,7 @@ extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const
 	BCEGradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale);
 }
 __global__ void DiscriminatorGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const int numCtrls, const int numButs, const float binaryScale, const float continuousScale, const float clip){
-	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float pred = __half2float(predictions[idx]);
 		const float target = __half2float(targets[idx]);
@@ -510,7 +541,7 @@ __global__ void DiscriminatorGradientKernel(__half* gradients, const __half* pre
 			gradient *= binaryScale;
 			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
 		} else{
-			gradient = 2.0f * (pred - target);
+			gradient = 2.0f*(pred - target);
 			gradient *= continuousScale;
 			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
 		}
@@ -535,7 +566,7 @@ __global__ void GAILGradientKernel(__half* gradients, const __half* predictions,
 			const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx]) + entropyCoeff*entropyGrad;
 			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad*scale)));
 		} else{   
-			imitationGrad = 2.0f * (pred - expert);
+			imitationGrad = 2.0f*(pred - expert);
 			adversarialGrad = -1.0f;
 			entropyGrad = 0.0f;
 			scale = axiScale;
@@ -548,27 +579,6 @@ extern "C" void GAILGradient(__half* gradients, const __half* predictions, const
 	const auto size = numCtrls*batchSize;
 	auto gridSize = DivCeil(size, BS);
 	GAILGradientKernel<<<gridSize, BS>>>(gradients, predictions, discOutput, expertActions, size, numCtrls, numButs, lambda, entropyCoeff, butScale, axiScale, clip);
-}
-__global__ void biasGradientsKernel(const __half* gradInput, __half* gradBias, int c, int batchSize){
-	extern __shared__ float sharedGrad[];
-	const int channelIdx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(channelIdx < c){
-		float sum = 0.0f;
-		for(int i = 0; i < batchSize; i++){ sum += __half2float(gradInput[i*c + channelIdx]); }
-		sharedGrad[threadIdx.x] = sum;
-	} else{ sharedGrad[threadIdx.x] = 0.0f; }
-	__syncthreads();
-	for(int stride = blockDim.x/2; stride > 0; stride >>= 1){
-		if(threadIdx.x < stride){ sharedGrad[threadIdx.x] += sharedGrad[threadIdx.x + stride]; }
-		__syncthreads();
-	}
-	if(threadIdx.x == 0){
-		for(int i = 0; i < blockDim.x && blockIdx.x*blockDim.x + i < c; i++){ gradBias[blockIdx.x*blockDim.x + i] = __float2half(sharedGrad[i]); }
-	}
-}
-extern "C" void BiasGradient(const __half* gradInput, __half* gradBias, const int c, const int batchSize, cudaStream_t cudaStream){
-	auto gridSize = DivCeil(c, BS);
-	biasGradientsKernel<<<gridSize, BS, BS*sizeof(float), cudaStream>>>(gradInput, gradBias, c, batchSize);
 }
 __global__ void LeakyReluKernel(__half* __restrict__ data, const int size, const __half negativeSlope){
 	const auto stride = blockDim.x*gridDim.x;
@@ -635,6 +645,71 @@ extern "C" void SigmoidBackward(__half* grad, const __half* data, const int numC
 	auto gridSize = DivCeil(size, BS);
 	SigmoidBackwardKernel<<<gridSize, BS, 0, cudaStream>>>(grad, data, numCtrls, numButs, size);
 }
+constexpr float SQRT_2_PI = 0.7978845608028654f;
+constexpr float GELU_COEF_A = 0.044715f;
+__global__ void GeluForwardKernelHalf(const __half* input, __half* output, const int size){
+	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	const int stride = blockDim.x*gridDim.x;
+	for(int i = idx; i<size; i += stride){
+		const float x= __half2float(input[i]);
+		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
+		const float result = x*cdf;
+		output[i] = __float2half(result);
+	}
+}
+__global__ void GeluForwardKernelFloat(const float* input, float* output, const int size){
+	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	const int stride = blockDim.x*gridDim.x;
+	for(int i = idx; i<size; i += stride){
+		const float x = input[i];
+		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
+		output[i] = x*cdf;
+	}
+}
+__global__ void GeluBackwardKernelHalf(const __half* gradIn, const __half* input, __half* gradOut, const int size){
+	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	const int stride = blockDim.x*gridDim.x;
+	for(int i = idx; i<size; i += stride){
+		const float x = __half2float(input[i]);
+		const float grad = __half2float(gradIn[i]);
+		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
+		const float pdf = SQRT_2_PI*(1.0f+3.0f*GELU_COEF_A*x*x)*(1.0f-tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x))*tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)))*0.5f;
+		const float result = grad*(cdf+x*pdf);
+		gradOut[i] = __float2half(result);
+	}
+}
+__global__ void GeluBackwardKernelFloat(const float* gradIn, const float* input, float* gradOut, const int size){
+	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
+	const int stride = blockDim.x*gridDim.x;
+	for(int i = idx; i<size; i += stride){
+		const float x = input[i];
+		const float grad = gradIn[i];
+		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
+		const float pdf = SQRT_2_PI*(1.0f+3.0f*GELU_COEF_A*x*x)*(1.0f-tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x))*tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)))*0.5f;
+		const float result = grad*(cdf+x*pdf);
+		gradOut[i] = result;
+	}
+}
+void GeluForward(const __half* input, __half* output, const int size, cudaStream_t stream){
+	int blocks, threads;
+	GetLaunchConfig(size, blocks, threads);
+	GeluForwardKernelHalf<<<blocks, threads, 0, stream>>>(input, output, size);
+}
+void GeluForward(const float* input, float* output, const int size, cudaStream_t stream){
+	int blocks, threads;
+	GetLaunchConfig(size, blocks, threads);
+	GeluForwardKernelFloat<<<blocks, threads, 0, stream>>>(input, output, size);
+}
+void GeluBackward(const __half* gradIn, const __half* input, __half* gradOut, const int size, cudaStream_t stream){
+	int blocks, threads;
+	GetLaunchConfig(size, blocks, threads);
+	GeluBackwardKernelHalf<<<blocks, threads, 0, stream>>>(gradIn, input, gradOut, size);
+}
+void GeluBackward(const float* gradIn, const float* input, float* gradOut, const int size, cudaStream_t stream){
+	int blocks, threads;
+	GetLaunchConfig(size, blocks, threads);
+	GeluBackwardKernelFloat<<<blocks, threads, 0, stream>>>(gradIn, input, gradOut, size);
+}
 __global__ void ComputeMeanVarianceKernel(const __half* data, float* mean, float* variance, const int N, const int C, const int HW){
 	extern __shared__ float sdata[];
 	float* sMean = sdata, *sM2 = sMean + blockDim.x, *sCount = sM2 + blockDim.x;
@@ -648,7 +723,7 @@ __global__ void ComputeMeanVarianceKernel(const __half* data, float* mean, float
 			++count;
 			const float delta = val - tMean;
 			tMean += delta / count;
-			tM2 += delta * (val - tMean);
+			tM2 += delta*(val - tMean);
 		}
 	}
 	sMean[tid] = tMean; sM2[tid] = tM2; sCount[tid] = count;
@@ -960,4 +1035,27 @@ __global__ void SpatialSoftmaxBackwardHalfKernel(const __half* __restrict__ outD
 extern "C" void SpatialSoftmaxBackwardHalf(const __half* outData, const __half* gradIn, __half* gradOut, int N, int C, int H, int W){
 	int gridSize = DivCeil(N*C, 1);
 	SpatialSoftmaxBackwardHalfKernel<<<gridSize, BS, 1032>>>(outData, gradIn, gradOut, N, C, H, W);
+}
+__global__ void FeatureMapMosaicKernel(const __half* __restrict__ input, unsigned char* __restrict__ output, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW){
+	const int c = blockIdx.x*blockDim.x+threadIdx.x; // Channel index
+	const int y = blockIdx.y*blockDim.y+threadIdx.y; // Y-coordinate in feature map
+	const int x = blockIdx.z*blockDim.z+threadIdx.z; // X-coordinate in feature map
+	if(c>=inC||y>=H||x>=W) return;
+	// Calculate tile position using provided grid dimensions
+	const int tileX = c%gridW;
+	const int tileY = c/gridW;
+	// Compute destination position in the mosaic
+	const int outX = tileX*tileW+x;
+	const int outY = tileY*tileH+y;
+	// Convert FP16 to 8-bit unsigned char
+	const __half value = input[c*H*W+y*W+x];
+	const float fVal = __half2float(value);
+	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*255.0f)));
+	// Store to output
+	output[outY*mosaicW+outX] = pixel;
+}
+extern "C" void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW, cudaStream_t stream){
+	dim3 blockDim(8, 8, 8);
+	dim3 gridDim((inC+blockDim.x-1)/blockDim.x, (H+blockDim.y-1)/blockDim.y, (W+blockDim.z-1)/blockDim.z);
+	FeatureMapMosaicKernel<<<gridDim, blockDim, 0, stream>>>(dInput, dOutput, H, W, inC, mosaicW, tileW, tileH, gridW);
 }

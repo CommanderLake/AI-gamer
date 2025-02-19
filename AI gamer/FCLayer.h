@@ -5,7 +5,7 @@
 class FCLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	FCLayer(cudaStream_t cudaStream, cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay);
+	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~FCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -17,23 +17,20 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-	cudaStream_t cudaStream_;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
-	cudnnTensorDescriptor_t biasDesc_;
 	int ogbs_, batchSize_, inC_, outC_;
-	__half* weights_;
-	__half* bias_;
-	__half* outData_;
-	__half* gradOut_;
-	__half* gradWeights_;
-	__half* gradBias_;
+	__half* outData_ = nullptr;
+	__half* gradOut_ = nullptr;
+	__half* gradWeights_ = nullptr;
 	const __half* inData_;
 	__half *m_Weights_, *v_Weights_;
-	__half *m_Bias_, *v_Bias_;
-	int t_ = 1;
-	const float alpha = 1.0f;
-	const float beta0 = 0.0f;
-	const float beta1 = 1.0f;
+	int t_ = 0;
+	const float alpha_ = 1.0f;
+	float alphaWeights_ = 1.0f;
+	const float beta0_ = 0.0f;
+	const float beta1_ = 1.0f;
 	float weightDecay_;
+	int gradAccumLength_;
+	int accumCount_ = 0;
 };

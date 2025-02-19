@@ -8,8 +8,7 @@ Infer::Infer(const bool tune) : tune_(tune){
 	cudnnCreate(&cudnn_);
 	cublasCreate(&cublas_);
 	nn_ = new NN(cudnn_, cublas_, 0, 0, tune_);
-	checkCUDA(cudaMallocHost(&hPredictionsF_, NUM_CTRLS_*sizeof(float)));
-	CUDAMallocZero(&dPredictionsF_, NUM_CTRLS_*sizeof(float));
+	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&sequenceHalf_, nn_->stateSize_*nn_->seqLength_*sizeof(__half));
 	int width, height;
 	GrabFrameUInt8(&width, &height, true, false);
@@ -28,8 +27,7 @@ Infer::~Infer(){
 void Infer::Dispose(){
 	delete nn_;
 	cudaFree(sequenceHalf_);
-	cudaFree(dPredictionsF_);
-	cudaFreeHost(hPredictionsF_);
+	cudaFree(predictionsF_);
 	cublasDestroy(cublas_);
 	cudnnDestroy(cudnn_);
 	FreeHost();
@@ -133,8 +131,8 @@ void Infer::Step(InferMode mode){
 		}
 	}
 	if(mode != lastMode_){
-		memset(hPredictionsF_, 0, NUM_CTRLS_*sizeof(float));
-		ProcessOutput(hPredictionsF_);
+		memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
+		ProcessOutput(predictionsF_);
 		if(mode == InferMode::Tune && states_.size() >= nn_->batchSize_){
 			nn_->SetTrain(true);
 			train_->TuneModel(nn_, states_, 5, 0.000001);
@@ -157,13 +155,12 @@ void Infer::Step(InferMode mode){
 		const auto state = new StateSingle(inputState, frame, nn_->stateSize_, true);
 		states_.push_back(state);
 	} else if(mode == InferMode::On){
-		//checkCUDA(cudaMemcpy(sequenceHalf, sequenceHalf + frameSize, (nn->seqLength_ - 1)*frameSize, cudaMemcpyDeviceToDevice));
-		//ConvertByteToHalf(sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, frame, nn_->stateSize_, true);
-		ConvertByteToHalf(sequenceHalf_, frame, nn_->stateSize_, true);
+		//BlockShiftHalf(sequenceHalf_ + nn_->stateSize_, -nn_->stateSize_, nn_->seqLength_);
+		//ConvertByteToHalf(frame, sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, nn_->stateSize_, true);
+		ConvertByteToHalf(frame, sequenceHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(sequenceHalf_);
-		ConvertHalfToFloat(output, dPredictionsF_, NUM_CTRLS_);
-		checkCUDA(cudaMemcpy(hPredictionsF_, dPredictionsF_, NUM_CTRLS_*sizeof(float), cudaMemcpyDeviceToHost));
-		ProcessOutput(hPredictionsF_);
+		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchStateTotal_);
+		ProcessOutput(predictionsF_);
 	}
 }
 void Infer::Run(){

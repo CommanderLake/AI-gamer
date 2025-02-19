@@ -4,7 +4,7 @@
 #include <vector>
 class CustomOutLayer : public Layer{
 public:
-	CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inputSize, const char* layerName, bool train, float weightDecay);
+	CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int inputSize, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~CustomOutLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -17,13 +17,13 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	void SetDropout(bool enable) override;
-	cudaStream_t buttonStream_, axisStream_;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
-	int batchSize_, inC_;
+	int batchSize_, seqLength_, inC_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
-	__half* outData_;
+	__half* predictions_;
 	const float alpha = 1.0f;
+	int gradAccumLength_;
 };

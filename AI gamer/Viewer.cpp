@@ -14,20 +14,15 @@ Viewer::Viewer() : hwnd_(nullptr), hdc_(nullptr), gdiplusToken_(0){
 	cudnnCreate(&cudnn_);
 }
 Viewer::~Viewer(){
+	if(bitmap_) delete bitmap_;
+	if(bitmapData_) delete bitmapData_;
 	Gdiplus::GdiplusShutdown(gdiplusToken_);
 	ReleaseDC(hwnd_, hdc_);
 	DestroyWindow(hwnd_);
 }
-void Viewer::ProcessMessages(){
-	MSG msg = {nullptr};
-	while(PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)){
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
-	}
-}
-void Viewer::InitializeWindow(const int width, const int height){
+void Viewer::ProcessMessages(const int width, const int height, const char* windowTitle){
 	GdiplusStartup(&gdiplusToken_, &gdiplusStartupInput_, nullptr);
-	constexpr char className[] = "ImageDisplayWindowClass";
+	constexpr char className[] = "ViewerWindowClass";
 	WNDCLASS wc = {};
 	wc.lpfnWndProc = WindowProc;
 	wc.hInstance = GetModuleHandle(nullptr);
@@ -38,33 +33,68 @@ void Viewer::InitializeWindow(const int width, const int height){
 	AdjustWindowRect(&adjustedRect, windowStyle, FALSE);
 	const int adjustedWidth = adjustedRect.right-adjustedRect.left;
 	const int adjustedHeight = adjustedRect.bottom-adjustedRect.top;
-	hwnd_ = CreateWindowEx(0, className, "Image Viewer", windowStyle, CW_USEDEFAULT, CW_USEDEFAULT, adjustedWidth, adjustedHeight, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
+	hwnd_ = CreateWindowEx(0, className, windowTitle, windowStyle, CW_USEDEFAULT, CW_USEDEFAULT, adjustedWidth, adjustedHeight, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
 	if(hwnd_==nullptr){
-		std::cerr<<"Failed to create window!"<<std::endl;
+		std::cerr<<"Failed to create window!\n";
 		exit(1);
 	}
 	ShowWindow(hwnd_, SW_SHOW);
 	hdc_ = GetDC(hwnd_);
+	if(bitmap_) delete bitmap_;
+	bitmap_ = new Gdiplus::Bitmap(width, height, PixelFormat32bppARGB);
+	if(bitmapData_) delete bitmapData_;
+	bitmapData_ = new Gdiplus::BitmapData();
+	MSG msg;
+	while(GetMessage(&msg, nullptr, 0, 0)){
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
 }
-void Viewer::ShowImage(const unsigned char* imageData, int width, int height) const{
-	Gdiplus::Bitmap bitmap(width, height, PixelFormat24bppRGB);
-	Gdiplus::BitmapData bitmapData;
+void Viewer::InitializeWindow(const int width, const int height, const char* windowTitle){
+	std::thread messageLoop([&, this]{ ProcessMessages(width, height, windowTitle); });
+	messageLoop.detach();
+}
+void Viewer::ShowImageRGB(const unsigned char* imageData, const int width, const int height){
+	if(!bitmap_ || !bitmapData_ || !hdc_) return;
 	const Gdiplus::Rect rect(0, 0, width, height);
-	bitmap.LockBits(&rect, Gdiplus::ImageLockModeWrite, PixelFormat24bppRGB, &bitmapData);
-	auto* pixels = static_cast<unsigned char*>(bitmapData.Scan0);
-	//memcpy(pixels, imageData, width*height*3);
-	const int planeSize = width * height; // Size of one color plane (R, G, or B)
+	bitmap_->LockBits(&rect, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, bitmapData_);
+	auto* pixels = static_cast<unsigned char*>(bitmapData_->Scan0);
+	const int planeSize = width*height;
+	const int stride = bitmapData_->Stride;
 	for(int y = 0; y < height; ++y){
 		for(int x = 0; x < width; ++x){
-			const int index = y * width + x;
-			pixels[(y * width + x) * 3] = imageData[index + 2 * planeSize]; // Blue
-			pixels[(y * width + x) * 3 + 1] = imageData[index + planeSize]; // Green
-			pixels[(y * width + x) * 3 + 2] = imageData[index]; // Red
+			const int index = y*width + x;
+			const int pixelOffset = y*stride + x*4;
+			pixels[pixelOffset] = imageData[index + 2*planeSize];
+			pixels[pixelOffset + 1] = imageData[index + planeSize];
+			pixels[pixelOffset + 2] = imageData[index];
+			pixels[pixelOffset + 3] = 255;
 		}
 	}
-	bitmap.UnlockBits(&bitmapData);
+	bitmap_->UnlockBits(bitmapData_);
 	Gdiplus::Graphics graphics(hdc_);
-	graphics.DrawImage(&bitmap, 0, 0, width, height);
+	graphics.DrawImage(bitmap_, 0, 0, width, height);
+}
+void Viewer::ShowImageGreyscale(const unsigned char* imageData, const int width, const int height){
+	if(!bitmap_||!bitmapData_||!hdc_) return;
+	const Gdiplus::Rect rect(0, 0, width, height);
+	if(bitmap_->LockBits(&rect, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, bitmapData_)!=Gdiplus::Ok) return;
+	auto* pixels = static_cast<unsigned char*>(bitmapData_->Scan0);
+	const int stride = bitmapData_->Stride;
+	for(int y = 0; y<height; ++y){
+		unsigned char* row = pixels+y*stride;
+		const unsigned char* src = imageData+y*width;
+		for(int x = 0; x<width; ++x){
+			const unsigned char value = src[x];
+			row[x*4] = value;
+			row[x*4+1] = value;
+			row[x*4+2] = value;
+			row[x*4+3] = 255;
+		}
+	}
+	bitmap_->UnlockBits(bitmapData_);
+	Gdiplus::Graphics graphics(hdc_);
+	graphics.DrawImage(bitmap_, 0, 0, width, height);
 }
 const std::string DOWN = "1";
 const std::string UP = "0";
@@ -101,7 +131,7 @@ void Viewer::Play(std::string fileName){
 	file.read(reinterpret_cast<char*>(&width), sizeof width);
 	file.read(reinterpret_cast<char*>(&height), sizeof height);
 	const std::size_t stateSize = width*height*3;
-	InitializeWindow(width, height);
+	InitializeWindow(width, height, fileName.c_str());
 	unsigned int keyStates;
 	int mouseDeltaX;
 	int mouseDeltaY;
@@ -118,8 +148,7 @@ void Viewer::Play(std::string fileName){
 		file.read(reinterpret_cast<char*>(&mouseDeltaY), sizeof mouseDeltaY);
 		file.read(reinterpret_cast<char*>(stateData), stateSize);
 		ShowKeyState(keyStates, mouseDeltaX, mouseDeltaY);
-		ShowImage(stateData, width, height);
-		ProcessMessages();
+		ShowImageRGB(stateData, width, height);
 	}
 	_mm_free(stateData);
 }

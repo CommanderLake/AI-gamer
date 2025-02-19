@@ -29,7 +29,6 @@ inline void DisposeNvFBC(){
 	FreeGPU();
 	nvfbcCuda->NvFBCCudaRelease();
 	if(nvfbc){
-		nvfbc->close();
 		delete nvfbc;
 		nvfbc = nullptr;
 	}
@@ -57,7 +56,7 @@ inline int InitNvFBC(){
 	fbcCudaSetupParams.eFormat = NVFBC_TOCUDA_ARGB;
 	const auto fbcRes = nvfbcCuda->NvFBCCudaSetup(&fbcCudaSetupParams);
 	if(fbcRes != NVFBC_SUCCESS){
-		std::cerr << "NVFBC CUDA setup failed, result: " << NvFBCLibrary::NVFBCResultToString(fbcRes) << std::endl;
+		std::cerr << "NVFBC CUDA setup failed, result: " << NvFBCLibrary::NVFBCResultToString(fbcRes) << "\n";
 		throw std::runtime_error("NVFBC CUDA setup failed.");
 	}
 	AllocGPU();

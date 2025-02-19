@@ -36,9 +36,9 @@ SpatialAttentionLayer::SpatialAttentionLayer(cudnnHandle_t cudnnHandle, int atte
 	CUDAMallocZero(&headOutput_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	if(train_){
-		HeInit(keyWeights_, dwWeightSizeAll_, 9*channelsPerHead_);
-		HeInit(queryWeights_, dwWeightSizeAll_, 9*channelsPerHead_);
-		HeInit(valueWeights_, pwWeightSizeAll_, channelsPerHead_);
+		WeightInit(keyWeights_, dwWeightSizeAll_, 9*channelsPerHead_);
+		WeightInit(queryWeights_, dwWeightSizeAll_, 9*channelsPerHead_);
+		WeightInit(valueWeights_, pwWeightSizeAll_, channelsPerHead_);
 		CUDAMallocZero(&gradKeyWeights_, dwWeightSizeAll_*sizeof(__half));
 		CUDAMallocZero(&gradQueryWeights_, dwWeightSizeAll_*sizeof(__half));
 		CUDAMallocZero(&gradValueWeights_, pwWeightSizeAll_*sizeof(__half));

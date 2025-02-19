@@ -49,18 +49,18 @@ void ConvScale::Forward(){
 }
 void ConvScale::ScaleUInt8InPlaceHost(unsigned char* inImage){
 	cudaMemcpy(dInB_, inImage, inNCHW_, cudaMemcpyHostToDevice);
-	ConvertByteToHalf(dIn_, dInB_, inNCHW_, false);
+	ConvertByteToHalf(dInB_, dIn_, inNCHW_, false);
 	Forward();
-	ConvertHalfToByte(dInB_, dOut_, outNCHW_, false);
+	ConvertHalfToByte(dOut_, dInB_, outNCHW_, false);
 	cudaMemcpy(inImage, dInB_, outNCHW_, cudaMemcpyDeviceToHost);
 }
 void ConvScale::ScaleUInt8InPlaceDevice(unsigned char* inImage){
-	ConvertByteToHalf(dIn_, inImage, inNCHW_, false);
+	ConvertByteToHalf(inImage, dIn_, inNCHW_, false);
 	Forward();
-	ConvertHalfToByte(inImage, dOut_, outNCHW_, false);
+	ConvertHalfToByte(dOut_, inImage, outNCHW_, false);
 }
 __half* ConvScale::ScaleUInt8ToFP16Device(const unsigned char* inImage){
-	ConvertByteToHalf(dIn_, inImage, inNCHW_, true);
+	ConvertByteToHalf(inImage, dIn_, inNCHW_, true);
 	Forward();
 	return dOut_;
 }

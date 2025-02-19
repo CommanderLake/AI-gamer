@@ -22,6 +22,7 @@ public:
 	int seqLength_;
 	int batchStateTotal_;
 	int stateSize_;
-	int inWidth_, inHeight_;
-	size_t maxBufferSize_;
+	int inWidth_= 0, inHeight_= 0;
+	size_t maxBufferSize_= 0;
+	int gradAccumLength_;
 };

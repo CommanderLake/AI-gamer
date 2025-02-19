@@ -1,11 +1,12 @@
 #include "BatchNorm.h"
 #include "common.h"
 #include <vector>
-BatchNorm::BatchNorm(cudnnHandle_t cudnnHandle, cudnnBatchNormMode_t bnMode, int batchSize, int channels, int height, int width, const char* layerName, bool train, float weightDecay): cudnnHandle_(cudnnHandle), bnMode_(bnMode), batchSize_(batchSize),
-	outC_(channels), outHeight_(height), outWidth_(width), epsilon_(1e-6), weightDecay_(weightDecay){
+BatchNorm::BatchNorm(const cudnnHandle_t cudnnHandle, const cudnnBatchNormMode_t bnMode, const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength): cudnnHandle_(cudnnHandle), bnMode_(bnMode),
+	batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width), epsilon_(1e-6), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
+	alphaWeights_ = 1.0f/gradAccumLength_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, outHeight_, outWidth_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&bnScaleBiasDesc_));
@@ -20,9 +21,9 @@ BatchNorm::BatchNorm(cudnnHandle_t cudnnHandle, cudnnBatchNormMode_t bnMode, int
 	CUDAMallocZero(&bnRunningVarInfer_, bnSizeBytes);
 	CUDAMallocZero(&bnSavedMean_, bnSizeBytes);
 	CUDAMallocZero(&bnSavedInvVariance_, bnSizeBytes);
-	const std::vector<float> bnScaleInit(outC_, 1.0f);
-	checkCUDA(cudaMemcpy(bnScale_, bnScaleInit.data(), bnSizeBytes, cudaMemcpyHostToDevice));
 	if(train_){
+		const std::vector<float> bnScaleInit(outC_, 1.0f);
+		checkCUDA(cudaMemcpy(bnScale_, bnScaleInit.data(), bnSizeBytes, cudaMemcpyHostToDevice));
 		CUDAMallocZero(&gradBnScale_, bnSizeBytes);
 		CUDAMallocZero(&gradBnBias_, bnSizeBytes);
 		if(useAdamW_){
@@ -57,36 +58,24 @@ BatchNorm::~BatchNorm(){
 __half* BatchNorm::Forward(__half* data){
 	inData_ = data;
 	if(train_){
-		checkCUDNN(cudnnBatchNormalizationForwardTraining(cudnnHandle_, bnMode_, &alpha, &beta0, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, 1.0, bnRunningMeanTrain_, bnRunningVarTrain_, epsilon_, bnSavedMean_, bnSavedInvVariance_));
-	} else{
-		checkCUDNN(cudnnBatchNormalizationForwardInference(cudnnHandle_, bnMode_, &alpha, &beta0, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, bnRunningMeanInfer_, bnRunningVarInfer_, epsilon_));
-	}
+		checkCUDNN(cudnnBatchNormalizationForwardTraining(cudnnHandle_, bnMode_, &alpha_, &beta0_, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, 1.0, bnRunningMeanTrain_, bnRunningVarTrain_, epsilon_, bnSavedMean_, bnSavedInvVariance_));
+	} else{ checkCUDNN(cudnnBatchNormalizationForwardInference(cudnnHandle_, bnMode_, &alpha_, &beta0_, outDesc_, data, outDesc_, outData_, bnScaleBiasDesc_, bnScale_, bnBias_, bnRunningMeanInfer_, bnRunningVarInfer_, epsilon_)); }
 	return outData_;
 }
 __half* BatchNorm::Backward(__half* grad){
-	checkCUDNN(cudnnBatchNormalizationBackward(
-		cudnnHandle_,
-		bnMode_,
-		&alpha, &beta0, &alpha, &beta1,
-		outDesc_, inData_,	 
-		outDesc_, grad,	    
-		outDesc_, grad,	   
-		bnScaleBiasDesc_,	 
-		bnScale_,			     
-		gradBnScale_,		    
-		gradBnBias_,		    
-		epsilon_,
-		bnSavedMean_, bnSavedInvVariance_));
+	//const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
+	checkCUDNN(cudnnBatchNormalizationBackward(cudnnHandle_, bnMode_, &alpha_, &beta0_, &alpha_, &beta0_, outDesc_, inData_, outDesc_, grad, outDesc_, grad, bnScaleBiasDesc_, bnScale_, gradBnScale_, gradBnBias_, epsilon_, bnSavedMean_, bnSavedInvVariance_));
 	return grad;
 }
-void BatchNorm::UpdateParameters(float learningRate){
+void BatchNorm::UpdateParameters(const float learningRate){
+	//if(accumCount_%gradAccumLength_>0) return;
 	if(useAdamW_){
-		AdamWFloat(bnScale_, gradBnScale_, m_BnScale_, v_BnScale_, learningRate, t_, weightDecay_, outC_);
-		AdamWFloat(bnBias_, gradBnBias_, m_BnBias_, v_BnBias_, learningRate, t_, weightDecay_, outC_);
 		++t_;
+		AdamWFloat(bnScale_, gradBnScale_, m_BnScale_, v_BnScale_, learningRate, t_, 0.0f, outC_);
+		AdamWFloat(bnBias_, gradBnBias_, m_BnBias_, v_BnBias_, learningRate, t_, 0.0f, outC_);
 	} else{
-		SGDFloat(bnScale_, gradBnScale_, outC_, learningRate, weightDecay_);
-		SGDFloat(bnBias_, gradBnBias_, outC_, learningRate, weightDecay_);
+		SGDFloat(bnScale_, gradBnScale_, outC_, learningRate, 0.0f);
+		SGDFloat(bnBias_, gradBnBias_, outC_, learningRate, 0.0f);
 	}
 }
 void BatchNorm::SaveParameters(std::ofstream& file, unsigned char* buffer){
@@ -141,12 +130,8 @@ void BatchNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(v_BnBias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 }
-size_t BatchNorm::GetParameterSize(){
-	return outC_*sizeof(float);
-}
-size_t BatchNorm::GetOptimizerStateSize(){
-	return outC_*sizeof(float);
-}
+size_t BatchNorm::GetParameterSize(){ return outC_*sizeof(float); }
+size_t BatchNorm::GetOptimizerStateSize(){ return outC_*sizeof(float); }
 void BatchNorm::SetTrain(bool enable){
 	int bs;
 	if(enable){

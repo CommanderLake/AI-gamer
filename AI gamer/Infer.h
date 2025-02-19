@@ -29,8 +29,7 @@ public:
 	NN* nn_ = nullptr;
 	std::thread inferThread_;
 	std::thread listenThread_;
-	float* hPredictionsF_ = nullptr;
-	float* dPredictionsF_ = nullptr;
+	float* predictionsF_ = nullptr;
 	__half* sequenceHalf_ = nullptr;
 	int scaleFactor_ = 2;
 };

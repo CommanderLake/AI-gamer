@@ -1,63 +1,53 @@
 #include "LSTMLayer.h"
 #include "common.h"
 #include <iostream>
-LSTMLayer::LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, int hiddenSize, int batchSize, int inC, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle), inData_(nullptr), batchSize_(batchSize),
-	seqLength_(seqLength), hiddenSize_(hiddenSize), inC_(inC), numLayers_(numLayers), weightDecay_(weightDecay){
+LSTMLayer::LSTMLayer(const cudnnHandle_t cudnnHandle, const int seqLength, const int numLayers, const int hiddenSize, const int batchSize, const int inC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
+	cudnnHandle_(cudnnHandle), batchSize_(batchSize), seqLength_(seqLength), hiddenSize_(hiddenSize), inC_(inC), numLayers_(numLayers), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	outNCHW_ = seqLength_*batchSize_*inC_;
+	outNCHW_ = batchSize_*inC_;
+	alphaWeights_ = 1.0f/gradAccumLength_;
+	checkCUDNN(cudnnCreateDropoutDescriptor(&dropoutDesc_));
+	checkCUDNN(cudnnCreateRNNDescriptor(&rnnDesc_));
+	checkCUDNN(cudnnCreateTensorDescriptor(&hcxyDesc_));
+	checkCUDNN(cudnnCreateRNNDataDescriptor(&xDesc_));
+	checkCUDNN(cudnnCreateRNNDataDescriptor(&yDesc_));
+	checkCUDNN(cudnnCreateFilterDescriptor(&weightDesc_));
+	checkCUDNN(cudnnCreateTensorDescriptor(&wTensDesc_));
 	checkCUDNN(cudnnDropoutGetStatesSize(cudnnHandle_, &stateSize_));
 	CUDAMallocZero(&dropoutStates_, stateSize_);
-	checkCUDNN(cudnnCreateDropoutDescriptor(&dropoutDesc_));
-	checkCUDNN(cudnnSetDropoutDescriptor(dropoutDesc_, cudnnHandle_, 0.0f, dropoutStates_, stateSize_, static_cast<unsigned long long>(time(nullptr))));
-	checkCUDNN(cudnnCreateRNNDescriptor(&rnnDesc_));
+	checkCUDNN(cudnnSetDropoutDescriptor(dropoutDesc_, cudnnHandle_, 0.2f, dropoutStates_, stateSize_, static_cast<unsigned long long>(time(nullptr))));
 	checkCUDNN(cudnnSetRNNDescriptor(cudnnHandle_, rnnDesc_, hiddenSize_, numLayers_, dropoutDesc_, CUDNN_LINEAR_INPUT, CUDNN_UNIDIRECTIONAL, CUDNN_LSTM, CUDNN_RNN_ALGO_STANDARD, CUDNN_DATA_HALF));
 	checkCUDNN(cudnnRNNSetClip(cudnnHandle_, rnnDesc_, CUDNN_RNN_CLIP_MINMAX, CUDNN_PROPAGATE_NAN, -5.0, 5.0));
 	checkCUDNN(cudnnSetRNNMatrixMathType(rnnDesc_, CUDNN_TENSOR_OP_MATH)); //S
-	xDesc_ = new cudnnTensorDescriptor_t[seqLength_];
-	yDesc_ = new cudnnTensorDescriptor_t[seqLength_];
+	checkCUDNN(cudnnSetRNNPaddingMode(rnnDesc_, CUDNN_RNN_PADDED_IO_ENABLED));
+	xDescs_ = new cudnnTensorDescriptor_t[seqLength_];
 	for(int i = 0; i<seqLength_; ++i){
-		checkCUDNN(cudnnCreateTensorDescriptor(&xDesc_[i]));
-		checkCUDNN(cudnnCreateTensorDescriptor(&yDesc_[i]));
-		checkCUDNN(cudnnSetTensor4dDescriptor(xDesc_[i], CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
-		checkCUDNN(cudnnSetTensor4dDescriptor(yDesc_[i], CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, hiddenSize_, 1, 1));
+		checkCUDNN(cudnnCreateTensorDescriptor(&xDescs_[i]));
+		checkCUDNN(cudnnSetTensor4dDescriptor(xDescs_[i], CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
 	}
-	checkCUDNN(cudnnCreateTensorDescriptor(&hDesc_));
-	checkCUDNN(cudnnCreateTensorDescriptor(&cDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(hDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, numLayers_, batchSize_, hiddenSize_, 1));
-	checkCUDNN(cudnnSetTensor4dDescriptor(cDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, numLayers_, batchSize_, hiddenSize_, 1));
-	checkCUDNN(cudnnGetRNNParamsSize(cudnnHandle_, rnnDesc_, xDesc_[0], &weightSpaceSize_, CUDNN_DATA_HALF));
+	checkCUDNN(cudnnSetTensor4dDescriptor(hcxyDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, numLayers_, batchSize_, hiddenSize_, 1));
+	seqLengths_ = new int[batchSize_];
+	for(int i = 0; i<batchSize_; ++i){ seqLengths_[i] = seqLength_; }
+	checkCUDNN(cudnnSetRNNDataDescriptor(xDesc_, CUDNN_DATA_HALF, CUDNN_RNN_DATA_LAYOUT_BATCH_MAJOR_UNPACKED, seqLength_, batchSize_, inC_, seqLengths_, nullptr));
+	checkCUDNN(cudnnSetRNNDataDescriptor(yDesc_, CUDNN_DATA_HALF, CUDNN_RNN_DATA_LAYOUT_BATCH_MAJOR_UNPACKED, seqLength_, batchSize_, hiddenSize_, seqLengths_, nullptr));
+	checkCUDNN(cudnnGetRNNParamsSize(cudnnHandle_, rnnDesc_, xDescs_[0], &weightSpaceSize_, CUDNN_DATA_HALF));
 	weightCount_ = weightSpaceSize_/sizeof(__half);
-	checkCUDNN(cudnnCreateFilterDescriptor(&weightDesc_));
 	checkCUDNN(cudnnSetFilter4dDescriptor(weightDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, 1, weightCount_, 1, 1));
+	checkCUDNN(cudnnSetTensor4dDescriptor(wTensDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, 1, 1, 1, weightCount_));
 	CUDAMallocZero(&weights_, weightSpaceSize_);
-	CUDAMallocZero(&outData_, seqLength_*batchSize_*hiddenSize_*sizeof(__half));
-	HeInit(weights_, weightCount_, inC_+hiddenSize_);
-	cudnnFilterDescriptor_t linLayerBiasDesc;
-	checkCUDNN(cudnnCreateFilterDescriptor(&linLayerBiasDesc));
-	checkCUDNN(cudnnSetFilter4dDescriptor(linLayerBiasDesc, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, 1, hiddenSize_, 1, 1));
-	std::vector<__half> forgetGateBias(hiddenSize_, __half(1.0f));
-	for(int pseudoLayer = 0; pseudoLayer < numLayers_; ++pseudoLayer){
-		for(int linLayerID = 0; linLayerID < 8; ++linLayerID){
-			void* linLayerBias;
-			checkCUDNN(cudnnGetRNNLinLayerBiasParams(
-				cudnnHandle_, rnnDesc_, pseudoLayer, xDesc_[0], weightDesc_, weights_, linLayerID, linLayerBiasDesc, &linLayerBias
-			));
-			if(linLayerID == 1 || linLayerID == 5){
-				checkCUDA(cudaMemcpy(linLayerBias, forgetGateBias.data(), hiddenSize_*sizeof(__half), cudaMemcpyHostToDevice));
-			} else{
-				checkCUDA(cudaMemset(linLayerBias, 0, hiddenSize_*sizeof(__half)));
-			}
-		}
-	}
-	CUDAMallocZero(&dx_, seqLength_*batchSize_*hiddenSize_*sizeof(__half));
-	checkCUDNN(cudnnGetRNNWorkspaceSize(cudnnHandle_, rnnDesc_, seqLength_, xDesc_, &workspaceSize_));
+	CUDAMallocZero(&y_, numLayers_*seqLength_*batchSize_*hiddenSize_*sizeof(__half));
+	CUDAMallocZero(&hxy_, numLayers_*batchSize_*hiddenSize_*sizeof(__half));
+	CUDAMallocZero(&cxy_, numLayers_*batchSize_*hiddenSize_*sizeof(__half));
+	checkCUDNN(cudnnGetRNNWorkspaceSize(cudnnHandle_, rnnDesc_, seqLength_, xDescs_, &workspaceSize_));
 	CUDAMallocZero(&workspace_, workspaceSize_);
-	checkCUDNN(cudnnGetRNNTrainingReserveSize(cudnnHandle_, rnnDesc_, seqLength_, xDesc_, &reserveSpaceSize_));
+	checkCUDNN(cudnnGetRNNTrainingReserveSize(cudnnHandle_, rnnDesc_, seqLength_, xDescs_, &reserveSpaceSize_));
 	CUDAMallocZero(&reserveSpace_, reserveSpaceSize_);
 	if(train_){
+		WeightInit(weights_, 4*numLayers_*inC_*hiddenSize_, 4*numLayers_*inC_, hiddenSize_, Orthogonal);
+		CUDAMallocZero(&dGrads_, weightSpaceSize_);
 		CUDAMallocZero(&gradWeights_, weightSpaceSize_);
-		CUDAMallocZero(&gradOut_, seqLength_*batchSize_*inC_*sizeof(__half));
+		CUDAMallocZero(&dx_, seqLength_*batchSize_*inC_*sizeof(__half));
 		if(useAdamW_){
 			CUDAMallocZero(&m_Weights_, weightSpaceSize_);
 			CUDAMallocZero(&v_Weights_, weightSpaceSize_);
@@ -65,95 +55,58 @@ LSTMLayer::LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, in
 	}
 }
 LSTMLayer::~LSTMLayer(){
-	cudaFree(weights_);
-	cudaFree(outData_);
-	cudaFree(dx_);
-	cudaFree(workspace_);
 	cudaFree(reserveSpace_);
-	checkCUDNN(cudnnDestroyRNNDescriptor(rnnDesc_));
-	checkCUDNN(cudnnDestroyTensorDescriptor(hDesc_));
-	checkCUDNN(cudnnDestroyTensorDescriptor(cDesc_));
-	checkCUDNN(cudnnDestroyFilterDescriptor(weightDesc_));
+	cudaFree(workspace_);
+	cudaFree(y_);
+	cudaFree(weights_);
 	for(int i = 0; i<seqLength_; ++i){
-		checkCUDNN(cudnnDestroyTensorDescriptor(xDesc_[i]));
-		checkCUDNN(cudnnDestroyTensorDescriptor(yDesc_[i]));
+		cudnnDestroyTensorDescriptor(xDescs_[i]);
 	}
-	delete[] xDesc_;
-	delete[] yDesc_;
+	delete[] seqLengths_;
+	delete[] xDescs_;
+	cudaFree(dropoutStates_);
+	cudnnDestroyFilterDescriptor(weightDesc_);
+	cudnnDestroyRNNDataDescriptor(yDesc_);
+	cudnnDestroyRNNDataDescriptor(xDesc_);
+	cudnnDestroyTensorDescriptor(hcxyDesc_);
+	cudnnDestroyRNNDescriptor(rnnDesc_);
+	cudnnDestroyDropoutDescriptor(dropoutDesc_);
 	if(train_){
-		cudaFree(gradOut_);
+		cudaFree(dx_);
 		cudaFree(gradWeights_);
+		cudaFree(dGrads_);
 		if(useAdamW_){
-			cudaFree(m_Weights_);
 			cudaFree(v_Weights_);
+			cudaFree(m_Weights_);
 		}
 	}
 }
-__half* LSTMLayer::Forward(__half* data){
-	inData_ = data;
+__half* LSTMLayer::Forward(__half* x){
+	x_ = x;
 	if(train_){
-		checkCUDNN(cudnnRNNForwardTraining(
-			cudnnHandle_, rnnDesc_, seqLength_,
-			xDesc_, data,
-			nullptr, nullptr,
-			nullptr, nullptr,
-			weightDesc_, weights_,
-			yDesc_, outData_,
-			nullptr, nullptr,
-			nullptr, nullptr,
-			workspace_, workspaceSize_,
-			reserveSpace_, reserveSpaceSize_
-		));
+		checkCUDNN(cudnnRNNForwardTrainingEx(
+			cudnnHandle_, rnnDesc_, xDesc_, x_, hcxyDesc_, hxy_, hcxyDesc_, cxy_, weightDesc_, weights_, yDesc_, y_, hcxyDesc_, hxy_, hcxyDesc_, cxy_, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, workspace_, workspaceSize_, reserveSpace_, reserveSpaceSize_));
 	} else{
-		checkCUDNN(cudnnRNNForwardInference(
-			cudnnHandle_, rnnDesc_, seqLength_,
-			xDesc_, data,
-			nullptr, nullptr,
-			nullptr, nullptr,
-			weightDesc_, weights_,
-			yDesc_, outData_,
-			nullptr, nullptr,
-			nullptr, nullptr,
-			workspace_, workspaceSize_
-		));
+		checkCUDNN(cudnnRNNForwardInferenceEx(
+			cudnnHandle_, rnnDesc_, xDesc_, x_, hcxyDesc_, hxy_, hcxyDesc_, cxy_, weightDesc_, weights_, yDesc_, y_, hcxyDesc_, hxy_, hcxyDesc_, cxy_, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, workspace_, workspaceSize_));
 	}
-	const auto outP = outData_ + (seqLength_ - 1)*batchSize_*hiddenSize_;
-	//PrintDataHalf(outP, 16, "\nLSTM");
-	return outP;
+	return y_;
 }
-__half* LSTMLayer::Backward(__half* grad){
-	checkCUDA(cudaMemcpy(dx_ + (seqLength_ - 1)*batchSize_*hiddenSize_, grad, batchSize_*hiddenSize_*sizeof(__half), cudaMemcpyDeviceToDevice));
-	checkCUDNN(cudnnRNNBackwardData(
-		cudnnHandle_, rnnDesc_, seqLength_,
-		yDesc_, outData_,
-		yDesc_, dx_,
-		nullptr, nullptr,
-		nullptr, nullptr,
-		weightDesc_, weights_,
-		nullptr, nullptr,
-		nullptr, nullptr,
-		xDesc_, gradOut_,
-		nullptr, nullptr,
-		nullptr, nullptr,
-		workspace_, workspaceSize_,
-		reserveSpace_, reserveSpaceSize_
-	));
-	checkCUDNN(cudnnRNNBackwardWeights(
-		cudnnHandle_, rnnDesc_, seqLength_,
-		xDesc_, inData_,
-		nullptr, nullptr,
-		yDesc_, outData_,
-		workspace_, workspaceSize_,
-		weightDesc_, gradWeights_,
-		reserveSpace_, reserveSpaceSize_
-	));
-	return gradOut_;
+__half* LSTMLayer::Backward(__half* dy){
+	checkCUDNN(cudnnRNNBackwardDataEx(
+		cudnnHandle_, rnnDesc_, yDesc_, y_, yDesc_, dy, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, weightDesc_, weights_, nullptr, nullptr, nullptr, nullptr, xDesc_, dx_, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, workspace_, workspaceSize_,
+		reserveSpace_, reserveSpaceSize_));
+	checkCUDNN(cudnnRNNBackwardWeightsEx(cudnnHandle_, rnnDesc_, xDesc_, x_, nullptr, nullptr, yDesc_, y_, workspace_, workspaceSize_, weightDesc_, gradWeights_, reserveSpace_, reserveSpaceSize_));
+	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
+	cudnnAddTensor(cudnnHandle_, &alphaWeights_, wTensDesc_, gradWeights_, betaWeights, wTensDesc_, dGrads_);
+	return dx_;
 }
-void LSTMLayer::UpdateParameters(float learningRate){
+void LSTMLayer::UpdateParameters(const float learningRate){
+	if(accumCount_%gradAccumLength_>0) return;
 	if(useAdamW_){
-		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightCount_);
 		++t_;
-	} else{ SGDHalf(weights_, gradWeights_, weightCount_, learningRate, weightDecay_); }
+		AdamWHalf(weights_, dGrads_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightCount_);
+	} else{ SGDHalf(weights_, dGrads_, weightCount_, learningRate, weightDecay_); }
 }
 void LSTMLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	cudaMemcpy(buffer, weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);

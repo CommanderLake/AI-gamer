@@ -3,68 +3,71 @@
 #include "BatchNorm.h"
 #include "Activate.h"
 #include "CustomOutLayer.h"
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(160), seqLength_(1), inWidth_(0), inHeight_(0), maxBufferSize_(0){
+#include "ViewerLayer.h"
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(2){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
 	int netHeight = h;
 	std::ifstream ckptFile(ckptFileName, std::ios::binary);
 	if(ckptFile.is_open()){
-		std::cout << "Checkpoint file found...\n";
+		std::cout<<"Checkpoint file found...\n";
 		ckptFile.read(reinterpret_cast<char*>(&netWidth), sizeof(int));
 		ckptFile.read(reinterpret_cast<char*>(&netHeight), sizeof(int));
-		if(w > 0 && w != netWidth || h > 0 && h != netHeight) throw std::invalid_argument("Training data resolution does not match checkpoint resolution");
-		std::cout << "Checkpoint resolution: " << netWidth << "x" << netHeight << "\n";
-	}else{
-		std::cout << "Checkpoint file not found\n";
-		if(w <= 0 || h <= 0){
-			throw std::invalid_argument("Invalid training data resolution");
-		}
+		if(w>0&&w!=netWidth||h>0&&h!=netHeight) throw std::invalid_argument("Training data resolution does not match checkpoint resolution");
+		std::cout<<"Checkpoint resolution: "<<netWidth<<"x"<<netHeight<<"\n";
+	} else{
+		std::cout<<"Checkpoint file not found\n";
+		if(w<=0||h<=0){ throw std::invalid_argument("Invalid training data resolution"); }
 	}
 	inWidth_ = netWidth;
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
-	std::cout << "Initializing layers... ";
+	std::cout<<"Initializing layers... ";
 	constexpr auto wd = 0.00001f;
 	auto outC = 32;
-	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 4, 2, 0, &netHeight, &netWidth, "Conv0", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0_BatchNorm", train, wd));
+	//layers_.push_back(new ViewerLayer(seqLength_*3, netHeight, netWidth, 6, "input viewer"));
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 3, 1, &netHeight, &netWidth, "Conv0", train, wd, gradAccumLength_));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0_BatchNorm", train, wd, gradAccumLength_));
 	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv0_ReLU"));
-	outC = 64;
-	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 32, outC, 4, 2, 0, &netHeight, &netWidth, "Conv1", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv1_BatchNorm", train, wd));
+	//layers_.push_back(new ViewerLayer(outC, netHeight, netWidth, 8, "Conv0 viewer"));
+
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, outC, outC, 4, 2, &netHeight, &netWidth, "Conv1", train, wd, gradAccumLength_));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv1_BatchNorm", train, wd, gradAccumLength_));
 	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv1_ReLU"));
-	outC = 128;
-	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 64, outC, 4, 2, 0, &netHeight, &netWidth, "Conv2", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv2_BatchNorm", train, wd));
+	//layers_.push_back(new ViewerLayer(outC, netHeight, netWidth, 8, "Conv1 viewer"));
+	outC = 64;
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 32, outC, 4, 2, &netHeight, &netWidth, "Conv2", train, wd, gradAccumLength_));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv2_BatchNorm", train, wd, gradAccumLength_));
 	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv2_ReLU"));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, outC*netHeight*netWidth, "SplitOut", train, wd));
+	//layers_.push_back(new ViewerLayer(outC, netHeight, netWidth, 16, "Conv2 viewer"));
+	outC = 128;
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 64, outC, 4, 2, &netHeight, &netWidth, "Conv3", train, wd, gradAccumLength_));
+	//layers_.push_back(new ViewerLayer(outC, 32, 32, 16, "Conv2 Weights", layers_.back()->weights_));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv3_BatchNorm", train, wd, gradAccumLength_));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv3_ReLU"));
+	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv3 viewer"));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, outC*netHeight*netWidth, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
-		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
-		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
+		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
+		maxBufferSize_ = max(maxBufferSize_, layer->GetOptimizerStateSize());
 	}
-	std::cout << "Done\n";
+	std::cout<<"Done\n";
 	if(ckptFile.is_open()){
-		std::cout << "Loading weights... ";
+		std::cout<<"Loading weights... ";
 		unsigned char* buffer = nullptr;
 		checkCUDA(cudaMallocHost(&buffer, maxBufferSize_));
-		for(const auto& layer : layers_){
-			layer->LoadParameters(ckptFile, buffer);
-		}
+		for(const auto& layer : layers_){ layer->LoadParameters(ckptFile, buffer); }
 		ckptFile.close();
-		std::cout << "Done.\n";
+		std::cout<<"Done\n";
 		if(train){
-			std::cout << "Loading optimizer state... ";
+			std::cout<<"Loading optimizer state... ";
 			std::ifstream optFile(optFileName, std::ios::binary);
 			if(optFile.is_open()){
-				for(const auto& layer : layers_){
-					layer->LoadOptimizerState(optFile, buffer);
-				}
+				for(const auto& layer : layers_){ layer->LoadOptimizerState(optFile, buffer); }
 				optFile.close();
-				std::cout << "Done\n";
-			} else{
-				std::cerr << "No optimizer state file: " << optFileName << "\n";
-			}
+				std::cout<<"Done\n";
+			} else{ std::cerr<<"No optimizer state file: "<<optFileName<<"\n"; }
 		}
 		cudaFreeHost(buffer);
 	}
@@ -76,7 +79,7 @@ __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
 		//std::cout << "\n" << layer->layerName_ << " ";
 		data = layer->Forward(data);
-		//PrintDataHalf(data, 16, "data");
+		//PrintDataHalf(data, 32, "data");
 	}
 	return data;
 }

@@ -3,19 +3,19 @@
 #include "common.h"
 #include "BatchNorm.h"
 #include "ConvLayer.h"
-ResConvLayer::ResConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int outC, int *inHeight, int *inWidth, const char* layerName, bool train, float weightDecay): cudnnHandle_(cudnnHandle), batchSize_(batchSize), outC_(outC), inC_(inC),
-	inHeight_(*inHeight), inWidth_(*inWidth){
+ResConvLayer::ResConvLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inC, const int outC, int *inHeight, int *inWidth, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength):
+	cudnnHandle_(cudnnHandle), batchSize_(batchSize), outC_(outC), inC_(inC), inHeight_(*inHeight), inWidth_(*inWidth), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, *inHeight, *inWidth));
 	int resH = *inHeight, resW = *inWidth;
-	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 4, 2, 1, inHeight, inWidth, "Conv0", train, weightDecay));
-	//layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, *inHeight, *inWidth, "Conv0 BatchNorm", train_, weightDecay));
+	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 4, 2, inHeight, inWidth, "Conv0", train, weightDecay, gradAccumLength_));
+	//layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, *inHeight, *inWidth, "Conv0 BatchNorm", train_, weightDecay, gradAccumLength_));
 	layers_.push_back(new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC_, *inHeight, *inWidth, "Conv0 ReLU"));
-	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, outC_, outC_, 3, 1, 1, inHeight, inWidth, "Conv1", train, weightDecay));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, *inHeight, *inWidth, "Conv1 BatchNorm", train_, weightDecay));
-	residue_ = new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 1, 2, 0, &resH, &resW, "Residue", train, weightDecay);
+	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, outC_, outC_, 3, 1, inHeight, inWidth, "Conv1", train, weightDecay, gradAccumLength_));
+	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, *inHeight, *inWidth, "Conv1 BatchNorm", train_, weightDecay, gradAccumLength_));
+	residue_ = new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 1, 2, &resH, &resW, "Residue", train, weightDecay, gradAccumLength_);
 	resAct_ = new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC_, *inHeight, *inWidth, "Residue ReLU");
 	outWidth_ = *inWidth;
 	outHeight_ = *inHeight;
