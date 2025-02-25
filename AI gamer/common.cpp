@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <mkl_lapacke.h>
 #include <mkl_vsl.h>
+#include <sstream>
 const char* cublasGetErrorString(cublasStatus_t status){
 	switch(status){
 		case CUBLAS_STATUS_SUCCESS:
@@ -272,47 +273,49 @@ void FloatToHalfAsm(float* src, __half* dst, int count){
 		vzeroupper
 	}
 }
-void PrintDataHalf2(const __half* data, const size_t size, const char* label){
-	std::vector<__half> h_data(size);
-	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(__half), cudaMemcpyDeviceToHost));
-	std::cout << label << ":\n";
-	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << __half2float(h_data[i]) << " "; }
-	std::cout << "\n";
-}
-void PrintDataHalf(const __half* data, const size_t size, const char* label){
-	const size_t truncatedSize = size / 128*128;
-	if(truncatedSize == 0){
-		PrintDataHalf2(data, size, label);
-		return;
+size_t printDataCount = 0;
+__half* hData = nullptr;
+float* fData = nullptr;
+void PrintDataHalfDevice(const __half* data, const size_t size, const char* label){
+	if(printDataCount < size){
+		if(hData) _mm_free(hData);
+		if(fData) _mm_free(fData);
+		hData = static_cast<__half*>(_mm_malloc(size*sizeof(__half), 64));
+		fData = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
+		printDataCount = size;
 	}
-	const auto hData = static_cast<__half*>(_mm_malloc(truncatedSize*sizeof(__half), 32));
-	const auto fData = static_cast<float*>(_mm_malloc(truncatedSize*sizeof(float), 32));
-	checkCUDA(cudaMemcpy(hData, data, truncatedSize*sizeof(__half), cudaMemcpyDeviceToHost));
-	HalfToFloatAsm(fData, hData, truncatedSize);
-	std::cout << label << ":\n";
-	for(size_t i = 0; i < truncatedSize; ++i){
-		std::cout << fData[i] << " ";
+	checkCUDA(cudaMemcpy(hData, data, size*sizeof(__half), cudaMemcpyDeviceToHost));
+	HalfToFloatAsm(fData, hData, size);
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < size; ++i){
+		output << fData[i] << " ";
 	}
-	std::cout << "\n";
-	_mm_free(hData);
-	_mm_free(fData);
+	output << "\n";
+	std::cout << output.str();
 }
-void PrintDataFloat(const float* data, const size_t size, const char* label){
-	std::vector<float> h_data(size);
-	checkCUDA(cudaMemcpy(h_data.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
-	std::cout << label << ":\n";
-	for(size_t i = 0; i < h_data.size(); ++i){ std::cout << h_data[i] << " "; }
-	std::cout << "\n";
+void PrintDataFloatDevice(const float* data, const size_t size, const char* label){
+	std::vector<float> hData(size);
+	checkCUDA(cudaMemcpy(hData.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < hData.size(); ++i){ output << hData[i] << " "; }
+	output << "\n";
+	std::cout << output.str();
 }
 void PrintDataFloatHost(const float* data, const size_t size, const char* label){
-	std::cout << label << ":\n";
-	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << " "; }
-	std::cout << "\n";
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < size; ++i){ output << data[i] << " "; }
+	output << "\n";
+	std::cout << output.str();
 }
 void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
-	std::cout << label << ":\n";
-	for(size_t i = 0; i < size; ++i){ std::cout << data[i] << " "; }
-	std::cout << "\n";
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < size; ++i){ output << data[i] << " "; }
+	output << "\n";
+	std::cout << output.str();
 }
 void ClearScreen(char fill){
 	const COORD tl = {0, 0};

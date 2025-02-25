@@ -8,7 +8,7 @@
 #include "SigmoidLayer.h"
 #include "ViewerLayer.h"
 CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int inputSize, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
-	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
+	cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	cudnnCreateTensorDescriptor(&inDesc_);
@@ -26,7 +26,6 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_*seqLength_, outC/2, 1, 1, "Buts_Dropout2", train));
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC/2, NUM_BUTS_, "Buts_FC_Out", train, weightDecay, gradAccumLength_));
 	buttonLayers_.push_back(new SigmoidLayer(NUM_BUTS_, batchSize_*seqLength_, NUM_BUTS_, "Buts_Sigmoid"));
-
 	//axisLayers_.push_back(new LSTMLayer(cudnn_, seqLength_, 1, outC, batchSize_, inputSize, "Axes_LSTM", train, weightDecay, gradAccumLength_));
 	//axisLayers_.push_back(new ViewerLayer(batchSize_*seqLength_, 32, 32, 10, "Axes LSTM"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Axes_FC1", train, weightDecay, gradAccumLength_));
@@ -53,12 +52,12 @@ __half* CustomOutLayer::Forward(__half* data){
 	for(int i = 0; i<buttonLayers_.size(); ++i){
 		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonData = buttonLayers_[i]->Forward(buttonData);
-		//PrintDataHalf(buttonData, 16, "buttonData");
+		//PrintDataHalfDevice(buttonData, 16, "buttonData");
 	}
 	for(int i = 0; i<axisLayers_.size(); ++i){
 		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
 		axisData = axisLayers_[i]->Forward(axisData);
-		//PrintDataHalf(axisData, 16, "axisData");
+		//PrintDataHalfDevice(axisData, 16, "axisData");
 	}
 	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_*seqLength_);
 	return predictions_;
@@ -69,12 +68,12 @@ __half* CustomOutLayer::Backward(__half* grad){
 	for(int i = buttonLayers_.size(); --i>=0;){
 		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonGrad = buttonLayers_[i]->Backward(buttonGrad);
-		//PrintDataHalf(buttonGrad, 16, "buttonGrad");
+		//PrintDataHalfDevice(buttonGrad, 16, "buttonGrad");
 	}
 	for(int i = axisLayers_.size(); --i>=0;){
 		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
 		axisGrad = axisLayers_[i]->Backward(axisGrad);
-		//PrintDataHalf(axisGrad, 16, "axisGrad");
+		//PrintDataHalfDevice(axisGrad, 16, "axisGrad");
 	}
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha, inDesc_, axisGrad, &alpha, inDesc_, buttonGrad));
 	return buttonGrad;
@@ -112,17 +111,14 @@ size_t CustomOutLayer::GetOptimizerStateSize(){
 	return maxSize;
 }
 void CustomOutLayer::SetTrain(const bool enable){
-	int bs;
 	if(enable){
 		train_ = true;
-		bs = batchSize_;
-		batchSize_ = batchSize_*seqLength_;
+		batchSize_ = ogbs_;
 	} else{
 		train_ = false;
-		bs = 1;
-		batchSize_ = batchSize_;
+		batchSize_ = 1;
 	}
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, inC_, 1, 1));
+	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
 	for(int i = 0; i<buttonLayers_.size(); ++i){ buttonLayers_[i]->SetTrain(enable); }
 	for(int i = 0; i<axisLayers_.size(); ++i){ axisLayers_[i]->SetTrain(enable); }
 }

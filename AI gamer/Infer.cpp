@@ -2,7 +2,16 @@
 #include "common.h"
 #include "NN.h"
 #include "NvDisplayCap.h"
+#include <csignal>
+static Infer* this_ = nullptr;
+void InferSig(const int sig){
+	if(sig == SIGINT){
+		this_->stop_ = true;
+	}
+}
 Infer::Infer(const bool tune) : tune_(tune){
+	if(this_) throw std::runtime_error("Infer class can only have one instance");
+	this_ = this;
 	InitCUDA();
 	InitNvFBC();
 	cudnnCreate(&cudnn_);
@@ -20,6 +29,7 @@ Infer::Infer(const bool tune) : tune_(tune){
 	}
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
 	listenThread_.detach();
+	signal(SIGINT, InferSig);
 }
 Infer::~Infer(){
 	stop_ = true;
@@ -164,7 +174,10 @@ void Infer::Step(InferMode mode){
 	}
 }
 void Infer::Run(){
-	while(activeMode_ == InferMode::Off) Sleep(10);
+	while(activeMode_ == InferMode::Off){
+		if(stop_) goto end;
+		Sleep(10);
+	}
 	constexpr std::chrono::microseconds frameDuration(33333);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	try{
@@ -175,12 +188,11 @@ void Infer::Run(){
 			std::this_thread::sleep_until(nextFrameTime);
 			Step(activeMode_);
 		}
-		PostQuitMessage(0);
 	} catch(const std::exception& e){
+		stop_ = true;
 		std::cerr << "Error: " << e.what() << "\n";
-		PostQuitMessage(1);
 	}
-	stop_ = true;
+	end:
+	PostQuitMessage(0);
 	Dispose();
-	std::terminate();
 }

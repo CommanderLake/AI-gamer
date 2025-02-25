@@ -262,7 +262,7 @@ __global__ void SGDHalfKernel(__half* params, const __half* grads, const int siz
 	}
 }
 extern "C" void SGDHalf(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
-	int blocks, tpb = 256;
+	int blocks, tpb = 128;
 	GetLaunchConfig(size, blocks, tpb);
 	SGDHalfKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
 }
@@ -275,7 +275,7 @@ __global__ void SGDFloatKernel(float* params, const float* grads, const int size
 	}
 }
 extern "C" void SGDFloat(float* params, const float* grads, const int size, const float learningRate, const float weightDecay){
-	int blocks, tpb = 256;
+	int blocks, tpb = 128;
 	GetLaunchConfig(size, blocks, tpb);
 	SGDFloatKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
 }
@@ -530,187 +530,109 @@ extern "C" void BCEGradient(__half* dGradient, const __half* dPredictions, const
 	auto gridSize = DivCeil(size, BS);
 	BCEGradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale);
 }
-__global__ void DiscriminatorGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const int numCtrls, const int numButs, const float binaryScale, const float continuousScale, const float clip){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < size){
-		const float pred = __half2float(predictions[idx]);
-		const float target = __half2float(targets[idx]);
-		float gradient;
-		if(idx%numCtrls < numButs){
-			gradient = pred - target;
-			gradient *= binaryScale;
-			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
-		} else{
-			gradient = 2.0f*(pred - target);
-			gradient *= continuousScale;
-			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, gradient)));
-		}
-	}
-}
-extern "C" void DiscriminatorGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size, const int numCtrls, const int numButs, const float binaryScale, const float continuousScale, const float clip){
-	auto gridSize = DivCeil(size, BS);
-	DiscriminatorGradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, numCtrls, numButs, binaryScale, continuousScale, clip);
-}
-__global__ void GAILGradientKernel(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, const int size, const int numCtrls, const int numButs, const float lambda, const float entropyCoeff, const float butScale, const float axiScale, const float clip){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < size){
-		const float pred = __half2float(predictions[idx]);
-		const float expert = expertActions[idx];
-		float imitationGrad, adversarialGrad, entropyGrad;
-		float scale;
-		if(idx%numCtrls < numButs){   
-			imitationGrad = -expert / (pred + 1e-6f) + (1.0f - expert) / (1.0f - pred + 1e-6f);
-			adversarialGrad = -1.0f;
-			entropyGrad = -logf(pred + 1e-6f) + logf(1.0f - pred + 1e-6f);
-			scale = butScale;
-			const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx]) + entropyCoeff*entropyGrad;
-			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad*scale)));
-		} else{   
-			imitationGrad = 2.0f*(pred - expert);
-			adversarialGrad = -1.0f;
-			entropyGrad = 0.0f;
-			scale = axiScale;
-			const float combinedGrad = imitationGrad + lambda*adversarialGrad*__half2float(discOutput[idx]) + entropyCoeff*entropyGrad;
-			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, combinedGrad*scale)));
-		}
-	}
-}
-extern "C" void GAILGradient(__half* gradients, const __half* predictions, const __half* discOutput, const float* expertActions, const int batchSize, const int numCtrls, const int numButs, const float lambda, const float entropyCoeff, const float butScale, const float axiScale, const float clip){
-	const auto size = numCtrls*batchSize;
-	auto gridSize = DivCeil(size, BS);
-	GAILGradientKernel<<<gridSize, BS>>>(gradients, predictions, discOutput, expertActions, size, numCtrls, numButs, lambda, entropyCoeff, butScale, axiScale, clip);
-}
-__global__ void LeakyReluKernel(__half* __restrict__ data, const int size, const __half negativeSlope){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < size; i += stride) if(data[i] < __half(0.0f)) data[i] *= negativeSlope;
-}
-extern "C" void LeakyReluForward(__half* data, const int size, const float negativeSlope){
-	int blocks, tpb = 256;
-	GetLaunchConfig(size, blocks, tpb);
-	LeakyReluKernel<<<blocks, tpb>>>(data, size, negativeSlope);
-}
-__global__ void LeakyReluBackwardKernel(__half* __restrict__ gradient, const __half* __restrict__ inData, const int size, const __half negativeSlope){
+__global__ void LeakyReluKernel(const __half* __restrict__ dataIn, __half* __restrict__ dataOut, const int size, const float negativeSlope){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
-		gradient[idx] *= inData[idx] < __half(0.0f) ? negativeSlope : __half(1.0f);
+		const auto val = __half2float(dataIn[idx]);
+		dataOut[idx] = __float2half(val < 0.0f ? val*negativeSlope : 0.0f);
 	}
 }
-extern "C" void LeakyReluBackward(__half* grad, const __half* data, const int size, const float negativeSlope){
-	int blocks, tpb = 256;
+extern "C" void LeakyReluForward(const __half* dataIn, __half* dataOut, const int size, const float negativeSlope, cudaStream_t stream){
+	int blocks, tpb = 128;
 	GetLaunchConfig(size, blocks, tpb);
-	LeakyReluBackwardKernel<<<blocks, tpb>>>(grad, data, size, __float2half(negativeSlope));
+	LeakyReluKernel<<<blocks, tpb, 0, stream>>>(dataIn, dataOut, size, negativeSlope);
 }
-__global__ void SwishKernel(const __half* __restrict__ inData, __half* __restrict__ outData, const int size){
+__global__ void LeakyReluBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ dataIn, const int size, const float negativeSlope){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
-		const auto x = __half2float(inData[idx]);
-		outData[idx] = __float2half(x/(1.0f + exp(-x)));
+		grad[idx] *= __float2half(__half2float(dataIn[idx]) < 0.0f ? negativeSlope : 1.0f);
 	}
 }
-extern "C" void SwishForward(const __half* inData, __half* outData, const int size){
-	int blocks, tpb = 256;
+extern "C" void LeakyReluBackward(__half* grad, const __half* dataIn, const int size, const float negativeSlope, cudaStream_t stream){
+	int blocks, tpb = 128;
 	GetLaunchConfig(size, blocks, tpb);
-	SwishKernel<<<blocks, tpb>>>(inData, outData, size);
+	LeakyReluBackwardKernel<<<blocks, tpb, 0, stream>>>(grad, dataIn, size, negativeSlope);
 }
-__global__ void SwishBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ data, const int size){
+__global__ void SwishKernel(const __half* __restrict__ dataIn, __half* __restrict__ outData, const int size){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
-		const auto swish = __half2float(data[idx]);
-		const auto sig = swish/(1.0f + swish);
-		grad[idx] = __float2half(__half2float(grad[idx])*(swish + sig*(1.0f - swish)));
+		const auto val = __half2float(dataIn[idx]);
+		outData[idx] = __float2half(val/(1.0f + exp(-val)));
 	}
 }
-extern "C" void SwishBackward(__half* grad, const __half* data, const int size){
-	int blocks, tpb = 256;
+extern "C" void SwishForward(const __half* dataIn, __half* outData, const int size, cudaStream_t stream){
+	int blocks, tpb = 128;
 	GetLaunchConfig(size, blocks, tpb);
-	SwishBackwardKernel<<<blocks, tpb>>>(grad, data, size);
+	SwishKernel<<<blocks, tpb, 0, stream>>>(dataIn, outData, size);
 }
-__global__ void SigmoidForwardKernel(__half* data, const int numCtrls, const int numButs, const int size){
+__global__ void SwishBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ dataIn, const int size){
+	const auto stride = blockDim.x*gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
+		const auto val = __half2float(dataIn[idx]);
+		const auto sig = val/(1.0f + val);
+		grad[idx] = __float2half(__half2float(grad[idx])*(val + sig*(1.0f - val)));
+	}
+}
+extern "C" void SwishBackward(__half* grad, const __half* dataIn, const int size, cudaStream_t stream){
+	int blocks, tpb = 128;
+	GetLaunchConfig(size, blocks, tpb);
+	SwishBackwardKernel<<<blocks, tpb, 0, stream>>>(grad, dataIn, size);
+}
+__global__ void SigmoidForwardKernel(const __half* __restrict__ dataIn, __half* __restrict__ dataOut, const int numCtrls, const int numButs, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx >= size || idx % numCtrls >= numButs) return;
-	const float val = __half2float(data[idx]);
-	data[idx] = __float2half(1.0f/(1.0f + expf(-val)));
+	const float val = __half2float(dataIn[idx]);
+	dataOut[idx] = __float2half(1.0f/(1.0f + expf(-val)));
 }
-extern "C" void SigmoidForward(__half* data, const int numCtrls, const int numButs, const int size, cudaStream_t cudaStream){
+extern "C" void SigmoidForward(const __half* dataIn, __half* dataOut, const int numCtrls, const int numButs, const int size, cudaStream_t cudaStream){
 	auto gridSize = DivCeil(size, BS);
-	SigmoidForwardKernel<<<gridSize, BS, 0, cudaStream>>>(data, numCtrls, numButs, size);
+	SigmoidForwardKernel<<<gridSize, BS, 0, cudaStream>>>(dataIn, dataOut, numCtrls, numButs, size);
 }
-__global__ void SigmoidBackwardKernel(__half* grad, const __half* data, const int numCtrls, const int numButs, const int size){
+__global__ void SigmoidBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ dataIn, const int numCtrls, const int numButs, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx >= size || idx % numCtrls >= numButs) return;
-	const float val = __half2float(data[idx]);
+	const float val = __half2float(dataIn[idx]);
 	grad[idx] = __float2half(__half2float(grad[idx])*val*(1.0f - val));
 }
-extern "C" void SigmoidBackward(__half* grad, const __half* data, const int numCtrls, const int numButs, const int size, cudaStream_t cudaStream){
+extern "C" void SigmoidBackward(__half* grad, const __half* dataIn, const int numCtrls, const int numButs, const int size, cudaStream_t cudaStream){
 	auto gridSize = DivCeil(size, BS);
-	SigmoidBackwardKernel<<<gridSize, BS, 0, cudaStream>>>(grad, data, numCtrls, numButs, size);
+	SigmoidBackwardKernel<<<gridSize, BS, 0, cudaStream>>>(grad, dataIn, numCtrls, numButs, size);
 }
 constexpr float SQRT_2_PI = 0.7978845608028654f;
 constexpr float GELU_COEF_A = 0.044715f;
-__global__ void GeluForwardKernelHalf(const __half* input, __half* output, const int size){
+__global__ void GELUForwardKernel(const __half* __restrict__ dataIn, __half* __restrict__ dataOut, const int size){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
 	const int stride = blockDim.x*gridDim.x;
 	for(int i = idx; i<size; i += stride){
-		const float x= __half2float(input[i]);
+		const float x= __half2float(dataIn[i]);
 		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
 		const float result = x*cdf;
-		output[i] = __float2half(result);
+		dataOut[i] = __float2half(result);
 	}
 }
-__global__ void GeluForwardKernelFloat(const float* input, float* output, const int size){
+extern "C" void GELUForward(const __half* dataIn, __half* dataOut, const int size, cudaStream_t stream){
+	int blocks, threads = 512;
+	GetLaunchConfig(size, blocks, threads);
+	GELUForwardKernel<<<blocks, threads, 0, stream>>>(dataIn, dataOut, size);
+}
+__global__ void GELUBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ dataIn, const int size){
 	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
 	const int stride = blockDim.x*gridDim.x;
 	for(int i = idx; i<size; i += stride){
-		const float x = input[i];
-		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
-		output[i] = x*cdf;
+		const float x = __half2float(dataIn[i]);
+		const float xCu = x*x*x;
+		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*xCu)));
+		const float pdf = SQRT_2_PI*(1.0f+3.0f*GELU_COEF_A*x*x)*(1.0f-tanhf(SQRT_2_PI*(x+GELU_COEF_A*xCu))*tanhf(SQRT_2_PI*(x+GELU_COEF_A*xCu)))*0.5f;
+		const float result = __half2float(grad[i])*(cdf+x*pdf);
+		grad[i] = __float2half(result);
 	}
 }
-__global__ void GeluBackwardKernelHalf(const __half* gradIn, const __half* input, __half* gradOut, const int size){
-	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	const int stride = blockDim.x*gridDim.x;
-	for(int i = idx; i<size; i += stride){
-		const float x = __half2float(input[i]);
-		const float grad = __half2float(gradIn[i]);
-		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
-		const float pdf = SQRT_2_PI*(1.0f+3.0f*GELU_COEF_A*x*x)*(1.0f-tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x))*tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)))*0.5f;
-		const float result = grad*(cdf+x*pdf);
-		gradOut[i] = __float2half(result);
-	}
-}
-__global__ void GeluBackwardKernelFloat(const float* gradIn, const float* input, float* gradOut, const int size){
-	const int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	const int stride = blockDim.x*gridDim.x;
-	for(int i = idx; i<size; i += stride){
-		const float x = input[i];
-		const float grad = gradIn[i];
-		const float cdf = 0.5f*(1.0f+tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)));
-		const float pdf = SQRT_2_PI*(1.0f+3.0f*GELU_COEF_A*x*x)*(1.0f-tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x))*tanhf(SQRT_2_PI*(x+GELU_COEF_A*x*x*x)))*0.5f;
-		const float result = grad*(cdf+x*pdf);
-		gradOut[i] = result;
-	}
-}
-void GeluForward(const __half* input, __half* output, const int size, cudaStream_t stream){
-	int blocks, threads;
+extern "C" void GELUBackward(__half* grad, const __half* dataIn, const int size, cudaStream_t stream){
+	int blocks, threads = 512;
 	GetLaunchConfig(size, blocks, threads);
-	GeluForwardKernelHalf<<<blocks, threads, 0, stream>>>(input, output, size);
+	GELUBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size);
 }
-void GeluForward(const float* input, float* output, const int size, cudaStream_t stream){
-	int blocks, threads;
-	GetLaunchConfig(size, blocks, threads);
-	GeluForwardKernelFloat<<<blocks, threads, 0, stream>>>(input, output, size);
-}
-void GeluBackward(const __half* gradIn, const __half* input, __half* gradOut, const int size, cudaStream_t stream){
-	int blocks, threads;
-	GetLaunchConfig(size, blocks, threads);
-	GeluBackwardKernelHalf<<<blocks, threads, 0, stream>>>(gradIn, input, gradOut, size);
-}
-void GeluBackward(const float* gradIn, const float* input, float* gradOut, const int size, cudaStream_t stream){
-	int blocks, threads;
-	GetLaunchConfig(size, blocks, threads);
-	GeluBackwardKernelFloat<<<blocks, threads, 0, stream>>>(gradIn, input, gradOut, size);
-}
-__global__ void ComputeMeanVarianceKernel(const __half* data, float* mean, float* variance, const int N, const int C, const int HW){
+__global__ void ComputeMeanVarianceKernel(const __half* __restrict__ dataIn, float* mean, float* variance, const int N, const int C, const int HW){
 	extern __shared__ float sdata[];
 	float* sMean = sdata, *sM2 = sMean + blockDim.x, *sCount = sM2 + blockDim.x;
 	const int tid = threadIdx.x, cid = blockIdx.x;
@@ -719,7 +641,7 @@ __global__ void ComputeMeanVarianceKernel(const __half* data, float* mean, float
 	for(int n = 0; n<N; ++n){
 		for(int i = tid; i<HW; i += blockDim.x){
 			const int idx = n*C*HW+cid*HW+i;
-			const float val = __half2float(data[idx]);
+			const float val = __half2float(dataIn[idx]);
 			++count;
 			const float delta = val - tMean;
 			tMean += delta / count;
@@ -744,7 +666,7 @@ __global__ void ComputeMeanVarianceKernel(const __half* data, float* mean, float
 	}
 }
 
-__global__ void layerNormForwardKernel(__half* output, const __half* data, const float* gamma, const float* beta, const float* mean, const float* variance, int N, int C, int HW){
+__global__ void LayerNormForwardKernel(__half* __restrict__ output, const __half* __restrict__ data, const float* gamma, const float* beta, const float* mean, const float* variance, int N, int C, int HW){
 	extern __shared__ float sParams[];
 	float* sMean = sParams, *sVar = sMean+C, *sGamma = sVar+C, *sBeta = sGamma+C;
 	for(int i = threadIdx.x; i<C; i += blockDim.x){
@@ -761,18 +683,18 @@ __global__ void layerNormForwardKernel(__half* output, const __half* data, const
 	}
 }
 
-extern "C" void LayerNormForward(__half* output, const __half* data, const float* gamma, const float* beta, float* mean, float* variance, int N, int C, int HW){
+extern "C" void LayerNormForward(__half* __restrict__ dataOut, const __half* __restrict__ dataIn, const float* gamma, const float* beta, float* mean, float* variance, int N, int C, int HW){
 	int gridSize = DivCeil(C, BS);
 	int sharedMemSize = 3*BS*sizeof(float);
-	ComputeMeanVarianceKernel<<<gridSize, BS, sharedMemSize>>>(data, mean, variance, N, C, HW);
+	ComputeMeanVarianceKernel<<<gridSize, BS, sharedMemSize>>>(dataIn, mean, variance, N, C, HW);
 	gridSize = DivCeil(N*C*HW, BS);
 	sharedMemSize = 4*C*sizeof(float);
-	layerNormForwardKernel<<<gridSize, BS, sharedMemSize>>>(output, data, gamma, beta, mean, variance, N, C, HW);
+	LayerNormForwardKernel<<<gridSize, BS, sharedMemSize>>>(dataOut, dataIn, gamma, beta, mean, variance, N, C, HW);
 	const cudaError_t err = cudaGetLastError();
 	if(err!=cudaSuccess){ printf("Kernel execution failed: %s\n", cudaGetErrorString(err)); }
 }
 
-__global__ void layerNormBackwardKernel(__half* grad, const __half* data, const float* gamma, float* gradGamma, float* gradBeta, const float* mean, const float* variance, int N, int C, int HW){
+__global__ void LayerNormBackwardKernel(__half* __restrict__ grad, const __half* __restrict__ data, const float* gamma, float* gradGamma, float* gradBeta, const float* mean, const float* variance, int N, int C, int HW){
 	extern __shared__ float sdata[];
 	float* sGradGamma = sdata, *sGradBeta = sGradGamma+blockDim.x;
 	const int tid = threadIdx.x, cid = blockIdx.x;
@@ -815,23 +737,23 @@ __global__ void layerNormBackwardKernel(__half* grad, const __half* data, const 
 		}
 	}
 }
-extern "C" void LayerNormBackward(__half* grad, const __half* data, const float* gamma, float* gradGamma, float* gradBeta, const float* mean, const float* variance, int N, int C, int HW){
+extern "C" void LayerNormBackward(__half* __restrict__ grad, const __half* __restrict__ dataIn, const float* gamma, float* gradGamma, float* gradBeta, const float* mean, const float* variance, int N, int C, int HW){
 	cudaMemset(gradGamma, 0, C*sizeof(float));
 	cudaMemset(gradBeta, 0, C*sizeof(float));
 	int sharedMemSize = 2*BS*sizeof(float);
-	layerNormBackwardKernel<<<C, BS, sharedMemSize>>>(grad, data, gamma, gradGamma, gradBeta, mean, variance, N, C, HW);
+	LayerNormBackwardKernel<<<C, BS, sharedMemSize>>>(grad, dataIn, gamma, gradGamma, gradBeta, mean, variance, N, C, HW);
 	const cudaError_t err = cudaGetLastError();
 	if(err!=cudaSuccess){ printf("Kernel execution failed: %s\n", cudaGetErrorString(err)); }
 }
 
 __device__ int deviceResult;
-__global__ void isNaNKernel(const __half* data, int size){
+__global__ void isNaNKernel(const __half* __restrict__ data, int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size && __hisnan(data[idx])){
 		atomicExch(&deviceResult, 1);
 	}
 }
-extern "C" bool IsnanHalf(const __half* data, int size){
+extern "C" bool IsnanHalf(const __half* __restrict__ data, int size){
 	int hResult = 0;
 	cudaMemcpyToSymbol(deviceResult, &hResult, sizeof(int));
 	auto gridSize = DivCeil(size, BS);

@@ -111,6 +111,7 @@
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="ConvScale.h" />
     <ClInclude Include="CustomOutLayer.h" />
+    <ClInclude Include="GELULayer.h" />
     <ClInclude Include="ResConvLayer.h" />
     <ClInclude Include="Dropout.h" />
     <ClInclude Include="Infer.h" />
@@ -122,7 +123,7 @@
     <ClInclude Include="FCLayer.h" />
     <ClInclude Include="Record.h" />
     <ClInclude Include="Layer.h" />
-    <ClInclude Include="LeakyReLU.h" />
+    <ClInclude Include="LeakyReLULayer.h" />
     <ClInclude Include="NvDisplayCap.h" />
     <ClInclude Include="NvFBCLibrary.h" />
     <ClInclude Include="SigmoidLayer.h" />
@@ -137,6 +138,8 @@
     <ClCompile Include="ConvLayer.cpp" />
     <ClCompile Include="ConvScale.cpp" />
     <ClCompile Include="CustomOutLayer.cpp" />
+    <ClCompile Include="GELULayer.cpp" />
+    <ClCompile Include="NvDisplayCap.cpp" />
     <ClCompile Include="ResConvLayer.cpp" />
     <ClCompile Include="Dropout.cpp" />
     <ClCompile Include="Infer.cpp" />
@@ -147,7 +150,7 @@
     <ClCompile Include="Viewer.cpp" />
     <ClCompile Include="FCLayer.cpp" />
     <ClCompile Include="Record.cpp" />
-    <ClCompile Include="LeakyReLU.cpp" />
+    <ClCompile Include="LeakyReLULayer.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
     <ClCompile Include="ThreadPool.cpp" />

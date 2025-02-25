@@ -3,7 +3,8 @@
 #include "NvDisplayCap.h"
 #include <iomanip>
 #include <iostream>
-Record* this_ = nullptr;
+#include <csignal>
+static Record* this_ = nullptr;
 static LRESULT CALLBACK WindowProcRecord(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 	switch(uMsg){
 		case WM_INPUT: this_->ProcessRawInput(lParam);
@@ -14,12 +15,19 @@ static LRESULT CALLBACK WindowProcRecord(HWND hwnd, UINT uMsg, WPARAM wParam, LP
 	}
 	return 0;
 }
+void RecordSig(const int sig){
+	if(sig == SIGINT){
+		this_->stop_ = true;
+	}
+}
 Record::Record(){
+	if(this_) throw std::runtime_error("Record class can only have one instance");
 	this_ = this;
 	for(int i = 0; i<256; ++i){ keyCodeToBitPos[i] = -1; }
 	for(int i = 0; i<NUM_BUTS_; ++i){ keyCodeToBitPos[keyMap[i]] = i; }
 	std::thread t1(&Record::MassageLoop, this);
 	t1.detach();
+	signal(SIGINT, RecordSig);
 }
 Record::~Record(){
 	stop_ = true;
@@ -145,7 +153,10 @@ void Record::Run(){
 	cudnnCreate(&cudnn_);
 	std::thread t0(&Record::ListenForKey, this);
 	t0.detach();
-	while(!recording_) Sleep(10);
+	while(!recording_){
+		if(stop_) goto end;
+		Sleep(10);
+	}
 	Init();
 	constexpr std::chrono::microseconds frameDuration(33333);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
@@ -157,8 +168,7 @@ void Record::Run(){
 		auto inputState = GetInputStates();
 		if(recording_){ Step(inputState); }
 	}
+	end:
 	PostQuitMessage(0);
-	stop_ = true;
 	Dispose();
-	std::terminate();
 }

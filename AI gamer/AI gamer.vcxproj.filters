@@ -33,9 +33,6 @@
     <ClCompile Include="Activate.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="LeakyReLU.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ThreadPool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -81,6 +78,15 @@
     <ClCompile Include="SwishLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="NvDisplayCap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LeakyReLULayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GELULayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="NvDisplayCap.h">
@@ -105,9 +111,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Layer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="LeakyReLU.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ThreadPool.h">
@@ -153,6 +156,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SwishLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LeakyReLULayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GELULayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

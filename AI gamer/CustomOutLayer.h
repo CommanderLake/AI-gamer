@@ -20,7 +20,7 @@ public:
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
-	int batchSize_, seqLength_, inC_;
+	int ogbs_, batchSize_, seqLength_, inC_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
 	__half* predictions_;

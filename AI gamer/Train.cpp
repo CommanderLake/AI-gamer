@@ -65,8 +65,6 @@ void Train::TrainModel(const int width, const int height){
 	cublasCreate(&cublas);
 	cublasSetMathMode(cublas, CUBLAS_TENSOR_OP_MATH); //S
 	const auto nn = new NN(cudnn, cublas, width, height, true);
-	//Viewer viewer;
-	//viewer.InitializeWindow(width, height);
 	StateBatch sb0(nn->batchStateTotal_, nn->stateSize_);
 	StateBatch sb1(nn->batchStateTotal_, nn->stateSize_);
 	auto sbRead = &sb0;
@@ -91,10 +89,6 @@ void Train::TrainModel(const int width, const int height){
 			nan = false;
 			threadPool.WaitAll();
 			fetchBatch(false);
-			//for(int i = 0; i<nn->batchStateTotal_; ++i){
-			//	viewer.ShowImageRGB(sbRead->stateData + i*nn->stateSize_, width, height);
-			//	Sleep(33);
-			//}
 			const auto result = TrainBatch(nn, sbRead, true, 0.00001f);
 			if(result == -1) nan = true;
 		}

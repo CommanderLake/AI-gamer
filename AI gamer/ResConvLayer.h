@@ -5,7 +5,7 @@
 #include <cublas_v2.h>
 #include <vector>
 #include "Activate.h"
-#include "LeakyReLU.h"
+#include "LeakyReLULayer.h"
 #include "SwishLayer.h"
 class ResConvLayer : public Layer{
 public:
