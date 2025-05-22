@@ -87,6 +87,9 @@
     <ClCompile Include="GELULayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MHALayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="NvDisplayCap.h">
@@ -162,6 +165,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="GELULayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MHALayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

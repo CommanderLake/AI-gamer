@@ -1,22 +1,23 @@
 #include "SwishLayer.h"
 #include "common.h"
-SwishLayer::SwishLayer(int batchSize, int channels, int height, int width, const char* layerName): batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
+SwishLayer::SwishLayer(const int batchSize, const int channels, const int height, const int width, const char* layerName): batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;
 	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
-	CUDAMallocZero(&data_, outNCHW_);
+	CUDAMallocZero(&dataOut_, outNCHW_);
 }
 SwishLayer::~SwishLayer(){
-	cudaFree(data_);
+	cudaFree(dataOut_);
 }
 __half* SwishLayer::Forward(__half* data){
-	SwishForward(data, data_, outNCHW_);
-	return data_;
+	data_ = data;
+	SwishForward(data, dataOut_, outNCHW_, nullptr);
+	return dataOut_;
 }
 __half* SwishLayer::Backward(__half* grad){
-	SwishBackward(grad, data_, outNCHW_);
+	SwishBackward(grad, data_, outNCHW_, nullptr);
 	return grad;
 }
-void SwishLayer::SetTrain(bool enable){
+void SwishLayer::SetTrain(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;
