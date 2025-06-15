@@ -28,7 +28,7 @@ public:
 	int inNCHW_;
 	__half* inData_ = nullptr;
 	__half* outData_ = nullptr;
-	__half* gradOut_ = nullptr;
+	__half* outGrad_ = nullptr;
 	__half* gradWeights_ = nullptr;
 	void* workspace_ = nullptr;
 	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;

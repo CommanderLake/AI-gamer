@@ -25,7 +25,7 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_*seqLength_, outC/2, 1, 1, "Buts_FC2_ReLU"));
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_*seqLength_, outC/2, 1, 1, "Buts_Dropout2", train));
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC/2, NUM_BUTS_, "Buts_FC_Out", train, weightDecay, gradAccumLength_));
-	buttonLayers_.push_back(new SigmoidLayer(NUM_BUTS_, batchSize_*seqLength_, NUM_BUTS_, "Buts_Sigmoid"));
+	buttonLayers_.push_back(new SigmoidLayer(batchSize_*seqLength_, NUM_BUTS_, NUM_BUTS_, "Buts_Sigmoid"));
 	//axisLayers_.push_back(new LSTMLayer(cudnn_, seqLength_, 1, outC, batchSize_, inputSize, "Axes_LSTM", train, weightDecay, gradAccumLength_));
 	//axisLayers_.push_back(new ViewerLayer(batchSize_*seqLength_, 32, 32, 10, "Axes LSTM"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Axes_FC1", train, weightDecay, gradAccumLength_));

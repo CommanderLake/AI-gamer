@@ -93,9 +93,9 @@ void CUDAMallocZero(T** ptr, size_t size){
 	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
 	checkCUDA(cudaMemset(*ptr, 0, size));
 }
-const std::string trainDataOutFileName("E:\\TrainingData.bin");
-const std::string ckptFileName("E:\\AIGamer.ckpt");
-const std::string optFileName("E:\\AIGamer.opt");
+const std::string trainDataOutFileName("I:\\TrainingData.bin");
+const std::string ckptFileName("I:\\AIGamer.ckpt");
+const std::string optFileName("I:\\AIGamer.opt");
 constexpr int NUM_BUTS_ = 14;
 constexpr int NUM_AXES_ = 2;
 constexpr int NUM_CTRLS_ = NUM_BUTS_ + NUM_AXES_;

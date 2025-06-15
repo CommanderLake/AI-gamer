@@ -119,6 +119,7 @@
     <ClInclude Include="LSTMLayer.h" />
     <ClInclude Include="NN.h" />
     <ClInclude Include="ResFCLayer.h" />
+    <ClInclude Include="TransposeLayer.h" />
     <ClInclude Include="SwishLayer.h" />
     <ClInclude Include="Viewer.h" />
     <ClInclude Include="FCLayer.h" />
@@ -148,6 +149,7 @@
     <ClCompile Include="LSTMLayer.cpp" />
     <ClCompile Include="NN.cpp" />
     <ClCompile Include="ResFCLayer.cpp" />
+    <ClCompile Include="TransposeLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />
     <ClCompile Include="Viewer.cpp" />
     <ClCompile Include="FCLayer.cpp" />

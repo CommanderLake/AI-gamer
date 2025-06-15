@@ -6,7 +6,7 @@
 class MultiHeadAttentionLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int embedSize, int numHeads, const char* layerName, bool train, float weightDecay);
+	MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int timeSize, int vectorSize, int numHeads, const char* layerName, bool train, float weightDecay);
 	~MultiHeadAttentionLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -19,12 +19,9 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
-	cublasHandle_t cublasHandle_;
 	cudnnAttnDescriptor_t attnDesc_;
 	cudnnSeqDataDescriptor_t qkvDesc_, outDesc_;
-	int batchSize_;
-	int seqLength_;
-	int embedSize_;
+	int batchSize_, timeSize_, vectorSize_;
 	int numHeads_;
 	__half *inData_, *outData_;
 	__half *gradWeights_, *gradKeys_, *gradValues_, *gradOut_;

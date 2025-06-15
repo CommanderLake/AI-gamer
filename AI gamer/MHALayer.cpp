@@ -1,29 +1,27 @@
 #include "MHALayer.h"
 #include "common.h"
 #include <iostream>
-MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int embedSize, const int numHeads, const char* layerName, const bool train,
-												const float weightDecay) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), embedSize_(embedSize), numHeads_(numHeads), inData_(nullptr),
-																			weightDecay_(weightDecay){
+MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int timeSize, const int vectorSize, const int numHeads, const char* layerName, const bool train, const float weightDecay) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), timeSize_(timeSize), vectorSize_(vectorSize), numHeads_(numHeads), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	checkCUDNN(cudnnCreateAttnDescriptor(&attnDesc_));
 	checkCUDNN(cudnnCreateSeqDataDescriptor(&qkvDesc_));
 	checkCUDNN(cudnnCreateSeqDataDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetAttnDescriptor(attnDesc_, CUDNN_ATTN_QUERYMAP_ALL_TO_ONE, numHeads_, 1.0 / sqrt(static_cast<double>(embedSize_) / numHeads_), CUDNN_DATA_HALF, CUDNN_DATA_HALF, CUDNN_TENSOR_OP_MATH, nullptr, nullptr, embedSize_, embedSize_,
-		embedSize_, // vSize
-		embedSize_, // qProjSize
-		embedSize_, // kProjSize
-		embedSize_, // vProjSize
-		embedSize_, // oProjSize
-		seqLength_, // qoMaxSeqLength
-		seqLength_, // kvMaxSeqLength
+	const int dk = vectorSize_ / numHeads_;
+	const double smScaler = 1.0 / std::sqrt(static_cast<double>(dk));
+	checkCUDNN(cudnnSetAttnDescriptor(attnDesc_, CUDNN_ATTN_QUERYMAP_ONE_TO_ONE, numHeads_, smScaler, CUDNN_DATA_HALF, CUDNN_DATA_HALF, CUDNN_TENSOR_OP_MATH, nullptr, nullptr,
+		vectorSize_, // qSize
+		vectorSize_, // kSize
+		vectorSize_, // vSize
+		dk, // qProjSize
+		dk, // kProjSize
+		dk, // vProjSize
+		vectorSize_, // oProjSize
+		timeSize_, // qoMaxSeqLength
+		timeSize_, // kvMaxSeqLength
 		batchSize_, // maxBatchSize
 		1)); // maxBeamSize
-	const int dimA[4] = {seqLength_, batchSize_, /*beam*/1, embedSize_};
-	constexpr cudnnSeqDataAxis_t axes[4] = {CUDNN_SEQDATA_TIME_DIM, CUDNN_SEQDATA_BATCH_DIM, CUDNN_SEQDATA_BEAM_DIM, CUDNN_SEQDATA_VECT_DIM};
-	const std::vector<int> seqLengthArray(batchSize_, seqLength_);
-	checkCUDNN(cudnnSetSeqDataDescriptor(qkvDesc_, CUDNN_DATA_HALF, 4, dimA, axes, batchSize_, seqLengthArray.data(), nullptr));
-	checkCUDNN(cudnnSetSeqDataDescriptor(outDesc_, CUDNN_DATA_HALF, 4, dimA, axes, batchSize_, seqLengthArray.data(), nullptr));
+	SetTrain(train);
 	checkCUDNN(cudnnGetMultiHeadAttnBuffers(cudnnHandle_, attnDesc_, &weightSize_, &workspaceSize_, &reserveSpaceSize_));
 	CUDAMallocZero(&weights_, weightSize_);
 	cudnnTensorDescriptor_t wDesc;
@@ -46,7 +44,7 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 	initWeight(CUDNN_MH_ATTN_V_WEIGHTS);
 	initWeight(CUDNN_MH_ATTN_O_WEIGHTS);
 	cudnnDestroyTensorDescriptor(wDesc);
-	const size_t dataSize = batchSize_*seqLength_*embedSize_;
+	const size_t dataSize = batchSize_*timeSize_*vectorSize_;
 	CUDAMallocZero(&outData_, dataSize*sizeof(__half));
 	if(train_){
 		CUDAMallocZero(&gradWeights_, weightSize_);
@@ -61,13 +59,14 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 	checkCUDA(cudaMalloc(&workspace_, workspaceSize_));
 	checkCUDA(cudaMalloc(&reserveSpace_, reserveSpaceSize_));
 	checkCUDA(cudaMalloc(&d_SeqLengths, batchSize_*sizeof(int)));
-	const std::vector<int> h_seqLengths(batchSize_, seqLength_);
+	const std::vector<int> h_seqLengths(batchSize_, timeSize_);
 	checkCUDA(cudaMemcpy(d_SeqLengths, h_seqLengths.data(), batchSize_*sizeof(int), cudaMemcpyHostToDevice));
-	loWinIdx = new std::vector<int>(seqLength_, 0);
-	hiWinIdx = new std::vector<int>(seqLength_);
-	for(int i = 0; i<seqLength_; ++i){ (*hiWinIdx)[i] = i; }
+	loWinIdx = new std::vector<int>(timeSize_, 0);
+	hiWinIdx = new std::vector<int>(timeSize_, timeSize_);
 }
 MultiHeadAttentionLayer::~MultiHeadAttentionLayer(){
+	delete loWinIdx;
+	delete hiWinIdx;
 	cudaFree(weights_);
 	cudaFree(outData_);
 	cudaFree(workspace_);
@@ -136,7 +135,7 @@ size_t MultiHeadAttentionLayer::GetParameterSize(){ return weightSize_; }
 size_t MultiHeadAttentionLayer::GetOptimizerStateSize(){
 	return useAdamW_ ? 2*weightSize_ : 0;
 }
-void MultiHeadAttentionLayer::SetTrain(bool enable){
+void MultiHeadAttentionLayer::SetTrain(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;
@@ -145,9 +144,13 @@ void MultiHeadAttentionLayer::SetTrain(bool enable){
 		train_ = false;
 		bs = 1;
 	}
-	const int dimA[4] = {seqLength_, bs, /*beam*/1, embedSize_};
-	constexpr cudnnSeqDataAxis_t axes[4] = {CUDNN_SEQDATA_TIME_DIM, CUDNN_SEQDATA_BATCH_DIM, CUDNN_SEQDATA_BEAM_DIM, CUDNN_SEQDATA_VECT_DIM};
-	const std::vector<int> seqLengthArray(bs, seqLength_);
-	checkCUDNN(cudnnSetSeqDataDescriptor(qkvDesc_, CUDNN_DATA_HALF, 4, dimA, axes, bs, seqLengthArray.data(), nullptr));
-	checkCUDNN(cudnnSetSeqDataDescriptor(outDesc_, CUDNN_DATA_HALF, 4, dimA, axes, bs, seqLengthArray.data(), nullptr));
+	int dimA[CUDNN_SEQDATA_DIM_COUNT];
+	dimA[CUDNN_SEQDATA_TIME_DIM] = timeSize_;
+	dimA[CUDNN_SEQDATA_BATCH_DIM] = bs;
+	dimA[CUDNN_SEQDATA_BEAM_DIM] = 1;
+	dimA[CUDNN_SEQDATA_VECT_DIM] = vectorSize_;
+	const cudnnSeqDataAxis_t axes[4] = {CUDNN_SEQDATA_BATCH_DIM, CUDNN_SEQDATA_TIME_DIM, CUDNN_SEQDATA_BEAM_DIM, CUDNN_SEQDATA_VECT_DIM};
+	const std::vector<int> seqLengthArray(bs, timeSize_);
+	checkCUDNN(cudnnSetSeqDataDescriptor(qkvDesc_, CUDNN_DATA_HALF, 4, dimA, axes, seqLengthArray.size(), seqLengthArray.data(), nullptr));
+	checkCUDNN(cudnnSetSeqDataDescriptor(outDesc_, CUDNN_DATA_HALF, 4, dimA, axes, seqLengthArray.size(), seqLengthArray.data(), nullptr));
 }

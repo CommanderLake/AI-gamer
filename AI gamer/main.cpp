@@ -62,8 +62,9 @@ int main(){
 		const auto recorder = new Record();
 		recorder->Run();
 	} else if(mode == 't' || mode == 'T'){
-		int width, height;
+		int width = 0, height = 0;
 		ReadStateData(&width, &height);
+		std::cout << "Training data resolution: " << width << "x" << height << "\n";
 		const auto train = new Train();
 		train->TrainModel(width, height);
 		delete train;

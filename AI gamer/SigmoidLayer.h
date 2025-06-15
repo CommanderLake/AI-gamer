@@ -2,12 +2,11 @@
 #include "Layer.h"
 class SigmoidLayer final : public Layer {
 public:
-	SigmoidLayer(int numSigmoidOutputs, int batchSize, int outC, const char* layerName);
+	SigmoidLayer(int batchSize, int numCtrls, int numButs, const char* layerName);
     ~SigmoidLayer() override;
     __half* Forward(__half* data) override;
     __half* Backward(__half* grad) override;
-	size_t numSigmoidOutputs_;
-	int outC_;
-	int batchSize_;
-	__half* data_;
+	int batchSize_, numCtrls_, numButs_;
+	__half* dataOut_ = nullptr;
+	__half* data_ = nullptr;
 };

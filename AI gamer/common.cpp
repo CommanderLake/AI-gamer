@@ -328,9 +328,8 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-//std::vector<std::string> trainingDataFiles = {"E:\\TrainingData\\training_data1.bin", "E:\\TrainingData\\training_data2.bin", "E:\\TrainingData\\training_data3.bin"};
-std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\trainingData0.bin", "E:\\TrainingData\\trainingData1.bin"};
-std::string valDataFile = "E:\\TrainingData\\validationData.bin";
+std::vector<std::string> trainDataFiles = {"I:\\TrainingData\\trainingData0.bin", "I:\\TrainingData\\trainingData1.bin"};
+std::string valDataFile = "I:\\TrainingData\\validationData.bin";
 std::vector<RecordIndex> trainRecordIndices;
 std::vector<RecordIndex> valRecordIndices;
 std::mutex recordIndicesMutex;

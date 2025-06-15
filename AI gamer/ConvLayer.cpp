@@ -26,7 +26,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	if(train_){
 		WeightInit(weights_, weightCount_, fanIn, outC_, He);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
-		CUDAMallocZero(&gradOut_, inNCHW_*sizeof(__half));
+		CUDAMallocZero(&outGrad_, inNCHW_*sizeof(__half));
 		if(useAdamW_){
 			CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
 			CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
@@ -47,7 +47,7 @@ ConvLayer::~ConvLayer(){
 	checkCUDNN(cudnnDestroyConvolutionDescriptor(convDesc_));
 	if(train_){
 		cudaFree(gradWeights_);
-		cudaFree(gradOut_);
+		cudaFree(outGrad_);
 		if(useAdamW_){
 			cudaFree(m_Weights_);
 			cudaFree(v_Weights_);
@@ -62,8 +62,8 @@ __half* ConvLayer::Forward(__half* data){
 __half* ConvLayer::Backward(__half* grad){
 	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
 	checkCUDNN(cudnnConvolutionBackwardFilter(cudnnHandle_, &alphaWeights_, inDesc_, inData_, outDesc_, grad, convDesc_, algos_.bwdFilterAlgo, workspace_, algos_.workspaceSize, betaWeights, filterDesc_, gradWeights_));
-	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &alpha_, filterDesc_, weights_, outDesc_, grad, convDesc_, algos_.bwdDataAlgo, workspace_, algos_.workspaceSize, &beta0_, inDesc_, gradOut_));
-	return gradOut_;
+	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &alpha_, filterDesc_, weights_, outDesc_, grad, convDesc_, algos_.bwdDataAlgo, workspace_, algos_.workspaceSize, &beta0_, inDesc_, outGrad_));
+	return outGrad_;
 }
 void ConvLayer::UpdateParameters(const float learningRate){
 	if(accumCount_%gradAccumLength_>0) return;
