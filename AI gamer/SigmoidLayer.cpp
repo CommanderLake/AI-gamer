@@ -3,14 +3,12 @@
 SigmoidLayer::SigmoidLayer(const int batchSize, const int numCtrls, const int numButs, const char* layerName) : batchSize_(batchSize), numCtrls_(numCtrls), numButs_(numButs){
 	layerName_ = layerName;
 	outNCHW_ = batchSize_*numCtrls_;
-	CUDAMallocZero(&dataOut_, outNCHW_);
 }
 SigmoidLayer::~SigmoidLayer(){
-	cudaFree(dataOut_);
 }
 __half* SigmoidLayer::Forward(__half* data) {
 	data_ = data;
-	SigmoidForward(data, dataOut_, numCtrls_, numButs_, outNCHW_);
+	SigmoidForward(data, data, numCtrls_, numButs_, outNCHW_);
     return data;
 }
 __half* SigmoidLayer::Backward(__half* grad) {

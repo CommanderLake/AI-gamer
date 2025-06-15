@@ -7,6 +7,5 @@ public:
     __half* Forward(__half* data) override;
     __half* Backward(__half* grad) override;
 	int batchSize_, numCtrls_, numButs_;
-	__half* dataOut_ = nullptr;
 	__half* data_ = nullptr;
 };
