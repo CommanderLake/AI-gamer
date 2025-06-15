@@ -23,7 +23,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inWidth_ = netWidth;
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
-	std::cout<<"Initializing layers... ";
+	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.00001f;
 	auto outC = 32;
 	//layers_.push_back(new ViewerLayer(seqLength_*3, netHeight, netWidth, 6, "input viewer"));
@@ -43,10 +43,14 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	//layers_.push_back(new ViewerLayer(outC, netHeight, netWidth, 16, "Conv2 viewer"));
 	outC = 128;
 	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 64, outC, 4, 2, &netHeight, &netWidth, "Conv3", train, wd, gradAccumLength_));
-	//layers_.push_back(new ViewerLayer(outC, 32, 32, 16, "Conv2 Weights", layers_.back()->weights_));
 	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv3_BatchNorm", train, wd, gradAccumLength_));
 	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv3_ReLU"));
+	outC = 256;
 	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv3 viewer"));
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 128, outC, 4, 2, &netHeight, &netWidth, "Conv4", train, wd, gradAccumLength_));
+	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv4_BatchNorm", train, wd, gradAccumLength_));
+	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv4_ReLU"));
+	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 64, "Conv4 viewer"));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, outC*netHeight*netWidth, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());

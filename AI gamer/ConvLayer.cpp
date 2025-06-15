@@ -12,6 +12,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, inHeight_, inWidth_));
 	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, outC_, inC_, filterSize, filterSize));
 	auto [padH, padW] = Padding(inHeight_, inWidth_, filterSize, stride);
+	std::cout << layerName << " padding: " << padW << "x" << padH << "\n";
 	checkCUDNN(cudnnSetConvolution2dDescriptor(convDesc_, padH, padW, stride, stride, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
 	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH)); //S
 	int n, c;
@@ -36,6 +37,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	CUDAMallocZero(&workspace_, algos_.workspaceSize);
 	*width = outWidth_;
 	*height = outHeight_;
+	std::cout << layerName << " out rez: " << outWidth_ << "x" << outHeight_ << "\n";
 }
 ConvLayer::~ConvLayer(){
 	cudaFree(outData_);
@@ -115,9 +117,5 @@ void ConvLayer::SetTrain(bool enable){
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, outHeight_, outWidth_));
 }
 std::pair<int, int> ConvLayer::Padding(const int imageHeight, const int imageWidth, const int kernelSize, const int stride){
-	auto computePadding = [](const int imageSize, const int kernelSize, int stride){
-		const int coverage = (imageSize - kernelSize)/stride*stride + (kernelSize - 1);
-		return std::max(0, coverage - (imageSize - 1));
-	};
-	return {computePadding(imageHeight, kernelSize, stride), computePadding(imageWidth, kernelSize, stride)};
+	return {std::max(0, (imageHeight - kernelSize)/stride*stride + (kernelSize - 1) - (imageHeight - 1)), std::max(0, (imageWidth - kernelSize)/stride*stride + (kernelSize - 1) - (imageWidth - 1))};
 }
