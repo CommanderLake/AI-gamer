@@ -45,9 +45,9 @@ unsigned char keyMap[] = {
 	0x12, // E
 	0x02, // 1
 	0x03, // 2
-	0x0B,  // Mouse button 1
-	0x0C,  // Mouse button 2
-	0x0D   // Mouse button 3
+	0x0B, // Mouse button 1
+	0x0C, // Mouse button 2
+	0x0D  // Mouse button 3
 };
 int ConvertSmVer2Cores(int major, int minor){
 	// Defines for GPU Architecture types (using the SM version to determine the # of cores per SM
@@ -340,6 +340,22 @@ void ReportStreamState(std::ifstream& file){
 	}
 	std::cerr<<"Current stream position: "<<file.tellg()<<"\n";
 }
+static std::ifstream& GetThreadFile(const std::string& fileName){
+	using StreamPtr = std::unique_ptr<std::ifstream>;
+	static thread_local std::unordered_map<std::string, StreamPtr> fileMap;
+	auto it = fileMap.find(fileName);
+	if(it==fileMap.end()||!it->second||!it->second->is_open()){
+		auto stream = std::make_unique<std::ifstream>(fileName, std::ios::binary|std::ios::in);
+		if(!stream->is_open()){
+			std::cerr<<"Failed to open file: "<<fileName<<"\n";
+			throw std::runtime_error("Failed to open file");
+		}
+		const auto emplaceResult = fileMap.emplace(fileName, std::move(stream));
+		it = emplaceResult.first;
+	}
+	it->second->clear();
+	return *(it->second);
+}
 void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, const bool validation){
 	const std::vector<RecordIndex>* recordIndices = validation ? &valRecordIndices : &trainRecordIndices;
 	if(recordIndices->size()<batchSize){
@@ -351,21 +367,19 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 			const std::uniform_int_distribution<size_t> dist(0, recordIndices->size()-1);
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
 			const RecordIndex record = (*recordIndices)[randomIndex];
-			std::ifstream file(*record.fileName, std::ios::binary|std::ios::in);
-			if(!file.is_open()){
-				std::cerr<<"Failed to open file: "<<record.fileName<<"\n";
-				return;
-			}
-			file.seekg(record.position);
-			if(file.fail()){
-				std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<record.fileName<<"\n";
-				return;
-			}
-			if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i]), sizeof(InputState))){
-				std::cerr<<"Failed to read input states at index "<<i<<" from file: "<<record.fileName<<"\n";
-				return;
-			}
-			if(!file.read(reinterpret_cast<char*>(batch->stateData+i*stateSize), stateSize)){ std::cerr<<"Failed to read stateData at index "<<i<<" from file: "<<record.fileName<<"\n"; }
+			try{
+				auto& file = GetThreadFile(*record.fileName);
+				file.seekg(record.position);
+				if(file.fail()){
+					std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<*record.fileName<<"\n";
+					return;
+				}
+				if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i]), sizeof(InputState))){
+					std::cerr<<"Failed to read input states at index "<<i<<" from file: "<<*record.fileName<<"\n";
+					return;
+				}
+				if(!file.read(reinterpret_cast<char*>(batch->stateData+i*stateSize), stateSize)){ std::cerr<<"Failed to read stateData at index "<<i<<" from file: "<<*record.fileName<<"\n"; }
+			} catch(const std::exception&){ return; }
 		});
 	}
 }
@@ -382,25 +396,23 @@ void LoadBatchLSTM(StateBatch* batch, const int batchSize, int seqLength, const 
 			for(int t = 0; t<seqLength; ++t){
 				const size_t recordIndex = randomIndex+t;
 				const RecordIndex record = (*recordIndices)[recordIndex];
-				std::ifstream file(*record.fileName, std::ios::binary|std::ios::in);
-				if(!file.is_open()){
-					std::cerr<<"Failed to open file: "<<*record.fileName<<"\n";
-					return;
-				}
-				file.seekg(record.position);
-				if(file.fail()){
-					std::cerr<<"Failed to seek to position: "<<record.position<<" in file: "<<*record.fileName<<"\n";
-					return;
-				}
-				const auto index = i*seqLength + t;
-				if(!file.read(reinterpret_cast<char*>(&batch->inputStates[index]), sizeof(InputState))){
-					std::cerr<<"Failed to read input states for sequence "<<index<<" from file: "<<*record.fileName<<"\n";
-					return;
-				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData+index*stateSize), stateSize)){
-					std::cerr<<"Failed to read stateData at index "<<index<<" from file: "<<*record.fileName<<"\n";
-					return;
-				}
+				try{
+					auto& file = GetThreadFile(*record.fileName);
+					file.seekg(record.position);
+					if(file.fail()){
+						std::cerr<<"Failed to seek to position:"<<record.position<<" in file: "<<*record.fileName<<"\n";
+						return;
+					}
+					const auto index = i*seqLength+t;
+					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[index]), sizeof(InputState))){
+						std::cerr<<"Failed to read input states for sequence "<<index<<" from file: "<<*record.fileName<<"\n";
+						return;
+					}
+					if(!file.read(reinterpret_cast<char*>(batch->stateData+index*stateSize), stateSize)){
+						std::cerr<<"Failed to read stateData at index "<<index<<" from file: "<<*record.fileName<<"\n";
+						return;
+					}
+				} catch(const std::exception&){ return; }
 			}
 		});
 	}
