@@ -28,11 +28,11 @@ void FreeHost(){
 }
 void FreeGPU(){
 	if(pDevBufRGB){
-		cudaFree(pDevBufRGB);
+		cudaFreeHost(pDevBufRGB);
 		pDevBufRGB = nullptr;
 	}
 	if(pDevBufBGRA){
-		cudaFree(pDevBufBGRA);
+		cudaFreeHost(pDevBufBGRA);
 		pDevBufBGRA = nullptr;
 	}
 }

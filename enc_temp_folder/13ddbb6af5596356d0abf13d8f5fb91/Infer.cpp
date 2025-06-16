@@ -58,7 +58,7 @@ void Infer::ListenForKey(){
 			activeMode_ = InferMode::Correct;
 			while(GetAsyncKeyState(VK_F10) & 0x8000){ Sleep(10); }
 		}
-		if(tune_ && activeMode_ == InferMode::Correct && GetAsyncKeyState(VK_F11) & 0x8000){
+		if(tune_ && activeMode_ == InferMode::Correct && GetAsyncKeyState(VK_F12) & 0x8000){
 			activeMode_ = InferMode::Tune;
 			while(GetAsyncKeyState(VK_F11) & 0x8000){ Sleep(10); }
 		}

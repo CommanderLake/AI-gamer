@@ -61,7 +61,6 @@ int main(){
 	if(mode == 'r' || mode == 'R'){
 		const auto recorder = new Record();
 		recorder->Run();
-		delete recorder;
 	} else if(mode == 't' || mode == 'T'){
 		int width = 0, height = 0;
 		ReadStateData(&width, &height);

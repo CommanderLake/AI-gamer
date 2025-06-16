@@ -41,12 +41,6 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 }
 CustomOutLayer::~CustomOutLayer(){
 	cudaFree(predictions_);
-	for(const auto layer : axisLayers_){
-		delete layer;
-	}
-	for(const auto layer : buttonLayers_){
-		delete layer;
-	}
 	axisLayers_.clear();
 	buttonLayers_.clear();
 	cudnnDestroyTensorDescriptor(inDesc_);
