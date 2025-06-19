@@ -17,14 +17,14 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-	std::pair<int, int> Padding(const int imageHeight, const int imageWidth, const int kernelSize, const int stride);
+	std::pair<int, int> Padding(int imageHeight, int imageWidth, int kernelSize, int stride);
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t inDesc_;
 	cudnnFilterDescriptor_t filterDesc_;
 	cudnnConvolutionDescriptor_t convDesc_;
 	ConvolutionAlgorithms algos_;
-	int batchSize_, outC_, outHeight_, outWidth_;
 	int inC_, inHeight_, inWidth_;
+	int batchSize_, outC_, outHeight_, outWidth_;
 	int inNCHW_;
 	__half* inData_ = nullptr;
 	__half* outData_ = nullptr;

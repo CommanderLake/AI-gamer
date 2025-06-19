@@ -1,7 +1,7 @@
 #include "ConvLayer.h"
 #include <iostream>
 ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int* height, int* width, const char* layerName, bool train, float weightDecay, int gradAccumLength) : cudnnHandle_(cudnnHandle),
-	batchSize_(batchSize), outC_(outputChannels), inC_(inputChannels), inHeight_(*height), inWidth_(*width), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+	inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	alphaWeights_ = 1.0f/gradAccumLength_;
@@ -12,14 +12,13 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, inHeight_, inWidth_));
 	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, outC_, inC_, filterSize, filterSize));
 	auto [padH, padW] = Padding(inHeight_, inWidth_, filterSize, stride);
-	std::cout << layerName << " padding: " << padW << "x" << padH << "\n";
 	checkCUDNN(cudnnSetConvolution2dDescriptor(convDesc_, padH, padW, stride, stride, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
 	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH)); //S
 	int n, c;
 	checkCUDNN(cudnnGetConvolution2dForwardOutputDim(convDesc_, inDesc_, filterDesc_, &n, &c, &outHeight_, &outWidth_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, outHeight_, outWidth_));
-	outNCHW_ = outWidth_*outHeight_*outC_*batchSize_;
-	inNCHW_ = inWidth_*inHeight_*inC_*batchSize_;
+	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
+	inNCHW_ = batchSize_*inC_*inHeight_*inWidth_;
 	const auto fanIn = inC_*filterSize*filterSize;
 	weightCount_ = outC_*fanIn;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
@@ -37,7 +36,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	CUDAMallocZero(&workspace_, algos_.workspaceSize);
 	*width = outWidth_;
 	*height = outHeight_;
-	std::cout << layerName << " out rez: " << outWidth_ << "x" << outHeight_ << "\n";
+	std::cout << layerName << " out rez: " << outWidth_ << "x" << outHeight_ << " padding: " << padW << "x" << padH << "\n";
 }
 ConvLayer::~ConvLayer(){
 	cudaFree(outData_);

@@ -13,7 +13,7 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	train_ = train;
 	cudnnCreateTensorDescriptor(&inDesc_);
 	cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1);
-	constexpr auto outC = 1024;
+	constexpr auto outC = 2048;
 	//buttonLayers_.push_back(new LSTMLayer(cudnn_, seqLength_, 1, outC, batchSize_, inputSize, "Buts_LSTM", train, weightDecay, gradAccumLength_));
 	//buttonLayers_.push_back(new ViewerLayer(batchSize_*seqLength_, 32, 32, 10, "Buts LSTM"));
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Buts_FC1", train, weightDecay, gradAccumLength_));
