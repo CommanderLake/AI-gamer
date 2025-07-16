@@ -981,3 +981,41 @@ extern "C" void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, c
 	dim3 gridDim((inC+blockDim.x-1)/blockDim.x, (H+blockDim.y-1)/blockDim.y, (W+blockDim.z-1)/blockDim.z);
 	FeatureMapMosaicKernel<<<gridDim, blockDim, 0, stream>>>(dInput, dOutput, H, W, inC, mosaicW, tileW, tileH, gridW);
 }
+#include <mma.h>
+__global__ void WmmaAttentionKernel(const half* __restrict__ Q, const half* __restrict__ K, const half* __restrict__ V, half* __restrict__ Out, int B, int T, int D, int H){
+	const int head = blockIdx.z;
+	const int b = blockIdx.y;
+	const int t = blockIdx.x*16 + threadIdx.y;
+	if(t>=T) return;
+	extern __shared__ half shared[];
+	half* tileQ = shared;
+	half* tileK = shared + D*16;
+	half* tileV = shared + 2*D*16;
+	const int hOffset = head*D;
+	const half* Qptr = Q + (b*T + t)*D + hOffset;
+	const half* Kptr = K + hOffset;
+	const half* Vptr = V + hOffset;
+	nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, half, nvcuda::wmma::row_major> fragA;
+	nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16, half, nvcuda::wmma::col_major> fragB;
+	nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, half> fragC;
+	fill_fragment(fragC, __float2half(0.f));
+	for(int d = 0; d<D; d += 16){
+		load_matrix_sync(fragA, Qptr+d, D);
+		load_matrix_sync(fragB, Kptr+d*T, T);
+		mma_sync(fragC, fragA, fragB, fragC);
+	}
+	half attention[16];
+	for(int i = 0; i<fragC.num_elements; i++){ attention[i] = fragC.x[i]; }
+	__syncthreads();
+	for(int i = 0; i<T; i += 16){
+		load_matrix_sync(fragB, Vptr + i*D, D);
+		mma_sync(fragC, fragA, fragB, fragC);
+	}
+	store_matrix_sync(Out + (b*T + t)*D + hOffset, fragC, D, nvcuda::wmma::mem_row_major);
+}
+extern "C" void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, int B, int T, int D, int H){
+	dim3 block(32, 16);
+	dim3 grid((T+15)/16, B, H);
+	size_t smem = 3*D*16*sizeof(__half);
+	WmmaAttentionKernel<<<grid, block, smem>>>(Q, K, V, Out, B, T, D, H);
+}

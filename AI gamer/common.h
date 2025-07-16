@@ -146,3 +146,4 @@ extern "C" void ComputeQueryKeyGrad(const __half* gradAttention, const __half* q
 extern "C" void SpatialSoftmaxHalf(const __half* inData, __half* outData, int N, int C, int H, int W);
 extern "C" void SpatialSoftmaxBackwardHalf(const __half* outData, const __half* gradIn, __half* gradOut, int N, int C, int H, int W);
 extern "C" void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, cudaStream_t stream = nullptr);
+extern "C" void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, int B, int T, int D, int H);

@@ -133,6 +133,7 @@
     <ClInclude Include="ThreadPool.h" />
     <ClInclude Include="Train.h" />
     <ClInclude Include="ViewerLayer.h" />
+    <ClInclude Include="WmmaAttentionLayer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Activate.cpp" />
@@ -162,6 +163,7 @@
     <ClCompile Include="ThreadPool.cpp" />
     <ClCompile Include="Train.cpp" />
     <ClCompile Include="ViewerLayer.cpp" />
+    <ClCompile Include="WmmaAttentionLayer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="CudaStuff.cu" />
