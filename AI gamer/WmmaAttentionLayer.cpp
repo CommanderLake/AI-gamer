@@ -12,6 +12,7 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 	CUDAMallocZero(&kWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&vWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&oWeights_, projSize*sizeof(__half));
+	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&workspace_, outNCHW_*sizeof(__half));
 	if(train_){
 		WeightInit(qWeights_, projSize, embedDim_);
@@ -37,6 +38,7 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	cudaFree(kWeights_);
 	cudaFree(vWeights_);
 	cudaFree(oWeights_);
+	cudaFree(outData_);
 	cudaFree(workspace_);
 	if(train_){
 		cudaFree(gradQ_);
@@ -70,7 +72,7 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
-	// not implemented for brevity
+	//TODO: implement backward pass
 	return gradOut_;
 }
 void WmmaAttentionLayer::UpdateParameters(float lr){
