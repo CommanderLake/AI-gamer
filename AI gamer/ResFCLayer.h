@@ -20,7 +20,6 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-	cudaStream_t cudaStream_;
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t inDesc_;
 	int batchSize_, inC_, hiddenC_, outC_;

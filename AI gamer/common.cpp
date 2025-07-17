@@ -1,5 +1,5 @@
 #include "common.h"
-#include <cuda_runtime_api.h>
+#include <cuda_fp16.h>
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -7,31 +7,17 @@
 #include <mkl_lapacke.h>
 #include <mkl_vsl.h>
 #include <sstream>
-const char* cublasGetErrorString(cublasStatus_t status){
-	switch(status){
-		case CUBLAS_STATUS_SUCCESS:
-			return "CUBLAS_STATUS_SUCCESS";
-		case CUBLAS_STATUS_NOT_INITIALIZED:
-			return "CUBLAS_STATUS_NOT_INITIALIZED";
-		case CUBLAS_STATUS_ALLOC_FAILED:
-			return "CUBLAS_STATUS_ALLOC_FAILED";
-		case CUBLAS_STATUS_INVALID_VALUE:
-			return "CUBLAS_STATUS_INVALID_VALUE";
-		case CUBLAS_STATUS_ARCH_MISMATCH:
-			return "CUBLAS_STATUS_ARCH_MISMATCH";
-		case CUBLAS_STATUS_MAPPING_ERROR:
-			return "CUBLAS_STATUS_MAPPING_ERROR";
-		case CUBLAS_STATUS_EXECUTION_FAILED:
-			return "CUBLAS_STATUS_EXECUTION_FAILED";
-		case CUBLAS_STATUS_INTERNAL_ERROR:
-			return "CUBLAS_STATUS_INTERNAL_ERROR";
-		case CUBLAS_STATUS_NOT_SUPPORTED:
-			return "CUBLAS_STATUS_NOT_SUPPORTED";
-		case CUBLAS_STATUS_LICENSE_ERROR:
-			return "CUBLAS_STATUS_LICENSE_ERROR";
-		default:
-			return "Unknown cuBLAS error";
-	}
+#define checkCUDNN(status) { \
+    if (status != CUDNN_STATUS_SUCCESS) { \
+        std::cerr << "\ncuDNN error: " << cudnnGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("cuDNN error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudnnGetErrorString(status)); \
+    } \
+}
+#define checkCUDA(status) { \
+    if (status != cudaSuccess) { \
+        std::cerr << "\nCUDA error: " << cudaGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(status)); \
+    } \
 }
 unsigned char keyMap[] = {
 	0x11, // W
@@ -49,44 +35,6 @@ unsigned char keyMap[] = {
 	0x0C, // Mouse button 2
 	0x0D  // Mouse button 3
 };
-int ConvertSmVer2Cores(int major, int minor){
-	// Defines for GPU Architecture types (using the SM version to determine the # of cores per SM
-	typedef struct{
-		int SM; // 0xMm (hexadecimal notation), M = SM Major version and m = SM minor version
-		int Cores;
-	} sSMtoCores;
-	const sSMtoCores nGpuArchCoresPerSM[] = {
-		{0x10, 8}, // Tesla Generation (SM 1.0) G80 class
-		{0x11, 8}, // Tesla Generation (SM 1.1) G8x class
-		{0x12, 8}, // Tesla Generation (SM 1.2) G9x class
-		{0x13, 8}, // Tesla Generation (SM 1.3) GT200 class
-		{0x20, 32}, // Fermi Generation (SM 2.0) GF100 class
-		{0x21, 48}, // Fermi Generation (SM 2.1) GF10x class
-		{0x30, 192}, // Kepler Generation (SM 3.0) GK10x class
-		{0x35, 192}, // Kepler Generation (SM 3.5) GK11x class
-		{0x50, 128}, // Maxwell Generation (SM 5.0) GM10x class
-		{0x52, 128}, // Maxwell Generation (SM 5.2) GM20x class
-		{0x60, 64}, // Pascal Generation (SM 6.0) GP100 class
-		{0x61, 128}, // Pascal Generation (SM 6.1) GP10x class
-		{0x70, 64}, // Volta Generation (SM 7.0) GV100 class
-		{0x72, 64}, // Volta Generation (SM 7.2) GV10B class
-		{0x75, 64}, // Turing Generation (SM 7.5) TU10x class
-		{0x80, 64}, // Ampere Generation (SM 8.0) GA100 class
-		{0x86, 128}, // Ampere Generation (SM 8.6) GA10x class
-		{0x87, 128}, // Ampere Generation (SM 8.7) GA10x class
-		{0x89, 128}, // Ada Lovelace Generation (SM 8.9) AD10x class
-	};
-	int index = 0;
-	while(nGpuArchCoresPerSM[index].SM != -1){
-		if(nGpuArchCoresPerSM[index].SM == (major << 4) + minor){
-			return nGpuArchCoresPerSM[index].Cores;
-		}
-		index++;
-	}
-	// If we don't find the values, we default to the last known architecture to run properly
-	printf("MapSMtoCores for SM %d.%d is undefined. Default to use %d Cores/SM\n", major, minor, nGpuArchCoresPerSM[index - 1].Cores);
-	return nGpuArchCoresPerSM[index - 1].Cores;
-}
 void HalfToFloatAsm(float* dst, __half* src, int count){
 	__asm {
 		mov rsi, src

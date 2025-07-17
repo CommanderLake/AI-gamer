@@ -1,4 +1,5 @@
 #include "NN.h"
+#include "CuCommon.cuh"
 #include "ConvLayer.h"
 #include "BatchNorm.h"
 #include "Activate.h"

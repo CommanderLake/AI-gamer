@@ -1,4 +1,5 @@
 #include "Viewer.h"
+#include "CuCommon.cuh"
 #include <sstream>
 #include <iostream>
 #include <fstream>

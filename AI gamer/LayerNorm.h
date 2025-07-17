@@ -1,6 +1,5 @@
 #pragma once
 #include "Layer.h"
-#include <cudnn.h>
 class LayerNorm final : public Layer{
 public:
 	LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, float weightDecay);

@@ -1,5 +1,5 @@
 #include "SwishLayer.h"
-#include "common.h"
+#include "CuCommon.cuh"
 SwishLayer::SwishLayer(const int batchSize, const int channels, const int height, const int width, const char* layerName): batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;
 	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;

@@ -1,5 +1,6 @@
 #include "FCLayer.h"
 #include "common.h"
+#include "CuCommon.cuh"
 #include <iostream>
 FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
@@ -12,7 +13,7 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	if(train_){
-		WeightInit(weights_, weightCount_, inC_, outC_, Orthogonal);
+		OrthogonalInit(weights_, inC_, outC_);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&gradOut_, batchSize_*inC_*sizeof(__half));
 		if(useAdamW_){

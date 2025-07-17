@@ -1,5 +1,5 @@
 #include "SigmoidLayer.h"
-#include "common.h"
+#include "CuCommon.cuh"
 SigmoidLayer::SigmoidLayer(const int batchSize, const int numCtrls, const int numButs, const char* layerName) : batchSize_(batchSize), numCtrls_(numCtrls), numButs_(numButs){
 	layerName_ = layerName;
 	outNCHW_ = batchSize_*numCtrls_;

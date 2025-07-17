@@ -1,4 +1,5 @@
 #include "ViewerLayer.h"
+#include "CuCommon.cuh"
 ViewerLayer::ViewerLayer(const int channels, const int height, const int width, const int gridWidth, const char* windowTitle, bool backwardPass, __half* displayData) : displayData_(displayData), backwardPass_(backwardPass), inC_(channels), inH_(height),
 	inW_(width), gridW_(gridWidth){
 	viewer_ = new Viewer();

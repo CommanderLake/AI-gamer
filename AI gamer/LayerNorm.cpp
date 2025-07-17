@@ -1,5 +1,6 @@
 #include "LayerNorm.h"
 #include "common.h"
+#include "CuCommon.cuh"
 #include <vector>
 LayerNorm::LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, float weightDecay) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;

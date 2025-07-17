@@ -1,5 +1,6 @@
 #include "Dropout.h"
 #include "common.h"
+#include "CuCommon.cuh"
 Dropout::Dropout(cudnnHandle_t cudnnHandle, float dropoutRate, int batchSize, int channels, int height, int width, const char* layerName, bool train) : cudnnHandle_(cudnnHandle), dropoutRate_(dropoutRate), batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;
 	train_ = train;

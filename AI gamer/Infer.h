@@ -4,6 +4,7 @@
 #include "Train.h"
 #include <windows.h>
 #include <atomic>
+struct cublasContext;
 class NN;
 class Infer{
 public:

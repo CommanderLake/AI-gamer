@@ -1,5 +1,6 @@
 #include "PoolLayer.h"
 #include "common.h"
+#include "CuCommon.cuh"
 PoolLayer::PoolLayer(const cudnnHandle_t cudnnHandle, const cudnnPoolingMode_t mode, const int batchSize, const int channels, int* height, int* width, const int poolSize, const int stride, const char* layerName, const bool train):
 	cudnnHandle_(cudnnHandle), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(channels){
 	layerName_ = layerName;

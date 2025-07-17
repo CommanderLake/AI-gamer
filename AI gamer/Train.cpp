@@ -1,5 +1,6 @@
 #include "Train.h"
 #include "NN.h"
+#include "CuCommon.cuh"
 #include <iostream>
 #include <string>
 Train::Train(){}

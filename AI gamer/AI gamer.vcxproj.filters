@@ -102,10 +102,7 @@
     <ClCompile Include="LayerNorm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TransformerEncoderLayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="SkipLayer.cpp">
+    <ClCompile Include="EncoderLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -200,14 +197,19 @@
     <ClInclude Include="LayerNorm.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TransformerEncoderLayer.h">
+    <ClInclude Include="EncoderLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SkipLayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
+    <ClInclude Include="CuCommon.cuh" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="CudaStuff.cu" />
+    <CudaCompile Include="Activations.cu" />
+    <CudaCompile Include="Conversions.cu" />
+    <CudaCompile Include="Loss.cu" />
+    <CudaCompile Include="Optimizers.cu" />
+    <CudaCompile Include="WMMA.cu" />
+    <CudaCompile Include="LayerNorm.cu" />
+    <CudaCompile Include="CuCommon.cu" />
   </ItemGroup>
 </Project>

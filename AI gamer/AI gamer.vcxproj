@@ -110,6 +110,7 @@
     <ClInclude Include="common.h" />
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="ConvScale.h" />
+    <ClInclude Include="CuCommon.cuh" />
     <ClInclude Include="CustomOutLayer.h" />
     <ClInclude Include="GELULayer.h" />
     <ClInclude Include="LayerNorm.h" />
@@ -121,8 +122,7 @@
     <ClInclude Include="LSTMLayer.h" />
     <ClInclude Include="NN.h" />
     <ClInclude Include="ResFCLayer.h" />
-    <ClInclude Include="SkipLayer.h" />
-    <ClInclude Include="TransformerEncoderLayer.h" />
+    <ClInclude Include="EncoderLayer.h" />
     <ClInclude Include="TransposeLayer.h" />
     <ClInclude Include="SwishLayer.h" />
     <ClInclude Include="Viewer.h" />
@@ -156,8 +156,7 @@
     <ClCompile Include="LSTMLayer.cpp" />
     <ClCompile Include="NN.cpp" />
     <ClCompile Include="ResFCLayer.cpp" />
-    <ClCompile Include="SkipLayer.cpp" />
-    <ClCompile Include="TransformerEncoderLayer.cpp" />
+    <ClCompile Include="EncoderLayer.cpp" />
     <ClCompile Include="TransposeLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />
     <ClCompile Include="Viewer.cpp" />
@@ -172,7 +171,14 @@
     <ClCompile Include="WmmaAttentionLayer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <CudaCompile Include="Activations.cu" />
+    <CudaCompile Include="Conversions.cu" />
+    <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="CudaStuff.cu" />
+    <CudaCompile Include="LayerNorm.cu" />
+    <CudaCompile Include="Loss.cu" />
+    <CudaCompile Include="Optimizers.cu" />
+    <CudaCompile Include="WMMA.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,6 +1,6 @@
 #include "WmmaAttentionLayer.h"
 #include "common.h"
-#include <iostream>
+#include "CuCommon.cuh"
 WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay) : cudnnHandle_(cudnnHandle),
 	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), weightDecay_(weightDecay){
 	layerName_ = layerName;
@@ -15,10 +15,10 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&workspace_, (4*outNCHW_ + batchSize_*tokens_*tokens_*numHeads_)*sizeof(__half));
 	if(train_){
-		WeightInit(qWeights_, projSize, embedDim_, embedDim_, Orthogonal);
-		WeightInit(kWeights_, projSize, embedDim_, embedDim_, Orthogonal);
-		WeightInit(vWeights_, projSize, embedDim_, embedDim_, Orthogonal);
-		WeightInit(oWeights_, projSize, embedDim_, embedDim_, Orthogonal);
+		OrthogonalInit(qWeights_, embedDim_, embedDim_);
+		OrthogonalInit(kWeights_, embedDim_, embedDim_);
+		OrthogonalInit(vWeights_, embedDim_, embedDim_);
+		OrthogonalInit(oWeights_, embedDim_, embedDim_);
 		CUDAMallocZero(&gradQ_, projSize*sizeof(__half));
 		CUDAMallocZero(&gradK_, projSize*sizeof(__half));
 		CUDAMallocZero(&gradV_, projSize*sizeof(__half));

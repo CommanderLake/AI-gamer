@@ -1,5 +1,6 @@
 #include "LSTMLayer.h"
 #include "common.h"
+#include "CuCommon.cuh"
 #include <iostream>
 LSTMLayer::LSTMLayer(const cudnnHandle_t cudnnHandle, const int seqLength, const int numLayers, const int hiddenSize, const int batchSize, const int inC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
 	cudnnHandle_(cudnnHandle), batchSize_(batchSize), seqLength_(seqLength), hiddenSize_(hiddenSize), inC_(inC), numLayers_(numLayers), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
@@ -44,7 +45,7 @@ LSTMLayer::LSTMLayer(const cudnnHandle_t cudnnHandle, const int seqLength, const
 	checkCUDNN(cudnnGetRNNTrainingReserveSize(cudnnHandle_, rnnDesc_, seqLength_, xDescs_, &reserveSpaceSize_));
 	CUDAMallocZero(&reserveSpace_, reserveSpaceSize_);
 	if(train_){
-		WeightInit(weights_, 4*numLayers_*inC_*hiddenSize_, 4*numLayers_*inC_, hiddenSize_, Orthogonal);
+		OrthogonalInit(weights_, 4*numLayers_*inC_, hiddenSize_);
 		CUDAMallocZero(&dGrads_, weightSpaceSize_);
 		CUDAMallocZero(&gradWeights_, weightSpaceSize_);
 		CUDAMallocZero(&dx_, seqLength_*batchSize_*inC_*sizeof(__half));

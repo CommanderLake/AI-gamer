@@ -1,6 +1,7 @@
 #include "ResConvLayer.h"
 #include "Activate.h"
 #include "common.h"
+#include "CuCommon.cuh"
 #include "BatchNorm.h"
 #include "ConvLayer.h"
 ResConvLayer::ResConvLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inC, const int outC, int *inHeight, int *inWidth, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength):

@@ -1,5 +1,6 @@
 #include "ConvScale.h"
 #include "common.h"
+#include "CuCommon.cuh"
 ConvScale::ConvScale(const cudnnHandle_t cudnnHandle, const int filterSize, const int stride, const int padding, const int batchSize, const int channels, int* height, int* width) :
 cudnnHandle_(cudnnHandle), dFilter_(nullptr), dWorkspace_(nullptr), batchSize_(batchSize), inC_(channels), inWidth_(*width), inHeight_(*height), stride_(stride), filterSize_(filterSize), padding_(padding){
 	inNCHW_ = batchSize_*inC_*inHeight_*inWidth_;

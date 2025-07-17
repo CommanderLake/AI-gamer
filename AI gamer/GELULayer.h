@@ -1,9 +1,9 @@
 #pragma once
 #include "Layer.h"
-class GELU final : public Layer{
+class GELULayer final : public Layer{
 public:
-	GELU(int batchSize, int channels, int height, int width, const char* layerName);
-	~GELU() override;
+	GELULayer(int batchSize, int channels, int height, int width, const char* layerName);
+	~GELULayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void SetTrain(bool enable) override;

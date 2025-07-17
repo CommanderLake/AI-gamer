@@ -1,4 +1,5 @@
 #include "ConvLayer.h"
+#include "CuCommon.cuh"
 #include <iostream>
 ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int* height, int* width, const char* layerName, bool train, float weightDecay, int gradAccumLength) : cudnnHandle_(cudnnHandle),
 	inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){

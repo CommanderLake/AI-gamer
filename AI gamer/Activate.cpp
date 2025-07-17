@@ -1,5 +1,6 @@
 #include "Activate.h"
 #include "common.h"
+#include "CuCommon.cuh"
 Activate::Activate(cudnnHandle_t cudnnHandle, cudnnActivationMode_t mode, double coef, int batchSize, int channels, int height, int width, const char* layerName): cudnnHandle_(cudnnHandle), batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;
 	outNCHW_ = batchSize*channels*height*width;

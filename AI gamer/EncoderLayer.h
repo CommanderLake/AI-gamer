@@ -1,12 +1,10 @@
 #pragma once
 #include "Layer.h"
-#include <cudnn.h>
-#include <cublas_v2.h>
 #include <vector>
-class TransformerEncoderLayer final : public Layer{
+class EncoderLayer final : public Layer{
 public:
-	TransformerEncoderLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, const char* layerName, bool train, float weightDecay, int gradAccumLength);
-	~TransformerEncoderLayer() override;
+	EncoderLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	~EncoderLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
