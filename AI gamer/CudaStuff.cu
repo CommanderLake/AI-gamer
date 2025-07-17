@@ -1137,7 +1137,7 @@ __global__ void WmmaAttentionBackwardKernel(const __half* __restrict__ Q, const 
 	float* dAtt_shared = att_shared + 16 * ((T + 3) & ~3); // Pad for alignment
 	float* rowsum_shared = dAtt_shared + 16 * ((T + 3) & ~3);
 	__half* workspace_half = reinterpret_cast<__half*>(rowsum_shared + 16);
-	float* workspace_float = reinterpret_cast<float*>(workspace_half + 512); // Separate float workspace
+	float* workspace_float = reinterpret_cast<float*>(workspace_half + 512);
 	// WMMA fragments
 	fragment<matrix_a, 16, 16, 16, __half, row_major> a_frag;
 	fragment<matrix_b, 16, 16, 16, __half, col_major> b_frag;

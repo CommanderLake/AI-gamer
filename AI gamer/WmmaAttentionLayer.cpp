@@ -15,10 +15,10 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&workspace_, (4*outNCHW_ + batchSize_*tokens_*tokens_*numHeads_)*sizeof(__half));
 	if(train_){
-		WeightInit(qWeights_, projSize, embedDim_, embedDim_, Xavier);
-		WeightInit(kWeights_, projSize, embedDim_, embedDim_, Xavier);
-		WeightInit(vWeights_, projSize, embedDim_, embedDim_, Xavier);
-		WeightInit(oWeights_, projSize, embedDim_, embedDim_, Xavier);
+		WeightInit(qWeights_, projSize, embedDim_, embedDim_, Orthogonal);
+		WeightInit(kWeights_, projSize, embedDim_, embedDim_, Orthogonal);
+		WeightInit(vWeights_, projSize, embedDim_, embedDim_, Orthogonal);
+		WeightInit(oWeights_, projSize, embedDim_, embedDim_, Orthogonal);
 		CUDAMallocZero(&gradQ_, projSize*sizeof(__half));
 		CUDAMallocZero(&gradK_, projSize*sizeof(__half));
 		CUDAMallocZero(&gradV_, projSize*sizeof(__half));

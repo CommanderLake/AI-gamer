@@ -112,6 +112,7 @@
     <ClInclude Include="ConvScale.h" />
     <ClInclude Include="CustomOutLayer.h" />
     <ClInclude Include="GELULayer.h" />
+    <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="MHALayer.h" />
     <ClInclude Include="PoolLayer.h" />
     <ClInclude Include="ResConvLayer.h" />
@@ -143,6 +144,7 @@
     <ClCompile Include="ConvScale.cpp" />
     <ClCompile Include="CustomOutLayer.cpp" />
     <ClCompile Include="GELULayer.cpp" />
+    <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="MHALayer.cpp" />
     <ClCompile Include="NvDisplayCap.cpp" />
     <ClCompile Include="PoolLayer.cpp" />

@@ -1,12 +1,13 @@
 #include "LayerNorm.h"
 #include "common.h"
 #include <vector>
-LayerNorm::LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, float weightDecay) : batchSize_(batchSize), outC_(channels), outHW_(height*width), inData_(nullptr), weightDecay_(weightDecay){
+LayerNorm::LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, float weightDecay) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), inData_(nullptr), weightDecay_(weightDecay){
 	layerName_ = layerName;
-	outCHW_ = outC_*outHW_;
-	outNCHW_ = batchSize_*outCHW_;
-	const auto paramSizeBytes = outC_*sizeof(float);
-	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
+	outNCHW_ = batchSize_*outC_*outHW_;
+	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height, width));
+	const auto paramSizeBytes = outC_ * sizeof(float);
+	CUDAMallocZero(&outData_, outNCHW_ * sizeof(__half));
 	CUDAMallocZero(&gamma_, paramSizeBytes);
 	CUDAMallocZero(&beta_, paramSizeBytes);
 	CUDAMallocZero(&gradGamma_, paramSizeBytes);
@@ -32,6 +33,7 @@ LayerNorm::~LayerNorm(){
 	cudaFree(vGamma_);
 	cudaFree(mBeta_);
 	cudaFree(vBeta_);
+	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 }
 __half* LayerNorm::Forward(__half* data){
 	inData_ = data;
@@ -84,4 +86,15 @@ size_t LayerNorm::GetParameterSize(){
 }
 size_t LayerNorm::GetOptimizerStateSize(){
 	return outC_*sizeof(float);
+}
+void LayerNorm::SetTrain(const bool enable){
+	if(enable){
+		train_ = true;
+		batchSize_ = ogbs_;
+	} else{
+		train_ = false;
+		batchSize_ = 1;
+	}
+	outNCHW_ = batchSize_*outC_;
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 }
