@@ -11,8 +11,8 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	cudnnCreateTensorDescriptor(&inDesc_);
-	cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1);
+	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1));
 	constexpr auto outC = 1024;
 	//buttonLayers_.push_back(new LSTMLayer(cudnn_, seqLength_, 1, outC, batchSize_, inputSize, "Buts_LSTM", train, weightDecay, gradAccumLength_));
 	//buttonLayers_.push_back(new ViewerLayer(batchSize_*seqLength_, 32, 32, 10, "Buts LSTM"));
