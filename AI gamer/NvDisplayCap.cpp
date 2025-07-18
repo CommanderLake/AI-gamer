@@ -1,13 +1,9 @@
 #include "NvDisplayCap.h"
 #include "NvFBCLibrary.h"
 #include <cuda.h>
-#include <driver_types.h>
-#include <cuda_runtime.h>
 #include <iostream>
 #include <NvFBC\nvFBC.h>
 #include <NvFBC\nvFBCCuda.h>
-extern "C" cudaError ARGBtoRGB(unsigned char* src, unsigned char* dst, int n);
-extern "C" cudaError ARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n);
 namespace{
 	NvFBCLibrary* nvfbc = nullptr;
 	NvFBCCuda* nvfbcCuda = nullptr;

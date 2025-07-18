@@ -1,6 +1,8 @@
 #pragma once
+#ifdef __NVCC__
 #ifndef __CUDACC__
 #define __CUDACC__
+#endif
 #endif
 #include <cuda.h>
 #include <curand.h>
@@ -77,7 +79,6 @@ void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dT
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, cudaStream_t stream = nullptr);
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, float* AttentionWeights, int B, int T, int D, int H);
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const float* AttentionWeights, __half* dQ, __half* dK, __half* dV, int B, int T, int D, int H);
-inline const char* cublasGetErrorString(cublasStatus_t status);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
 void GetLaunchConfig(int n, int& blocks, int& tpb);

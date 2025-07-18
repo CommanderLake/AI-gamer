@@ -80,21 +80,17 @@ bool IsnanHalf(const __half* __restrict__ data, int size){
 	return hResult != 0;
 }
 __global__ void FeatureMapMosaicKernel(const __half* __restrict__ input, unsigned char* __restrict__ output, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW){
-	const int c = blockIdx.x*blockDim.x + threadIdx.x; // Channel index
-	const int y = blockIdx.y*blockDim.y + threadIdx.y; // Y-coordinate in feature map
-	const int x = blockIdx.z*blockDim.z + threadIdx.z; // X-coordinate in feature map
+	const int c = blockIdx.x*blockDim.x + threadIdx.x;   
+	const int y = blockIdx.y*blockDim.y + threadIdx.y;     
+	const int x = blockIdx.z*blockDim.z + threadIdx.z;     
 	if(c >= inC || y >= H || x >= W) return;
-	// Calculate tile position using provided grid dimensions
 	const int tileX = c % gridW;
 	const int tileY = c / gridW;
-	// Compute destination position in the mosaic
 	const int outX = tileX*tileW + x;
 	const int outY = tileY*tileH + y;
-	// Convert FP16 to 8-bit unsigned char
 	const __half value = input[c*H*W + y*W + x];
 	const float fVal = __half2float(value);
 	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*255.0f)));
-	// Store to output
 	output[outY*mosaicW + outX] = pixel;
 }
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW, cudaStream_t stream){

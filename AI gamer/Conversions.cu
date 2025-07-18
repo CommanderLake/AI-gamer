@@ -7,11 +7,10 @@ __global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, int n){
 		dst[i].B = src[i].B;
 	}
 }
-cudaError ARGBtoRGB(unsigned char* src, unsigned char* dst, int n){
+void ARGBtoRGB(unsigned char* src, unsigned char* dst, int n){
 	int blocks, tpb = 256;
 	GetLaunchConfig(n, blocks, tpb);
 	cuARGBtoRGB<<<blocks, tpb>>>(reinterpret_cast<pixARGB*>(src), reinterpret_cast<pixRGB*>(dst), n);
-	return cudaGetLastError();
 }
 __global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, int n){
 	const auto stride = blockDim.x*gridDim.x;
@@ -22,11 +21,10 @@ __global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, 
 		dst[i + 2*n] = src[srcIdx];
 	}
 }
-cudaError ARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
+void ARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
 	int blocks, tpb = 256;
 	GetLaunchConfig(n, blocks, tpb);
 	cuARGBtoRGBplanar<<<blocks, tpb>>>(src, dst, n);
-	return cudaGetLastError();
 }
 __global__ void ConvertByteToHalfNormKernel(const unsigned char* input, __half* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
