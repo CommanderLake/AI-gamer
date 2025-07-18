@@ -26,7 +26,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.00001f;
-	auto outC = 512;
+	auto outC = 768;
 	//layers_.push_back(new ViewerLayer(seqLength_*3, netHeight, netWidth, 6, "input viewer"));
 	//layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 5, 2, &netHeight, &netWidth, "Conv0A", train, wd, gradAccumLength_));
 	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0A_BatchNorm", train, wd, gradAccumLength_));

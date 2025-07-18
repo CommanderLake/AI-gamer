@@ -38,7 +38,7 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 		const size_t elems = static_cast<size_t>(d[0])*d[1]*d[2];
 		const int fanIn = d[2];
 		const int fanOut = d[0]*d[1];
-		WeightInit(static_cast<__half*>(addr), static_cast<int>(elems), fanIn, fanOut, Xavier);
+		WeightInit(static_cast<__half*>(addr), static_cast<int>(elems), fanIn, Xavier);
 	};
 	initWeight(CUDNN_MH_ATTN_Q_WEIGHTS);
 	initWeight(CUDNN_MH_ATTN_K_WEIGHTS);

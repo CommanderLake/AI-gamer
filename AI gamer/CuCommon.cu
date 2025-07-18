@@ -1,4 +1,6 @@
 #include "CuCommon.cuh"
+
+#include <ctime>
 curandGenerator_t generator_;
 int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 const char* cublasGetErrorString(cublasStatus_t status){
@@ -104,7 +106,7 @@ void InitCUDA(){
 	curandCreateGenerator(&generator_, CURAND_RNG_PSEUDO_DEFAULT);
 	curandSetPseudoRandomGeneratorSeed(generator_, static_cast<unsigned long long>(time(nullptr)));
 }
-void WeightInit(__half* weightHalf, const int numWeights, const int fanIn, const int fanOut, const WeightInitMethod method){
+void WeightInit(__half* weightHalf, const int numWeights, const int fanIn, const WeightInitMethod method){
 	float* weightFloat;
 	checkCUDA(cudaMalloc(&weightFloat, numWeights*sizeof(float)));
 	const float factor = method == Xavier ? 1.0f : 2.0f;

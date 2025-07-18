@@ -25,7 +25,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	if(train_){
-		WeightInit(weights_, weightCount_, fanIn, outC_, He);
+		WeightInit(weights_, weightCount_, fanIn, He);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, inNCHW_*sizeof(__half));
 		if(useAdamW_){
