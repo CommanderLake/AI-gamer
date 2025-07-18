@@ -24,7 +24,7 @@ public:
 	int batchSize_, timeSize_, vectorSize_;
 	int numHeads_;
 	__half *inData_, *outData_;
-	__half *gradWeights_, *gradKeys_, *gradValues_, *gradOut_;
+	__half *gradWeights_, *gradKeys_, *gradValues_, *outGrad_;
 	size_t workspaceSize_;
 	void* workspace_;
 	size_t reserveSpaceSize_;

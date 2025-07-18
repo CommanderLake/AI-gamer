@@ -15,7 +15,7 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	if(train_){
 		OrthogonalInit(weights_, inC_, outC_);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
-		CUDAMallocZero(&gradOut_, batchSize_*inC_*sizeof(__half));
+		CUDAMallocZero(&outGrad_, batchSize_*inC_*sizeof(__half));
 		if(useAdamW_){
 			CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
 			CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
@@ -27,7 +27,7 @@ FCLayer::~FCLayer(){
 	cudaFree(outData_);
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 	if(train_){
-		cudaFree(gradOut_);
+		cudaFree(outGrad_);
 		cudaFree(gradWeights_);
 		if(useAdamW_){
 			cudaFree(m_Weights_);
@@ -43,8 +43,8 @@ __half* FCLayer::Forward(__half* data){
 __half* FCLayer::Backward(__half* grad){
 	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, outC_, inC_, batchSize_, &alphaWeights_, grad, CUDA_R_16F, outC_, inData_, CUDA_R_16F, inC_, betaWeights, gradWeights_, CUDA_R_16F, outC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, inC_, batchSize_, outC_, &alpha_, weights_, CUDA_R_16F, outC_, grad, CUDA_R_16F, outC_, &beta0_, gradOut_, CUDA_R_16F, inC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	return gradOut_;
+	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, inC_, batchSize_, outC_, &alpha_, weights_, CUDA_R_16F, outC_, grad, CUDA_R_16F, outC_, &beta0_, outGrad_, CUDA_R_16F, inC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	return outGrad_;
 }
 void FCLayer::UpdateParameters(const float learningRate){
 	if(accumCount_%gradAccumLength_>0) return;

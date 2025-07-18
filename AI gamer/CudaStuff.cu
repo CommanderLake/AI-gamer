@@ -108,3 +108,55 @@ void GetPrediction(const __half* predBatch, float* prediction, const int numCtrl
 	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize*numCtrls);
 	cudaDeviceSynchronize();
 }
+__global__ void ExtractPatchesKernel(const __half* __restrict__ input, __half* __restrict__ output,
+	int B, int C, int H, int W, int P, int PH, int PW){
+	const int patchDim = C*P*P;
+	const int total = B*PH*PW*patchDim;
+	int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx >= total) return;
+	int patch = idx / patchDim;
+	int elem = idx % patchDim;
+	int b = patch / (PH*PW);
+	int p = patch % (PH*PW);
+	int pyPatch = p / PW;
+	int pxPatch = p % PW;
+	int c = elem / (P*P);
+	int rem = elem % (P*P);
+	int py = rem / P;
+	int px = rem % P;
+	int srcIdx = ((b*C + c)*H + pyPatch*P + py)*W + pxPatch*P + px;
+	output[idx] = input[srcIdx];
+}
+void ExtractPatches(const __half* input, __half* output, int B, int C, int H, int W, int P, int PH, int PW){
+	const int patchDim = C*P*P;
+	const int total = B*PH*PW*patchDim;
+	int blocks, tpb = 256;
+	GetLaunchConfig(total, blocks, tpb);
+	ExtractPatchesKernel<<<blocks, tpb>>>(input, output, B, C, H, W, P, PH, PW);
+}
+__global__ void CombinePatchGradsKernel(__half* __restrict__ gradInput, const __half* __restrict__ gradPatches,
+	int B, int C, int H, int W, int P, int PH, int PW){
+	const int patchDim = C*P*P;
+	const int total = B*PH*PW*patchDim;
+	int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx >= total) return;
+	int patch = idx / patchDim;
+	int elem = idx % patchDim;
+	int b = patch / (PH*PW);
+	int p = patch % (PH*PW);
+	int pyPatch = p / PW;
+	int pxPatch = p % PW;
+	int c = elem / (P*P);
+	int rem = elem % (P*P);
+	int py = rem / P;
+	int px = rem % P;
+	int dstIdx = ((b*C + c)*H + pyPatch*P + py)*W + pxPatch*P + px;
+	gradInput[dstIdx] = gradPatches[idx];
+}
+void CombinePatchGrads(__half* gradInput, const __half* gradPatches, int B, int C, int H, int W, int P, int PH, int PW){
+	const int patchDim = C*P*P;
+	const int total = B*PH*PW*patchDim;
+	int blocks, tpb = 256;
+	GetLaunchConfig(total, blocks, tpb);
+	CombinePatchGradsKernel<<<blocks, tpb>>>(gradInput, gradPatches, B, C, H, W, P, PH, PW);
+}

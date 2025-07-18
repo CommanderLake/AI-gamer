@@ -115,6 +115,7 @@
     <ClInclude Include="GELULayer.h" />
     <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="MHALayer.h" />
+    <ClInclude Include="PatchEmbedLayer.h" />
     <ClInclude Include="PoolLayer.h" />
     <ClInclude Include="ResConvLayer.h" />
     <ClInclude Include="Dropout.h" />
@@ -149,6 +150,7 @@
     <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="MHALayer.cpp" />
     <ClCompile Include="NvDisplayCap.cpp" />
+    <ClCompile Include="PatchEmbedLayer.cpp" />
     <ClCompile Include="PoolLayer.cpp" />
     <ClCompile Include="ResConvLayer.cpp" />
     <ClCompile Include="Dropout.cpp" />

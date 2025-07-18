@@ -32,8 +32,9 @@ __half* EncoderLayer::Forward(__half* data){
 	const __half* residual1 = data;
 	for(size_t i = 0; i < 2; ++i){ data = layers_[i]->Forward(data); }
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual1, &alpha_, tensorDesc_, data));
+	data = layers_[2]->Forward(data);
 	const __half* residual2 = data;
-	for(size_t i = 2; i < layers_.size(); ++i){ data = layers_[i]->Forward(data); }
+	for(size_t i = 3; i < layers_.size(); ++i){ data = layers_[i]->Forward(data); }
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual2, &alpha_, tensorDesc_, data));
 	return data;
 }

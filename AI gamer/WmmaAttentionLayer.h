@@ -26,7 +26,7 @@ private:
 	int headDim_;
 	__half* outData_ = nullptr;
 	__half *qWeights_, *kWeights_, *vWeights_, *oWeights_;
-	__half *gradQ_, *gradK_, *gradV_, *gradOut_;
+	__half *gradQ_, *gradK_, *gradV_, *outGrad_;
 	__half *m_Q_, *v_Q_, *m_K_, *v_K_, *m_V_, *v_V_, *m_O_, *v_O_;
 	__half *dQ, *dK, *dV;
 	__half* workspace_;

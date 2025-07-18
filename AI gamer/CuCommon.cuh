@@ -79,6 +79,8 @@ void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dT
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, cudaStream_t stream = nullptr);
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, float* AttentionWeights, int B, int T, int D, int H);
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const float* AttentionWeights, __half* dQ, __half* dK, __half* dV, int B, int T, int D, int H);
+void ExtractPatches(const __half* input, __half* output, int B, int C, int H, int W, int P, int PH, int PW);
+void CombinePatchGrads(__half* gradInput, const __half* gradPatches, int B, int C, int H, int W, int P, int PH, int PW);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
 void GetLaunchConfig(int n, int& blocks, int& tpb);

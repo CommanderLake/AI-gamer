@@ -51,7 +51,7 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 		CUDAMallocZero(&gradWeights_, weightSize_);
 		CUDAMallocZero(&gradKeys_, dataSize*sizeof(__half));
 		CUDAMallocZero(&gradValues_, dataSize*sizeof(__half));
-		CUDAMallocZero(&gradOut_, dataSize*sizeof(__half));
+		CUDAMallocZero(&outGrad_, dataSize*sizeof(__half));
 		if(useAdamW_){
 			CUDAMallocZero(&m_Weights_, weightSize_);
 			CUDAMallocZero(&v_Weights_, weightSize_);
@@ -77,7 +77,7 @@ MultiHeadAttentionLayer::~MultiHeadAttentionLayer(){
 		cudaFree(gradWeights_);
 		cudaFree(gradKeys_);
 		cudaFree(gradValues_);
-		cudaFree(gradOut_);
+		cudaFree(outGrad_);
 		if(useAdamW_){
 			cudaFree(m_Weights_);
 			cudaFree(v_Weights_);
@@ -96,11 +96,11 @@ __half* MultiHeadAttentionLayer::Forward(__half* data){
 }
 __half* MultiHeadAttentionLayer::Backward(__half* grad){
 	checkCUDNN(cudnnMultiHeadAttnBackwardData(cudnnHandle_, attnDesc_,
-		(*loWinIdx).data(), (*hiWinIdx).data(), d_SeqLengths, d_SeqLengths, outDesc_, grad, qkvDesc_, gradOut_, inData_, qkvDesc_, gradKeys_, inData_, qkvDesc_, gradValues_, inData_, weightSize_, weights_, workspaceSize_, workspace_,
+		(*loWinIdx).data(), (*hiWinIdx).data(), d_SeqLengths, d_SeqLengths, outDesc_, grad, qkvDesc_, outGrad_, inData_, qkvDesc_, gradKeys_, inData_, qkvDesc_, gradValues_, inData_, weightSize_, weights_, workspaceSize_, workspace_,
 		reserveSpaceSize_, reserveSpace_));
 	checkCUDNN(cudnnMultiHeadAttnBackwardWeights(cudnnHandle_, attnDesc_,
 		CUDNN_WGRAD_MODE_SET, qkvDesc_, inData_, qkvDesc_, inData_, qkvDesc_, inData_, outDesc_, grad, weightSize_, weights_, gradWeights_, workspaceSize_, workspace_, reserveSpaceSize_, reserveSpace_));
-	return gradOut_;
+	return outGrad_;
 }
 void MultiHeadAttentionLayer::UpdateParameters(float learningRate){
 	if(useAdamW_){

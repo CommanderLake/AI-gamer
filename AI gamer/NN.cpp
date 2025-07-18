@@ -1,12 +1,10 @@
 #include "NN.h"
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
-#include "BatchNorm.h"
-#include "Activate.h"
 #include "CustomOutLayer.h"
-#include "PoolLayer.h"
+#include "EncoderLayer.h"
+#include "PatchEmbedLayer.h"
 #include "ViewerLayer.h"
-#include "WmmaAttentionLayer.h"
 NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
@@ -50,11 +48,8 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv3A_BatchNorm", train, wd, gradAccumLength_));
 	//layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv3A_ReLU"));
 	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv3A viewer"));
-	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 16, 16, &netHeight, &netWidth, "PatchTokenizer", train, wd, gradAccumLength_));
-	const int numTokens = netHeight*netWidth;
-	layers_.push_back(new WmmaAttentionLayer(cudnn_, cublas_, batchSize_, numTokens, outC, 4, "WmmaAttention", train, wd));
-	layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchStateTotal_, outC, netHeight, netWidth, "WmmaAttention_BatchNorm", train, wd, gradAccumLength_));
-	layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "WmmaAttention_ReLU"));
+	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, 16, outC, "PatchEmbed", train, wd, gradAccumLength_));
+	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, outC, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, outC*netHeight*netWidth, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
