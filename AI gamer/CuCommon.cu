@@ -1,4 +1,6 @@
 #include "CuCommon.cuh"
+curandGenerator_t generator_;
+int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 const char* cublasGetErrorString(cublasStatus_t status){
 	switch(status){
 		case CUBLAS_STATUS_SUCCESS:
@@ -68,6 +70,7 @@ void GetLaunchConfig(int n, int& blocks, int& tpb){
 	if(tpb == 0) tpb = BS;
 	blocks = min(DivCeil(n, tpb*8), GS);
 }
+static bool inited = false;
 void InitCUDA(){
 	if(inited) return;
 	const CUresult cudaRes = cuInit(0);

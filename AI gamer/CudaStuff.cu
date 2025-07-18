@@ -4,12 +4,12 @@
 void BlockShiftHalf(__half* hPtr, const int shiftBy, const int blocksToShift){
 	auto blockSize = shiftBy;
 	if(blockSize < 0) blockSize = -blockSize;
-	if(shiftBy > 0){ for(int i = blocksToShift; 0 < i; --i){ cudaMemcpy(hPtr + i*blockSize, hPtr + (i - 1)*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice); } } else{
-		for(int i = 0; i < blocksToShift; ++i){ cudaMemcpy(hPtr + (i - 1)*blockSize, hPtr + i*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice); }
+	if(shiftBy > 0){ for(int i = blocksToShift; 0 < i; --i){ cudaMemcpy(hPtr + i * blockSize, hPtr + (i - 1) * blockSize, blockSize * sizeof(__half), cudaMemcpyDeviceToDevice); } } else{
+		for(int i = 0; i < blocksToShift; ++i){ cudaMemcpy(hPtr + (i - 1) * blockSize, hPtr + i * blockSize, blockSize * sizeof(__half), cudaMemcpyDeviceToDevice); }
 	}
 }
 __global__ void GradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < size){ grads[idx] = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx] - targets[idx])))); }
 }
 void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const float clip, const int size){
@@ -17,16 +17,16 @@ void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTarg
 	GradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size);
 }
 __global__ void SplitGradKernel(__half* gradients, const __half* predictions, const float* targets, const float clip, const int numCtrls, const int numButs, const int batchSize, const int size){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < size){
 		const int batchId = idx / numCtrls;
 		const int ctrlId = idx % numCtrls;
 		const auto diff = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx]) - targets[idx])));
 		if(ctrlId < numButs){
-			const auto gradIdx = batchId*numButs + ctrlId;
+			const auto gradIdx = batchId * numButs + ctrlId;
 			gradients[gradIdx] = diff;
 		} else{
-			const auto gradIdx = numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs);
+			const auto gradIdx = numButs * batchSize + batchId * (numCtrls - numButs) + (ctrlId - numButs);
 			gradients[gradIdx] = diff;
 		}
 	}
@@ -36,11 +36,11 @@ void SplitGradient(__half* dGradient, const __half* dPredictions, const float* d
 	SplitGradKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
 }
 __global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < size){
 		const int batchId = idx / numCtrls;
 		const int ctrlId = idx % numCtrls;
-		if(ctrlId < numButs){ predOut[idx] = buttonData[batchId*numButs + ctrlId]; } else{ predOut[idx] = axisData[batchId*(numCtrls - numButs) + (ctrlId - numButs)]; }
+		if(ctrlId < numButs){ predOut[idx] = buttonData[batchId * numButs + ctrlId]; } else{ predOut[idx] = axisData[batchId * (numCtrls - numButs) + (ctrlId - numButs)]; }
 	}
 }
 void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, const int numCtrls, const int numButs, const int size){
@@ -48,17 +48,17 @@ void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisD
 	MergeOutputsKernel<<<gridSize, BS>>>(predOut, buttonData, axisData, size, numCtrls, numButs);
 }
 __global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const float scale){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < size){
 		const float y = __half2float(targets[idx]);
 		const float pClamped = fminf(fmaxf(__half2float(predictions[idx]), EPSILON_F), 1.0f - EPSILON_F);
 		float gradient = 0.0f;
 		if(y == 1.0f){
 			gradient = (pClamped - 1.0f) / pClamped;
-			gradients[idx] = __float2half(gradient*scale);
+			gradients[idx] = __float2half(gradient * scale);
 		} else{
 			gradient = pClamped / (1.0f - pClamped);
-			gradients[idx] = __float2half(gradient*scale);
+			gradients[idx] = __float2half(gradient * scale);
 		}
 	}
 }
@@ -68,7 +68,7 @@ void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dT
 }
 __device__ int deviceResult;
 __global__ void isNaNKernel(const __half* __restrict__ data, int size){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < size && __hisnan(data[idx])){ atomicExch(&deviceResult, 1); }
 }
 bool IsnanHalf(const __half* __restrict__ data, int size){
@@ -80,18 +80,18 @@ bool IsnanHalf(const __half* __restrict__ data, int size){
 	return hResult != 0;
 }
 __global__ void FeatureMapMosaicKernel(const __half* __restrict__ input, unsigned char* __restrict__ output, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW){
-	const int c = blockIdx.x*blockDim.x + threadIdx.x;   
-	const int y = blockIdx.y*blockDim.y + threadIdx.y;     
-	const int x = blockIdx.z*blockDim.z + threadIdx.z;     
+	const int c = blockIdx.x * blockDim.x + threadIdx.x;
+	const int y = blockIdx.y * blockDim.y + threadIdx.y;
+	const int x = blockIdx.z * blockDim.z + threadIdx.z;
 	if(c >= inC || y >= H || x >= W) return;
 	const int tileX = c % gridW;
 	const int tileY = c / gridW;
-	const int outX = tileX*tileW + x;
-	const int outY = tileY*tileH + y;
-	const __half value = input[c*H*W + y*W + x];
+	const int outX = tileX * tileW + x;
+	const int outY = tileY * tileH + y;
+	const __half value = input[c * H * W + y * W + x];
 	const float fVal = __half2float(value);
-	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*255.0f)));
-	output[outY*mosaicW + outX] = pixel;
+	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal * 255.0f)));
+	output[outY * mosaicW + outX] = pixel;
 }
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW, cudaStream_t stream){
 	dim3 blockDim(8, 8, 8);
@@ -99,64 +99,77 @@ void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, const int H,
 	FeatureMapMosaicKernel<<<gridDim, blockDim, 0, stream>>>(dInput, dOutput, H, W, inC, mosaicW, tileW, tileH, gridW);
 }
 __global__ void GetPredictionKernel(const __half* predBatch, float* prediction, const int numCtrls, const int size){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx < numCtrls){ prediction[idx] = __half2float(predBatch[idx + size - numCtrls]); }
 }
 void GetPrediction(const __half* predBatch, float* prediction, const int numCtrls, const int batchSize){
 	float* devPtr = nullptr;
 	cudaHostGetDevicePointer(&devPtr, prediction, 0);
-	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize*numCtrls);
+	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize * numCtrls);
 	cudaDeviceSynchronize();
 }
-__global__ void ExtractPatchesKernel(const __half* __restrict__ input, __half* __restrict__ output,
-	int B, int C, int H, int W, int P, int PH, int PW){
-	const int patchDim = C*P*P;
-	const int total = B*PH*PW*patchDim;
-	int idx = blockIdx.x*blockDim.x + threadIdx.x;
+__global__ void ExtractPatchesKernel(const __half2* __restrict__ in, __half2* __restrict__ out, int B, int C2, int H, int W, int P, int PH, int PW){
+	const long patchDim = static_cast<long>(C2) * P * P;
+	const long total = static_cast<long>(B) * PH * PW * patchDim;
+	long idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx >= total) return;
-	int patch = idx / patchDim;
+	long patch = idx / patchDim;
 	int elem = idx % patchDim;
-	int b = patch / (PH*PW);
-	int p = patch % (PH*PW);
+	int b = patch / (PH * PW);
+	int p = patch % (PH * PW);
 	int pyPatch = p / PW;
 	int pxPatch = p % PW;
-	int c = elem / (P*P);
-	int rem = elem % (P*P);
+	int c2 = elem / (P * P);
+	int rem = elem % (P * P);
 	int py = rem / P;
 	int px = rem % P;
-	int srcIdx = ((b*C + c)*H + pyPatch*P + py)*W + pxPatch*P + px;
-	output[idx] = input[srcIdx];
+	int y = pyPatch * P + py;
+	int x = pxPatch * P + px;
+	__half2 v = __float2half2_rn(0.f);
+	if(y < H && x < W){
+		long src = ((static_cast<long>(b) * C2 + c2) * H + y) * W + x;
+		v = in[src];
+	}
+	out[idx] = v;
 }
-void ExtractPatches(const __half* input, __half* output, int B, int C, int H, int W, int P, int PH, int PW){
-	const int patchDim = C*P*P;
-	const int total = B*PH*PW*patchDim;
-	int blocks, tpb = 256;
-	GetLaunchConfig(total, blocks, tpb);
-	ExtractPatchesKernel<<<blocks, tpb>>>(input, output, B, C, H, W, P, PH, PW);
+void ExtractPatches(const __half* input, __half* output, int B, int C, int H, int W, int P){
+	if(C & 1) return;
+	const int C2 = C >> 1;
+	const int PH = (H + P - 1) / P;
+	const int PW = (W + P - 1) / P;
+	const long patchDim = static_cast<long>(C2) * P * P;
+	const long total = static_cast<long>(B) * PH * PW * patchDim;
+	int tpb = 256, blocks = (total + tpb - 1) / tpb;
+	ExtractPatchesKernel<<<blocks, tpb>>>(reinterpret_cast<const __half2*>(input), reinterpret_cast<__half2*>(output), B, C2, H, W, P, PH, PW);
 }
-__global__ void CombinePatchGradsKernel(__half* __restrict__ gradInput, const __half* __restrict__ gradPatches,
-	int B, int C, int H, int W, int P, int PH, int PW){
-	const int patchDim = C*P*P;
-	const int total = B*PH*PW*patchDim;
-	int idx = blockIdx.x*blockDim.x + threadIdx.x;
+__global__ void CombinePatchGradsKernel(__half2* __restrict__ gradIn, const __half2* __restrict__ gradPatch, int B, int C2, int H, int W, int P, int PH, int PW){
+	const long patchDim = static_cast<long>(C2) * P * P;
+	const long total = static_cast<long>(B) * PH * PW * patchDim;
+	long idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx >= total) return;
-	int patch = idx / patchDim;
+	long patch = idx / patchDim;
 	int elem = idx % patchDim;
-	int b = patch / (PH*PW);
-	int p = patch % (PH*PW);
+	int b = patch / (PH * PW);
+	int p = patch % (PH * PW);
 	int pyPatch = p / PW;
 	int pxPatch = p % PW;
-	int c = elem / (P*P);
-	int rem = elem % (P*P);
+	int c2 = elem / (P * P);
+	int rem = elem % (P * P);
 	int py = rem / P;
 	int px = rem % P;
-	int dstIdx = ((b*C + c)*H + pyPatch*P + py)*W + pxPatch*P + px;
-	gradInput[dstIdx] = gradPatches[idx];
+	int y = pyPatch * P + py;
+	int x = pxPatch * P + px;
+	if(y >= H || x >= W) return;
+	long dst = ((static_cast<long>(b) * C2 + c2) * H + y) * W + x;
+	gradIn[dst] = gradPatch[idx];
 }
-void CombinePatchGrads(__half* gradInput, const __half* gradPatches, int B, int C, int H, int W, int P, int PH, int PW){
-	const int patchDim = C*P*P;
-	const int total = B*PH*PW*patchDim;
-	int blocks, tpb = 256;
-	GetLaunchConfig(total, blocks, tpb);
-	CombinePatchGradsKernel<<<blocks, tpb>>>(gradInput, gradPatches, B, C, H, W, P, PH, PW);
+void CombinePatchGrads(__half* gradInput, const __half* gradPatches, int B, int C, int H, int W, int P){
+	if(C & 1) return;
+	const int C2 = C >> 1;
+	const int PH = (H + P - 1) / P;
+	const int PW = (W + P - 1) / P;
+	const long patchDim = static_cast<long>(C2) * P * P;
+	const long total = static_cast<long>(B) * PH * PW * patchDim;
+	int tpb = 256, blocks = (total + tpb - 1) / tpb;
+	CombinePatchGradsKernel<<<blocks, tpb>>>(reinterpret_cast<__half2*>(gradInput), reinterpret_cast<const __half2*>(gradPatches), B, C2, H, W, P, PH, PW);
 }

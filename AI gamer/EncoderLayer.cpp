@@ -6,21 +6,21 @@
 #include "FCLayer.h"
 #include "GELULayer.h"
 #include <algorithm>
-EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
-	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), gradAccumLength_(gradAccumLength){
+EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, const char* layerName, const bool train,
+							const float weightDecay, const int gradAccumLength) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	outNCHW_ = batchSize_*tokens_*embedDim_;
+	outNCHW_ = batchSize_ * tokens_ * embedDim_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&tensorDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(tensorDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*tokens_, embedDim_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*tokens_, embedDim_, 1, 1));
-	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm1", weightDecay));
+	layers_.push_back(new LayerNorm(batchSize_ * tokens_, embedDim_, 1, 1, "Norm1", weightDecay));
 	layers_.push_back(new WmmaAttentionLayer(cudnnHandle_, cublasHandle_, batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay));
-	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm2", weightDecay));
-	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_*tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_));
-	layers_.push_back(new GELULayer(batchSize_*tokens_, ffDim_, 1, 1, "GELU"));
-	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_*tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_));
+	layers_.push_back(new LayerNorm(batchSize_ * tokens_, embedDim_, 1, 1, "Norm2", weightDecay));
+	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_ * tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_));
+	layers_.push_back(new GELULayer(batchSize_ * tokens_, ffDim_, 1, 1, "GELU"));
+	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_ * tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_));
 }
 EncoderLayer::~EncoderLayer(){
 	for(const auto layer : layers_){ delete layer; }
@@ -40,8 +40,9 @@ __half* EncoderLayer::Forward(__half* data){
 }
 __half* EncoderLayer::Backward(__half* grad){
 	const __half* gradAdd2 = grad;
-	for(int i = static_cast<int>(layers_.size()); --i >= 2;){ grad = layers_[i]->Backward(grad); }
+	for(int i = layers_.size(); --i > 2;){ grad = layers_[i]->Backward(grad); }
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, gradAdd2, &alpha_, tensorDesc_, grad));
+	grad = layers_[2]->Backward(grad);
 	const __half* gradAdd1 = grad;
 	for(int i = 2; --i >= 0;){ grad = layers_[i]->Backward(grad); }
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, gradAdd1, &alpha_, tensorDesc_, grad));
