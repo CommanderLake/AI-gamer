@@ -69,7 +69,7 @@ int ConvertSmVer2Cores(int major, int minor){
 }
 int DivCeil(const int a, const int b){ return a%b != 0 ? a/b + 1 : a/b; }
 void GetLaunchConfig(int n, int& blocks, int& tpb){
-	if(tpb == 0) tpb = BS;
+	if(tpb <= 0 || tpb > 1024) tpb = BS;
 	blocks = min(DivCeil(n, tpb*8), GS);
 }
 static bool inited = false;

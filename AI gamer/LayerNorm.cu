@@ -91,6 +91,7 @@ void LayerNormForward(__half* y, const __half* x, const float* g, const float* b
 	const int warpsPerBlock = (tpb + 31) / 32;
 	int sm = 3*warpsPerBlock*sizeof(float);
 	ComputeMeanVarianceKernel<<<N, tpb, sm>>>(x, mean, var, N, C, HW);
+	cudaDeviceSynchronize();
 	auto e = cudaGetLastError();
 	if(e) printf("LayerNorm Forward error (mean/var): %s\n", cudaGetErrorString(e));
 	// Apply normalization
@@ -98,6 +99,7 @@ void LayerNormForward(__half* y, const __half* x, const float* g, const float* b
 	GetLaunchConfig(N*C*HW, grids, tpb);
 	sm = 2*C*sizeof(float);
 	LayerNormForwardKernel<<<grids, tpb, sm>>>(y, x, g, b, mean, var, N, C, HW);
+	cudaDeviceSynchronize();
 	e = cudaGetLastError();
 	if(e) printf("LayerNorm Forward error (norm): %s\n", cudaGetErrorString(e));
 }

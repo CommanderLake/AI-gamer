@@ -181,14 +181,17 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 	const size_t total = static_cast<size_t>(B) * PH * PW * C * P * P;
 	// Try vectorized version if total is even
 	if(total % 2 == 0){
-		int blocks, tpb;
+		int blocks = 0, tpb = 0;
 		GetLaunchConfig(total / 2, blocks, tpb);
 		ExtractPatchesKernelVec2<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	} else{
-		int blocks, tpb;
+		int blocks = 0, tpb = 0;
 		GetLaunchConfig(total, blocks, tpb);
 		ExtractPatchesKernel<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	}
+	cudaDeviceSynchronize();
+	const auto e = cudaGetLastError();
+	if(e) printf("ExtractPatches error: %s\n", cudaGetErrorString(e));
 }
 // Optimized backward pass - accumulate gradients properly
 __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* __restrict__ dx, int B, int C, int H, int W, int P){
@@ -224,7 +227,9 @@ void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W,
 	const int PH = (H + P - 1) / P;
 	const int PW = (W + P - 1) / P;
 	const size_t total = static_cast<size_t>(B) * PH * PW * C * P * P;
-	int blocks, tpb;
+	int blocks = 0, tpb = 0;
 	GetLaunchConfig(total, blocks, tpb);
 	CombinePatchGradsKernel<<<blocks, tpb>>>(dy, dx, B, C, H, W, P);
+	const auto e = cudaGetLastError();
+	if(e) printf("CombinePatchGrads error: %s\n", cudaGetErrorString(e));
 }
