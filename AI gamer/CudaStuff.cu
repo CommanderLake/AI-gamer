@@ -108,68 +108,70 @@ void GetPrediction(const __half* predBatch, float* prediction, const int numCtrl
 	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize * numCtrls);
 	cudaDeviceSynchronize();
 }
-__global__ void ExtractPatchesKernel(const __half2* __restrict__ in, __half2* __restrict__ out, int B, int C2, int H, int W, int P, int PH, int PW){
-	const long patchDim = static_cast<long>(C2) * P * P;
+__global__ void ExtractPatchesKernel(const __half* __restrict__ x, __half* __restrict__ y, int B, int C, int H, int W, int P, bool zeroPad){
+	const int kPatchArea = P * P;
+	const int PH = (H + P - 1) / P;
+	const int PW = (W + P - 1) / P;
+	const long patchDim = static_cast<long>(C) * kPatchArea;
 	const long total = static_cast<long>(B) * PH * PW * patchDim;
 	long idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx >= total) return;
 	long patch = idx / patchDim;
-	int elem = idx % patchDim;
+	int inPatch = idx - patch * patchDim;
 	int b = patch / (PH * PW);
-	int p = patch % (PH * PW);
-	int pyPatch = p / PW;
-	int pxPatch = p % PW;
-	int c2 = elem / (P * P);
-	int rem = elem % (P * P);
+	int pp = patch - b * (PH * PW);
+	int pyPatch = pp / PW;
+	int pxPatch = pp - pyPatch * PW;
+	int c = inPatch / kPatchArea;
+	int rem = inPatch - c * kPatchArea;
 	int py = rem / P;
-	int px = rem % P;
-	int y = pyPatch * P + py;
-	int x = pxPatch * P + px;
-	__half2 v = __float2half2_rn(0.f);
-	if(y < H && x < W){
-		long src = ((static_cast<long>(b) * C2 + c2) * H + y) * W + x;
-		v = in[src];
-	}
-	out[idx] = v;
+	int px = rem - py * P;
+	int srcY = pyPatch * P + py;
+	int srcX = pxPatch * P + px;
+	__half val = __float2half(0.f);
+	if(srcY < H && srcX < W){
+		long srcIdx = (((static_cast<long>(b) * C + c) * H + srcY) * W) + srcX;
+		val = x[srcIdx];
+	} else if(!zeroPad){ return; }
+	y[idx] = val;
 }
-void ExtractPatches(const __half* input, __half* output, int B, int C, int H, int W, int P){
-	if(C & 1) return;
-	const int C2 = C >> 1;
+void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P, bool zeroPad){
 	const int PH = (H + P - 1) / P;
 	const int PW = (W + P - 1) / P;
-	const long patchDim = static_cast<long>(C2) * P * P;
-	const long total = static_cast<long>(B) * PH * PW * patchDim;
-	int tpb = 256, blocks = (total + tpb - 1) / tpb;
-	ExtractPatchesKernel<<<blocks, tpb>>>(reinterpret_cast<const __half2*>(input), reinterpret_cast<__half2*>(output), B, C2, H, W, P, PH, PW);
+	const size_t total = static_cast<size_t>(B) * PH * PW * C * P * P;
+	int blocks, tpb;
+	GetLaunchConfig(total, blocks, tpb);
+	ExtractPatchesKernel<<<blocks, tpb>>>(in, out, B, C, H, W, P, zeroPad);
 }
-__global__ void CombinePatchGradsKernel(__half2* __restrict__ gradIn, const __half2* __restrict__ gradPatch, int B, int C2, int H, int W, int P, int PH, int PW){
-	const long patchDim = static_cast<long>(C2) * P * P;
+__global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* __restrict__ dx, int B, int C, int H, int W, int P){
+	const int kPatchArea = P * P;
+	const int PH = (H + P - 1) / P;
+	const int PW = (W + P - 1) / P;
+	const long patchDim = static_cast<long>(C) * kPatchArea;
 	const long total = static_cast<long>(B) * PH * PW * patchDim;
 	long idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx >= total) return;
 	long patch = idx / patchDim;
-	int elem = idx % patchDim;
+	int inPatch = idx - patch * patchDim;
 	int b = patch / (PH * PW);
-	int p = patch % (PH * PW);
-	int pyPatch = p / PW;
-	int pxPatch = p % PW;
-	int c2 = elem / (P * P);
-	int rem = elem % (P * P);
+	int pp = patch - b * (PH * PW);
+	int pyPatch = pp / PW;
+	int pxPatch = pp - pyPatch * PW;
+	int c = inPatch / kPatchArea;
+	int rem = inPatch - c * kPatchArea;
 	int py = rem / P;
-	int px = rem % P;
-	int y = pyPatch * P + py;
-	int x = pxPatch * P + px;
-	if(y >= H || x >= W) return;
-	long dst = ((static_cast<long>(b) * C2 + c2) * H + y) * W + x;
-	gradIn[dst] = gradPatch[idx];
+	int px = rem - py * P;
+	int dstY = pyPatch * P + py;
+	int dstX = pxPatch * P + px;
+	if(dstY >= H || dstX >= W) return;   
+	long dstIdx = (((static_cast<long>(b) * C + c) * H + dstY) * W) + dstX;
+	dx[dstIdx] = dy[idx];
 }
-void CombinePatchGrads(__half* gradInput, const __half* gradPatches, int B, int C, int H, int W, int P){
-	if(C & 1) return;
-	const int C2 = C >> 1;
+void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P){
 	const int PH = (H + P - 1) / P;
 	const int PW = (W + P - 1) / P;
-	const long patchDim = static_cast<long>(C2) * P * P;
-	const long total = static_cast<long>(B) * PH * PW * patchDim;
-	int tpb = 256, blocks = (total + tpb - 1) / tpb;
-	CombinePatchGradsKernel<<<blocks, tpb>>>(reinterpret_cast<__half2*>(gradInput), reinterpret_cast<const __half2*>(gradPatches), B, C2, H, W, P, PH, PW);
+	const size_t total = static_cast<size_t>(B)*PH*PW*C*P*P;
+	int blocks, tpb;
+	GetLaunchConfig(total, blocks, tpb);
+	CombinePatchGradsKernel<<<blocks, tpb>>>(dy, dx, B, C, H, W, P);
 }
