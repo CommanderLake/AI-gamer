@@ -12,13 +12,14 @@ LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, 
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&gamma_, paramSizeBytes);
 	CUDAMallocZero(&beta_, paramSizeBytes);
-	CUDAMallocZero(&mean_, paramSizeBytes);
-	CUDAMallocZero(&variance_, paramSizeBytes);
+	CUDAMallocZero(&mean_, batchSize_*sizeof(float));
+	CUDAMallocZero(&variance_, batchSize_*sizeof(float));
 	const std::vector<float> gammaInit(outC_, 1.0f);
 	checkCUDA(cudaMemcpy(gamma_, gammaInit.data(), paramSizeBytes, cudaMemcpyHostToDevice));
 	if(train){
 		workspaceSize_ = 2*batchSize_*sizeof(float);
 		CUDAMallocZero(&workspace_, workspaceSize_);
+		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&gradGamma_, paramSizeBytes);
 		CUDAMallocZero(&gradBeta_, paramSizeBytes);
 		CUDAMallocZero(&mGamma_, paramSizeBytes);
@@ -34,6 +35,7 @@ LayerNorm::~LayerNorm(){
 	cudaFree(mean_);
 	cudaFree(variance_);
 	if(train_){
+		cudaFree(outGrad_);
 		cudaFree(workspace_);
 		cudaFree(gradGamma_);
 		cudaFree(gradBeta_);
