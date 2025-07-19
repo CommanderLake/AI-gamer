@@ -48,7 +48,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv3A_BatchNorm", train, wd, gradAccumLength_));
 	//layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv3A_ReLU"));
 	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv3A viewer"));
-	constexpr auto patchSize = 16;
+	constexpr auto patchSize = 40;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_));
 	auto numPatches = (netHeight/patchSize)*(netWidth/patchSize);
 	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, numPatches, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
@@ -84,7 +84,7 @@ __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
 		std::cout << "\n" << layer->layerName_ << " ";
 		data = layer->Forward(data);
-		PrintDataHalfDevice(data, 32, "data");
+		PrintDataHalfDevice(data, 16, "data");
 	}
 	return data;
 }

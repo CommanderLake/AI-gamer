@@ -41,7 +41,7 @@ PatchEmbedLayer::~PatchEmbedLayer(){
 }
 __half* PatchEmbedLayer::Forward(__half* data){
 	inData_ = data;
-	ExtractPatches(data, patchBuffer_, batchSize_, inC_, inH_, inW_, patchSize_, false);
+	ExtractPatches(data, patchBuffer_, batchSize_, inC_, inH_, inW_, patchSize_);
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, batchSize_*numPatches_, patchDim_, &alpha_, weights_, CUDA_R_16F, embedDim_, patchBuffer_, CUDA_R_16F, patchDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outData_;
 }

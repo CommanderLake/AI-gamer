@@ -2,38 +2,46 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <vector>
-LayerNorm::LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, float weightDecay) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), inData_(nullptr), weightDecay_(weightDecay){
+LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train, const float weightDecay) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), weightDecay_(weightDecay){
 	layerName_ = layerName;
+	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHW_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height, width));
-	const auto paramSizeBytes = outC_ * sizeof(float);
-	CUDAMallocZero(&outData_, outNCHW_ * sizeof(__half));
+	const auto paramSizeBytes = outC_*sizeof(float);
+	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&gamma_, paramSizeBytes);
 	CUDAMallocZero(&beta_, paramSizeBytes);
-	CUDAMallocZero(&gradGamma_, paramSizeBytes);
-	CUDAMallocZero(&gradBeta_, paramSizeBytes);
 	CUDAMallocZero(&mean_, paramSizeBytes);
 	CUDAMallocZero(&variance_, paramSizeBytes);
-	CUDAMallocZero(&mGamma_, paramSizeBytes);
-	CUDAMallocZero(&vGamma_, paramSizeBytes);
-	CUDAMallocZero(&mBeta_, paramSizeBytes);
-	CUDAMallocZero(&vBeta_, paramSizeBytes);
 	const std::vector<float> gammaInit(outC_, 1.0f);
 	checkCUDA(cudaMemcpy(gamma_, gammaInit.data(), paramSizeBytes, cudaMemcpyHostToDevice));
+	if(train){
+		workspaceSize_ = 2*batchSize_*sizeof(float);
+		CUDAMallocZero(&workspace_, workspaceSize_);
+		CUDAMallocZero(&gradGamma_, paramSizeBytes);
+		CUDAMallocZero(&gradBeta_, paramSizeBytes);
+		CUDAMallocZero(&mGamma_, paramSizeBytes);
+		CUDAMallocZero(&vGamma_, paramSizeBytes);
+		CUDAMallocZero(&mBeta_, paramSizeBytes);
+		CUDAMallocZero(&vBeta_, paramSizeBytes);
+	}
 }
 LayerNorm::~LayerNorm(){
 	cudaFree(outData_);
 	cudaFree(gamma_);
 	cudaFree(beta_);
-	cudaFree(gradGamma_);
-	cudaFree(gradBeta_);
 	cudaFree(mean_);
 	cudaFree(variance_);
-	cudaFree(mGamma_);
-	cudaFree(vGamma_);
-	cudaFree(mBeta_);
-	cudaFree(vBeta_);
+	if(train_){
+		cudaFree(workspace_);
+		cudaFree(gradGamma_);
+		cudaFree(gradBeta_);
+		cudaFree(mGamma_);
+		cudaFree(vGamma_);
+		cudaFree(mBeta_);
+		cudaFree(vBeta_);
+	}
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 }
 __half* LayerNorm::Forward(__half* data){
@@ -42,8 +50,8 @@ __half* LayerNorm::Forward(__half* data){
 	return outData_;
 }
 __half* LayerNorm::Backward(__half* grad){
-	LayerNormBackward(grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, batchSize_, outC_, outHW_);
-	return grad;
+	LayerNormBackward(outGrad_, grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, workspace_, workspaceSize_, batchSize_, outC_, outHW_);
+	return outGrad_;
 }
 void LayerNorm::UpdateParameters(float learningRate){
 	AdamWFloat(gamma_, gradGamma_, mGamma_, vGamma_, learningRate, t_, weightDecay_, outC_);
@@ -90,10 +98,8 @@ size_t LayerNorm::GetOptimizerStateSize(){
 }
 void LayerNorm::SetTrain(const bool enable){
 	if(enable){
-		train_ = true;
 		batchSize_ = ogbs_;
 	} else{
-		train_ = false;
 		batchSize_ = 1;
 	}
 	outNCHW_ = batchSize_*outC_;
