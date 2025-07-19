@@ -82,18 +82,18 @@ NN::~NN(){
 }
 __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
-		//std::cout << "\n" << layer->layerName_ << " ";
+		std::cout << "\n" << layer->layerName_ << " ";
 		data = layer->Forward(data);
-		//PrintDataHalfDevice(data, 16, "data");
+		PrintDataHalfDevice(data, 16, "data");
 	}
 	return data;
 }
 __half* NN::Backward(__half* grad){
 	auto outGrad = grad;
 	for(int i = layers_.size(); --i >= 0; ){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		outGrad = layers_[i]->Backward(outGrad);
-		//PrintDataHalfDevice(outGrad, 16, "gradient");
+		PrintDataHalfDevice(outGrad, 16, "gradient");
 	}
 	return outGrad;
 }

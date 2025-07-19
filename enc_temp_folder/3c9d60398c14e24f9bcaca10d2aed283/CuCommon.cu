@@ -1,4 +1,5 @@
 #include "CuCommon.cuh"
+
 #include <ctime>
 curandGenerator_t generator_;
 int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
