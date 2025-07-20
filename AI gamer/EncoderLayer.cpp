@@ -30,19 +30,19 @@ EncoderLayer::~EncoderLayer(){
 __half* EncoderLayer::Forward(__half* data){
 	const __half* residual1 = data;
 	for(size_t i = 0; i < 2; ++i){
-		std::cout << "\n" << layers_[i]->layerName_ << " ";
+		//std::cout << "\n" << layers_[i]->layerName_ << " ";
 		data = layers_[i]->Forward(data);
-		PrintDataHalfDevice(data, 16, "data");
+		//PrintDataHalfDevice(data, 16, "data");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual1, &alpha_, tensorDesc_, data));
-	std::cout << "\n" << layers_[2]->layerName_ << " ";
+	//std::cout << "\n" << layers_[2]->layerName_ << " ";
 	data = layers_[2]->Forward(data);
-	PrintDataHalfDevice(data, 16, "data");
+	//PrintDataHalfDevice(data, 16, "data");
 	const __half* residual2 = data;
 	for(size_t i = 3; i < layers_.size(); ++i){
-		std::cout << "\n" << layers_[i]->layerName_ << " ";
+		//std::cout << "\n" << layers_[i]->layerName_ << " ";
 		data = layers_[i]->Forward(data);
-		PrintDataHalfDevice(data, 16, "data");
+		//PrintDataHalfDevice(data, 16, "data");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual2, &alpha_, tensorDesc_, data));
 	return data;

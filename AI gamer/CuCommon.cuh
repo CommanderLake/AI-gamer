@@ -30,7 +30,7 @@ const char* cublasGetErrorString(cublasStatus_t status);
         throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(status)); \
     } \
 }
-#define EPSILON_F 1e-7f
+#define EPSILON_F 1e-5f
 extern curandGenerator_t generator_;
 extern int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 struct pixARGB{

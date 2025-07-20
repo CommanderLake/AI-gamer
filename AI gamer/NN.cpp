@@ -54,6 +54,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	const auto patchCols = DivCeil(netWidth, patchSize);
 	const auto numPatches = patchRows * patchCols;
 	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, numPatches, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
+	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, numPatches, outC, outC, 4, "Encoder1", train, wd, gradAccumLength_));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, outC*numPatches, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
@@ -84,18 +85,18 @@ NN::~NN(){
 }
 __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
-		std::cout << "\n" << layer->layerName_ << " ";
+		//std::cout << "\n" << layer->layerName_ << " ";
 		data = layer->Forward(data);
-		PrintDataHalfDevice(data, 16, "data");
+		//PrintDataHalfDevice(data, 16, "data");
 	}
 	return data;
 }
 __half* NN::Backward(__half* grad){
 	auto outGrad = grad;
 	for(int i = layers_.size(); --i >= 0; ){
-		std::cout << "\n" << layers_[i]->layerName_ << " ";
+		//std::cout << "\n" << layers_[i]->layerName_ << " ";
 		outGrad = layers_[i]->Backward(outGrad);
-		PrintDataHalfDevice(outGrad, 16, "gradient");
+		//PrintDataHalfDevice(outGrad, 16, "gradient");
 	}
 	return outGrad;
 }
