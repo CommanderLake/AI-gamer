@@ -50,7 +50,9 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv3A viewer"));
 	constexpr auto patchSize = 40;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_));
-	auto numPatches = (netHeight/patchSize)*(netWidth/patchSize);
+	const auto patchRows = DivCeil(netHeight, patchSize);
+	const auto patchCols = DivCeil(netWidth, patchSize);
+	const auto numPatches = patchRows * patchCols;
 	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, numPatches, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, outC*numPatches, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){

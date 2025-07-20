@@ -5,8 +5,8 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	patchRows_ = inH_/patchSize_;
-	patchCols_ = inW_/patchSize_;
+	patchRows_ = DivCeil(inH_, patchSize_);
+	patchCols_ = DivCeil(inW_, patchSize_);
 	patchDim_ = inC_*patchSize_*patchSize_;
 	numPatches_ = patchRows_*patchCols_;
 	outNCHW_ = batchSize_*embedDim_*numPatches_;
@@ -18,7 +18,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&patchBuffer_, batchSize_*numPatches_*patchDim_*sizeof(__half));
 	if(train_){
-		OrthogonalInit(weights_, embedDim_, patchDim_);
+		WeightInit(weights_, weightCount_, embedDim_, Xavier);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, batchSize_*inC_*inH_*inW_*sizeof(__half));
 		CUDAMallocZero(&gradPatchBuffer_, batchSize_*numPatches_*patchDim_*sizeof(__half));
@@ -48,6 +48,7 @@ __half* PatchEmbedLayer::Forward(__half* data){
 __half* PatchEmbedLayer::Backward(__half* grad){
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &beta0_ : &beta1_;
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, patchDim_, batchSize_*numPatches_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, patchBuffer_, CUDA_R_16F, patchDim_, betaWeights, gradWeights_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	SummarizeHalfDevice(grad, outNCHW_, "grad in");
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_T, CUBLAS_OP_N, patchDim_, batchSize_*numPatches_, embedDim_, &alpha_, weights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &beta0_, gradPatchBuffer_, CUDA_R_16F, patchDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	CombinePatchGrads(gradPatchBuffer_, outGrad_, batchSize_, inC_, inH_, inW_, patchSize_);
 	return outGrad_;

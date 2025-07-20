@@ -32,7 +32,7 @@ public:
 	__half* gradWeights_ = nullptr;
 	const __half* inData_ = nullptr;
 	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;
-	int t_ = 0;
+	int t_ = 1;
 	const float alpha_ = 1.0f;
 	float alphaWeights_ = 1.0f;
 	const float beta0_ = 0.0f;

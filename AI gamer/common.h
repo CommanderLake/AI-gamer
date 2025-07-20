@@ -78,3 +78,4 @@ void PrintDataHalfDevice(const __half* data, size_t size, const char* label);
 void PrintDataFloatDevice(const float* data, size_t size, const char* label);
 void PrintDataFloatHost(const float* data, size_t size, const char* label);
 void PrintDataCharHost(const unsigned char* data, size_t size, const char* label);
+void SummarizeHalfDevice(const __half* data, const size_t size, const char* label);

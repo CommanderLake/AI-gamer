@@ -265,6 +265,37 @@ void PrintDataCharHost(const unsigned char* data, const size_t size, const char*
 	output << "\n";
 	std::cout << output.str();
 }
+void SummarizeHalfDevice(const __half* data, const size_t size, const char* label){
+	if(printDataCount < size){
+		if(hData)
+			_mm_free(hData);
+		if(fData)
+			_mm_free(fData);
+		hData = static_cast<__half*>(_mm_malloc(size*sizeof(__half), 64));
+		fData = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
+		printDataCount = size;
+	}
+	checkCUDA(cudaMemcpy(hData, data, size*sizeof(__half), cudaMemcpyDeviceToHost));
+	HalfToFloatAsm(fData, hData, size);
+	float minVal = std::numeric_limits<float>::infinity();
+	float maxVal = -std::numeric_limits<float>::infinity();
+	bool hasNaN = false;
+	bool hasInf = false;
+	for(size_t i = 0; i < size; ++i){
+		const float v = fData[i];
+		if(std::isnan(v)){ hasNaN = true; continue; }
+		if(std::isinf(v)){ hasInf = true; continue; }
+		if(v < minVal) minVal = v;
+		if(v > maxVal) maxVal = v;
+	}
+	if(minVal == std::numeric_limits<float>::infinity()) minVal = 0.0f;
+	if(maxVal == -std::numeric_limits<float>::infinity()) maxVal = 0.0f;
+	std::ostringstream output;
+	output << label << " summary: min=" << minVal << " max=" << maxVal
+		<< " NaN=" << (hasNaN ? "true" : "false")
+		<< " Inf=" << (hasInf ? "true" : "false") << "\n";
+	std::cout << output.str();
+}
 void ClearScreen(char fill){
 	const COORD tl = {0, 0};
 	CONSOLE_SCREEN_BUFFER_INFO s;
