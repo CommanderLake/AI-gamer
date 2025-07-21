@@ -17,9 +17,9 @@ EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm1", train, weightDecay));
 	layers_.push_back(new WmmaAttentionLayer(cudnnHandle_, cublasHandle_, batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay));
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm2", train, weightDecay));
-	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_ * tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_));
+	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_*tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_));
 	layers_.push_back(new GELULayer(batchSize_*tokens_, ffDim_, 1, 1, "GELU"));
-	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_ * tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_));
+	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_*tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_));
 }
 EncoderLayer::~EncoderLayer(){
 	for(const auto layer : layers_){ delete layer; }
@@ -30,19 +30,19 @@ EncoderLayer::~EncoderLayer(){
 __half* EncoderLayer::Forward(__half* data){
 	const __half* residual1 = data;
 	for(size_t i = 0; i < 2; ++i){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		data = layers_[i]->Forward(data);
-		//PrintDataHalfDevice(data, 16, "data");
+		SummarizeHalfDevice(data, layers_[i]->outNCHW_, "data");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual1, &alpha_, tensorDesc_, data));
-	//std::cout << "\n" << layers_[2]->layerName_ << " ";
+	std::cout << "\n" << layers_[2]->layerName_ << " ";
 	data = layers_[2]->Forward(data);
-	//PrintDataHalfDevice(data, 16, "data");
+	SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
 	const __half* residual2 = data;
 	for(size_t i = 3; i < layers_.size(); ++i){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		data = layers_[i]->Forward(data);
-		//PrintDataHalfDevice(data, 16, "data");
+		SummarizeHalfDevice(data, layers_[i]->outNCHW_, "data");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual2, &alpha_, tensorDesc_, data));
 	return data;

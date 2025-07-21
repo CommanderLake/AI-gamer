@@ -3,6 +3,7 @@
 #include "ConvLayer.h"
 #include "CustomOutLayer.h"
 #include "EncoderLayer.h"
+#include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
 #include "ViewerLayer.h"
 NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(1){
@@ -50,12 +51,11 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv3A viewer"));
 	constexpr auto patchSize = 40;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_));
-	const auto patchRows = DivCeil(netHeight, patchSize);
-	const auto patchCols = DivCeil(netWidth, patchSize);
-	const auto numPatches = patchRows * patchCols;
-	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, numPatches, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
-	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, numPatches, outC, outC, 4, "Encoder1", train, wd, gradAccumLength_));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, outC*numPatches, "SplitOut", train, wd, gradAccumLength_));
+	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);
+	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
+	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 4, "Encoder1", train, wd, gradAccumLength_));
+	layers_.push_back(new LayerNorm(batchStateTotal_*numPatches, outC, 1, 1, "LayerNorm", train, wd));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, outC*numPatches, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = max(maxBufferSize_, layer->GetOptimizerStateSize());
@@ -85,22 +85,22 @@ NN::~NN(){
 }
 __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
-		//std::cout << "\n" << layer->layerName_ << " ";
+		std::cout << "\n" << layer->layerName_ << " ";
 		data = layer->Forward(data);
-		//PrintDataHalfDevice(data, 16, "data");
+		SummarizeHalfDevice(data, layer->outNCHW_, "data");
 	}
 	return data;
 }
 __half* NN::Backward(__half* grad){
 	auto outGrad = grad;
 	for(int i = layers_.size(); --i >= 0; ){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		outGrad = layers_[i]->Backward(outGrad);
-		//PrintDataHalfDevice(outGrad, 16, "gradient");
+		SummarizeHalfDevice(outGrad, layers_[i]->outNCHW_, "gradient");
 	}
 	return outGrad;
 }
-void NN::UpdateParams(float lr){
+void NN::UpdateParams(const float lr){
 	for(const auto layer : layers_){ layer->UpdateParameters(lr); }
 }
 void NN::SaveModel(const std::string& filename){

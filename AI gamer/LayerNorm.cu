@@ -261,20 +261,20 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	const int warpsPerBlock = (tpb + 31) / 32;
 	int sm = 2 * warpsPerBlock * sizeof(float);
 	GradGammaBetaKernel<<<C, tpb, sm>>>(dy, x, mean, var, dG, dB, N, C, HW);
-	cudaDeviceSynchronize(); // Add sync
+	cudaDeviceSynchronize();
 	auto e = cudaGetLastError();
 	if(e) printf("LayerNorm Backward error (gamma/beta): %s\n", cudaGetErrorString(e));
 	// Compute statistics d1 and d2
 	sm = 2 * warpsPerBlock * sizeof(float);
 	ComputeStatsKernel<<<N, tpb, sm>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
-	cudaDeviceSynchronize(); // Add sync
+	cudaDeviceSynchronize();
 	e = cudaGetLastError();
 	if(e) printf("LayerNorm Backward error (stats): %s\n", cudaGetErrorString(e));
 	// Compute input gradients
 	int grids = 0;
 	GetLaunchConfig(N * C * HW, grids, tpb);
 	InputGradKernel<<<grids, tpb>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);
-	cudaDeviceSynchronize(); // Add sync
+	cudaDeviceSynchronize();
 	e = cudaGetLastError();
 	if(e) printf("LayerNorm Backward error (input): %s\n", cudaGetErrorString(e));
 }
