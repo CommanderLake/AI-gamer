@@ -10,7 +10,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	patchDim_ = inC_*patchSize_*patchSize_;
 	numPatches_ = patchRows_*patchCols_;
 	outNCHW_ = batchSize_*embedDim_*numPatches_;
-	alphaWeights_ = 1.0f / gradAccumLength_;
+	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
 	weightCount_ = embedDim_*patchDim_;

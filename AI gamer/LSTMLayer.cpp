@@ -7,7 +7,7 @@ LSTMLayer::LSTMLayer(const cudnnHandle_t cudnnHandle, const int seqLength, const
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*inC_;
-	alphaWeights_ = 1.0f/gradAccumLength_;
+	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateDropoutDescriptor(&dropoutDesc_));
 	checkCUDNN(cudnnCreateRNNDescriptor(&rnnDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&hcxyDesc_));

@@ -5,7 +5,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	alphaWeights_ = 1.0f/gradAccumLength_;
+	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnCreateFilterDescriptor(&filterDesc_));

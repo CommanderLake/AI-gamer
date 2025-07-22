@@ -2,9 +2,6 @@
 #include "Layer.h"
 #include <cublas_v2.h>
 #include <cudnn.h>
-// A lightweight attention layer operating on patch tokens.
-// Q, K and V projections are computed with fully connected layers and
-// the attention scores are obtained using a WMMA accelerated kernel.
 class WmmaAttentionLayer final : public Layer{
 public:
 	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay);
@@ -37,4 +34,5 @@ private:
 	const float beta0_ = 0.0f;
 	const float beta1_ = 1.0f;
 	float weightDecay_;
+	float alphaWeights_ = 1.0f;
 };

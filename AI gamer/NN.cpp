@@ -95,9 +95,9 @@ __half* NN::Forward(__half* data){
 __half* NN::Backward(__half* grad){
 	auto outGrad = grad;
 	for(int i = layers_.size(); --i >= 0; ){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		outGrad = layers_[i]->Backward(outGrad);
-		//SummarizeHalfDevice(outGrad, layers_[i]->outNCHW_, "gradient");
+		SummarizeHalfDevice(outGrad, layers_[i]->outNCHW_, "gradient");
 	}
 	return outGrad;
 }

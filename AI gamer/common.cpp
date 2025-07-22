@@ -4,8 +4,6 @@
 #include <iostream>
 #include <vector>
 #include <windows.h>
-#include <mkl_lapacke.h>
-#include <mkl_vsl.h>
 #include <sstream>
 #define checkCUDNN(status) { \
     if (status != CUDNN_STATUS_SUCCESS) { \
@@ -437,16 +435,19 @@ ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, const 
 	}
 	return algorithms;
 }
-__half* matrixH_;
-float* matrixF_;
+#include <mkl_lapacke.h>
+#include <mkl_vsl.h>
+__half* matrixH_ = nullptr;
+float* matrixF_ = nullptr;
 size_t matrixSize_ = 0;
-float* tau_;
+float* tau_ = nullptr;
 size_t tauSize_ = 0;
-float* work_;
+float* work_ = nullptr;
 size_t workSize_ = 0;
-float* matrixT_;
+float* matrixT_ = nullptr;
 size_t matrixTSize_ = 0;
 VSLStreamStatePtr stream_ = nullptr;
+void InitializeStream(){ if(stream_ == nullptr){ vslNewStream(&stream_, VSL_BRNG_SFMT19937, time(nullptr)); } }
 void OrthogonalInit(__half* output, const int rows, const int cols){
 	bool transpose = false;
 	int m = rows;
@@ -462,43 +463,63 @@ void OrthogonalInit(__half* output, const int rows, const int cols){
 			_mm_free(matrixF_);
 			_mm_free(matrixH_);
 		}
-		matrixF_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
-		matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize*sizeof(__half), 64));
+		matrixF_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
+		matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize * sizeof(__half), 64));
 		matrixSize_ = matrixSize;
 	}
 	if(transpose && matrixTSize_ < matrixSize){
-		if(matrixTSize_ > 0)
-			_mm_free(matrixT_);
-		matrixT_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
+		if(matrixTSize_ > 0){ _mm_free(matrixT_); }
+		matrixT_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
 		matrixTSize_ = matrixSize;
 	}
+	// Allocate tau array
 	const size_t tauSize = min(m, n);
 	if(tauSize_ < tauSize){
-		if(tauSize_ > 0)
-			_mm_free(tau_);
-		tau_ = static_cast<float*>(_mm_malloc(tauSize*sizeof(float), 64));
+		if(tauSize_ > 0){ _mm_free(tau_); }
+		tau_ = static_cast<float*>(_mm_malloc(tauSize * sizeof(float), 64));
 		tauSize_ = tauSize;
 	}
-	if(stream_ == nullptr) vslNewStream(&stream_, VSL_BRNG_SFMT19937, time(nullptr));
+	InitializeStream();
 	vsRngGaussian(VSL_RNG_METHOD_GAUSSIAN_ICDF, stream_, matrixSize, matrixF_, 0.0f, 1.0f);
-	float workQuery;
-	int workSize = -1;
-	LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, &workQuery, workSize);
-	workSize = static_cast<int>(workQuery);
-	if(workSize_ < workSize){
-		if(workSize_ > 0)
-			_mm_free(work_);
-		work_ = static_cast<float*>(_mm_malloc(workSize*sizeof(float), 64));
-		workSize_ = workSize;
+	float workQueryQRF, workQueryORGQR;
+	lapack_int info = LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, &workQueryQRF, -1);
+	if(info != 0){
+		return;
 	}
-	LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, work_, workSize);
-	LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, tauSize, matrixF_, m, tau_, work_, workSize);
+	const auto tempMatrix = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
+	const auto tempTau = static_cast<float*>(_mm_malloc(tauSize * sizeof(float), 64));
+	memcpy(tempMatrix, matrixF_, matrixSize * sizeof(float));
+	const auto tempWork = static_cast<float*>(_mm_malloc(static_cast<size_t>(workQueryQRF) * sizeof(float), 64));
+	LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, tempMatrix, m, tempTau, tempWork, static_cast<lapack_int>(workQueryQRF));
+	info = LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, tauSize, tempMatrix, m, tempTau, &workQueryORGQR, -1);
+	if(info != 0){
+		_mm_free(tempMatrix);
+		_mm_free(tempTau);
+		_mm_free(tempWork);
+		return;
+	}
+	_mm_free(tempMatrix);
+	_mm_free(tempTau);
+	_mm_free(tempWork);
+	const size_t optimalWorkSize = max(static_cast<size_t>(workQueryQRF), static_cast<size_t>(workQueryORGQR));
+	if(workSize_ < optimalWorkSize){
+		if(workSize_ > 0){ _mm_free(work_); }
+		work_ = static_cast<float*>(_mm_malloc(optimalWorkSize * sizeof(float), 64));
+		workSize_ = optimalWorkSize;
+	}
+	info = LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, work_, workSize_);
+	if(info != 0){
+		return;
+	}
+	info = LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, tauSize, matrixF_, m, tau_, work_, workSize_);
+	if(info != 0){
+		return;
+	}
 	float* outF = matrixF_;
 	if(transpose){
 		for(int r = 0; r < rows; ++r){ for(int c = 0; c < cols; ++c){ matrixT_[r * cols + c] = matrixF_[c * rows + r]; } }
 		outF = matrixT_;
 	}
-	for(int i = 0; i < rows * cols; ++i){ outF[i] *= 1.41421354f; }
 	FloatToHalfAsm(outF, matrixH_, rows * cols);
-	checkCUDA(cudaMemcpy(output, matrixH_, rows*cols*sizeof(__half), cudaMemcpyHostToDevice));
+	checkCUDA(cudaMemcpy(output, matrixH_, rows * cols * sizeof(__half), cudaMemcpyHostToDevice));
 }

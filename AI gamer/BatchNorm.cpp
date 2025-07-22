@@ -7,7 +7,7 @@ BatchNorm::BatchNorm(const cudnnHandle_t cudnnHandle, const cudnnBatchNormMode_t
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
-	alphaWeights_ = 1.0f/gradAccumLength_;
+	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, outHeight_, outWidth_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&bnScaleBiasDesc_));
@@ -64,12 +64,12 @@ __half* BatchNorm::Forward(__half* data){
 	return outData_;
 }
 __half* BatchNorm::Backward(__half* grad){
-	//const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
-	checkCUDNN(cudnnBatchNormalizationBackward(cudnnHandle_, bnMode_, &alpha_, &beta0_, &alpha_, &beta0_, outDesc_, inData_, outDesc_, grad, outDesc_, grad, bnScaleBiasDesc_, bnScale_, gradBnScale_, gradBnBias_, epsilon_, bnSavedMean_, bnSavedInvVariance_));
+	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
+	checkCUDNN(cudnnBatchNormalizationBackward(cudnnHandle_, bnMode_, &alpha_, &beta0_, &alphaWeights_, betaWeights, outDesc_, inData_, outDesc_, grad, outDesc_, grad, bnScaleBiasDesc_, bnScale_, gradBnScale_, gradBnBias_, epsilon_, bnSavedMean_, bnSavedInvVariance_));
 	return grad;
 }
 void BatchNorm::UpdateParameters(const float learningRate){
-	//if(accumCount_%gradAccumLength_>0) return;
+	if(accumCount_%gradAccumLength_>0) return;
 	if(useAdamW_){
 		++t_;
 		AdamWFloat(bnScale_, gradBnScale_, m_BnScale_, v_BnScale_, learningRate, t_, 0.0f, outC_);

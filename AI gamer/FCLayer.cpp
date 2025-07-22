@@ -6,7 +6,7 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
-	alphaWeights_ = 1.0f/gradAccumLength_;
+	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 	weightCount_ = inC_*outC_;
