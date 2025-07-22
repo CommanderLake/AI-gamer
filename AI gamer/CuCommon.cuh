@@ -78,6 +78,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const float* AttentionWeights, __half* dQ, __half* dK, __half* dV, int B, int T, int D, int H);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
+void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
 void GetLaunchConfig(int n, int& blocks, int& tpb);

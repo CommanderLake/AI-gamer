@@ -31,8 +31,12 @@ public:
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;
 	__half* gradWeights_ = nullptr;
+	__half* posEmbed_ = nullptr;
+	__half* gradPosEmbed_ = nullptr;
 	const __half* inData_ = nullptr;
 	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;
+	__half *m_PosEmbed_ = nullptr, *v_PosEmbed_ = nullptr;
+	cudnnTensorDescriptor_t posDesc_{};
 	int t_ = 1;
 	const float alpha_ = 1.0f;
 	float alphaWeights_ = 1.0f;
@@ -41,4 +45,5 @@ public:
 	float weightDecay_;
 	int gradAccumLength_;
 	int accumCount_ = 0;
+	int posCount_ = 0;
 };
