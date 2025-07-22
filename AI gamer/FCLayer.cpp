@@ -13,7 +13,7 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	if(train_){
-		OrthogonalInit(weights_, inC_, outC_, weightInitMethod);
+		WeightInit(weights_, weightCount_, inC_, weightInitMethod);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, batchSize_*inC_*sizeof(__half));
 		if(useAdamW_){

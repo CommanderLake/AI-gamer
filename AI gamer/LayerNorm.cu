@@ -62,15 +62,18 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* m
 			float other_m2 = __shfl_down_sync(0xFFFFFFFF, warp_m2, offset);
 			float other_c = __shfl_down_sync(0xFFFFFFFF, warp_c, offset);
 			if(tid + offset < warpsPerBlock && other_c > 0){
-				float delta = other_mean - final_mean;
-				final_m2 = warp_m2 + other_m2 + delta * delta * warp_c * other_c / total_count;
-				warp_m2 = final_m2;
-				warp_c += other_c;
+				float delta = other_mean - warp_mean;
+				float new_c = warp_c + other_c;
+				if(new_c > 0){
+					final_m2 = warp_m2 + other_m2 + delta * delta * warp_c * other_c / new_c;
+					warp_m2 = final_m2;
+					warp_c = new_c;
+				}
 			}
 		}
-		if(tid == 0 && total_count > 0){
-			mean[n] = final_mean;
-			var[n] = final_m2 / total_count;
+		if(tid == 0){
+			mean[n] = (total_count > 0) ? final_mean : 0.0f;
+			var[n] = (total_count > 1) ? final_m2 / total_count : 0.0f;
 		}
 	}
 }
@@ -100,16 +103,17 @@ void LayerNormForward(__half* y, const __half* x, const float* g, const float* b
 	const int warpsPerBlock = (tpb + 31) / 32;
 	int sm = 3 * warpsPerBlock * sizeof(float);
 	ComputeMeanVarianceKernel<<<N, tpb, sm>>>(x, mean, var, N, C, HW);
-	cudaDeviceSynchronize();
 	auto e = cudaGetLastError();
-	if(e) printf("LayerNorm Forward error (mean/var): %s\n", cudaGetErrorString(e));
+	if(e != cudaSuccess){
+		printf("LayerNorm Forward error (mean/var): %s\n", cudaGetErrorString(e));
+		return;
+	}
 	int grids = 0;
 	GetLaunchConfig(N * C * HW, grids, tpb);
 	sm = 2 * C * sizeof(float);
 	LayerNormForwardKernel<<<grids, tpb, sm>>>(y, x, g, b, mean, var, N, C, HW);
-	cudaDeviceSynchronize();
 	e = cudaGetLastError();
-	if(e) printf("LayerNorm Forward error (norm): %s\n", cudaGetErrorString(e));
+	if(e != cudaSuccess){ printf("LayerNorm Forward error (norm): %s\n", cudaGetErrorString(e)); }
 }
 __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ mean, const float* __restrict__ var, float* __restrict__ dG, float* __restrict__ dB, int N, int C, int HW){
 	extern __shared__ float sm[];
@@ -144,9 +148,9 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 	}
 	__syncthreads();
 	if(tid < warpsPerBlock){
-		float finalG = sG[tid];     
-		float finalB = sB[tid];     
-		__syncwarp();     
+		float finalG = sG[tid];
+		float finalB = sB[tid];
+		__syncwarp();
 		finalG = warpReduceSum(finalG);
 		finalB = warpReduceSum(finalB);
 		if(tid == 0){
@@ -189,9 +193,9 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 	}
 	__syncthreads();
 	if(tid < warpsPerBlock){
-		float finalD1 = sD1[tid];     
-		float finalD2 = sD2[tid];     
-		__syncwarp();     
+		float finalD1 = sD1[tid];
+		float finalD2 = sD2[tid];
+		__syncwarp();
 		finalD1 = warpReduceSum(finalD1);
 		finalD2 = warpReduceSum(finalD2);
 		if(tid == 0){
@@ -225,27 +229,30 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	}
 	auto d1 = static_cast<float*>(workspace);
 	float* d2 = d1 + N;
+	// Clear gradients
 	cudaMemset(dG, 0, C * sizeof(float));
 	cudaMemset(dB, 0, C * sizeof(float));
 	cudaMemset(d1, 0, N * sizeof(float));
 	cudaMemset(d2, 0, N * sizeof(float));
-	cudaDeviceSynchronize();    
 	int tpb = BS;
 	const int warpsPerBlock = (tpb + 31) / 32;
 	int sm = 2 * warpsPerBlock * sizeof(float);
 	GradGammaBetaKernel<<<C, tpb, sm>>>(dy, x, mean, var, dG, dB, N, C, HW);
-	cudaDeviceSynchronize();
 	auto e = cudaGetLastError();
-	if(e) printf("LayerNorm Backward error (gamma/beta): %s\n", cudaGetErrorString(e));
+	if(e != cudaSuccess){
+		printf("LayerNorm Backward error (gamma/beta): %s\n", cudaGetErrorString(e));
+		return;
+	}
 	sm = 2 * warpsPerBlock * sizeof(float);
 	ComputeStatsKernel<<<N, tpb, sm>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
-	cudaDeviceSynchronize();
 	e = cudaGetLastError();
-	if(e) printf("LayerNorm Backward error (stats): %s\n", cudaGetErrorString(e));
+	if(e != cudaSuccess){
+		printf("LayerNorm Backward error (stats): %s\n", cudaGetErrorString(e));
+		return;
+	}
 	int grids = 0;
 	GetLaunchConfig(N * C * HW, grids, tpb);
 	InputGradKernel<<<grids, tpb>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);
-	cudaDeviceSynchronize();
 	e = cudaGetLastError();
-	if(e) printf("LayerNorm Backward error (input): %s\n", cudaGetErrorString(e));
+	if(e != cudaSuccess){ printf("LayerNorm Backward error (input): %s\n", cudaGetErrorString(e)); }
 }

@@ -2,12 +2,12 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <vector>
-LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train, const float weightDecay) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), weightDecay_(weightDecay){
+LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train, const float weightDecay) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHW_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height, width));
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height_, width_));
 	const auto paramSizeBytes = outC_*sizeof(float);
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&gamma_, paramSizeBytes);
@@ -93,10 +93,10 @@ void LayerNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	cudaMemcpy(vBeta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 }
 size_t LayerNorm::GetParameterSize(){
-	return outC_*sizeof(float);
+	return 2*outC_*sizeof(float);
 }
 size_t LayerNorm::GetOptimizerStateSize(){
-	return outC_*sizeof(float);
+	return 4*outC_*sizeof(float);
 }
 void LayerNorm::SetTrain(const bool enable){
 	if(enable){
@@ -104,6 +104,6 @@ void LayerNorm::SetTrain(const bool enable){
 	} else{
 		batchSize_ = 1;
 	}
-	outNCHW_ = batchSize_*outC_;
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
+	outNCHW_ = batchSize_*outC_*outHW_;
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height_, width_));
 }

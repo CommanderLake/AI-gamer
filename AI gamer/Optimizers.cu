@@ -186,14 +186,14 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 		}
 	}
 	// Handle remaining elements
-	const int remainStart = n / 8*8;
+	const int remainStart = n/8*8;
 	for(int i = remainStart + idx; i < n; i += stride){
 		const float grad = fmaxf(fminf(__half2float(grads[i]), CLIP), -CLIP);
 		const float mVal = BETA1_F*__half2float(m[i]) + sBeta1Complement*grad;
 		const float vVal = BETA2_F*__half2float(v[i]) + sBeta3Complement*grad*grad;
 		const float param = __half2float(params[i])*sWeightDecay;
-		const float denom = sqrtf(vVal / sBiasCorrection2) + EPSILON_F;
-		params[i] = __float2half(param - sLrT*mVal / denom);
+		const float denom = sqrtf(vVal/sBiasCorrection2) + EPSILON_F;
+		params[i] = __float2half(param - sLrT*mVal/denom);
 		m[i] = __float2half(mVal);
 		v[i] = __float2half(vVal);
 	}

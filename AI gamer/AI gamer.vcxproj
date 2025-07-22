@@ -181,6 +181,7 @@
     <CudaCompile Include="LayerNorm.cu" />
     <CudaCompile Include="Loss.cu" />
     <CudaCompile Include="Optimizers.cu" />
+    <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="WMMA.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

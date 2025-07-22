@@ -17,7 +17,7 @@ public:
 	int ogbs_;
 	int batchSize_;
 	int outC_;
-	int outHW_;
+	int outHW_, height_, width_;
 	__half* inData_ = nullptr;
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;

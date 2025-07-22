@@ -7,7 +7,7 @@
 #include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
 #include "ViewerLayer.h"
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
@@ -54,7 +54,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);
 	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
-	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 4, "Encoder1", train, wd, gradAccumLength_));
+	//layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 4, "Encoder1", train, wd, gradAccumLength_));
 	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchStateTotal_*numPatches, outC, 1, 1, "LayerNorm", train, wd, gradAccumLength_));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, outC*numPatches, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){

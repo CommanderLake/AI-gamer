@@ -3,8 +3,8 @@
 #include "CuCommon.cuh"
 #include "FCLayer.h"
 #include "BatchNorm.h"
-#include "Activate.h"
 #include "Dropout.h"
+#include "GELULayer.h"
 #include "SigmoidLayer.h"
 #include "ViewerLayer.h"
 CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int inputSize, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
@@ -17,27 +17,27 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	constexpr auto outC = 1024;
 	//buttonLayers_.push_back(new LSTMLayer(cudnn_, seqLength_, 1, outC, batchSize_, inputSize, "Buts_LSTM", train, weightDecay, gradAccumLength_, He));
 	//buttonLayers_.push_back(new ViewerLayer(batchSize_*seqLength_, 32, 32, 10, "Buts LSTM"));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Buts_FC1", train, weightDecay, gradAccumLength_, He));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Buts_FC1", train, weightDecay, gradAccumLength_, Xavier));
 	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, outC, 1, 1, "Buts_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
-	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_*seqLength_, outC, 1, 1, "Buts_FC1_ReLU"));
+	buttonLayers_.push_back(new GELULayer(batchSize_*seqLength_, outC, 1, 1, "GELU"));
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_*seqLength_, outC, 1, 1, "Buts_Dropout1", train));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC, outC/2, "Buts_FC2", train, weightDecay, gradAccumLength_, He));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC, outC/2, "Buts_FC2", train, weightDecay, gradAccumLength_, Xavier));
 	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, outC/2, 1, 1, "Buts_FC2_BatchNorm", train, weightDecay, gradAccumLength_));
-	buttonLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_*seqLength_, outC/2, 1, 1, "Buts_FC2_ReLU"));
+	buttonLayers_.push_back(new GELULayer(batchSize_*seqLength_, outC/2, 1, 1, "GELU"));
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_*seqLength_, outC/2, 1, 1, "Buts_Dropout2", train));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC/2, NUM_BUTS_, "Buts_FC_Out", train, weightDecay, gradAccumLength_, He));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC/2, NUM_BUTS_, "Buts_FC_Out", train, weightDecay, gradAccumLength_, Xavier));
 	buttonLayers_.push_back(new SigmoidLayer(batchSize_*seqLength_, NUM_BUTS_, NUM_BUTS_, "Buts_Sigmoid"));
 	//axisLayers_.push_back(new LSTMLayer(cudnn_, seqLength_, 1, outC, batchSize_, inputSize, "Axes_LSTM", train, weightDecay, gradAccumLength_, He));
 	//axisLayers_.push_back(new ViewerLayer(batchSize_*seqLength_, 32, 32, 10, "Axes LSTM"));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Axes_FC1", train, weightDecay, gradAccumLength_, He));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Axes_FC1", train, weightDecay, gradAccumLength_, Xavier));
 	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, outC, 1, 1, "Axes_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
-	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_*seqLength_, outC, 1, 1, "Axes_FC1_ReLU"));
+	axisLayers_.push_back(new GELULayer(batchSize_*seqLength_, outC/2, 1, 1, "GELU"));
 	axisLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_*seqLength_, outC, 1, 1, "Axes_Dropout1", train));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC, outC/2, "Axes_FC2", train, weightDecay, gradAccumLength_, He));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC, outC/2, "Axes_FC2", train, weightDecay, gradAccumLength_, Xavier));
 	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, outC/2, 1, 1, "Axes_FC2_BatchNorm", train, weightDecay, gradAccumLength_));
-	axisLayers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_*seqLength_, outC/2, 1, 1, "Axes_FC2_ReLU"));
+	axisLayers_.push_back(new GELULayer(batchSize_*seqLength_, outC/2, 1, 1, "GELU"));
 	axisLayers_.push_back(new Dropout(cudnn_, 0.5f, batchSize_*seqLength_, outC/2, 1, 1, "Axes_Dropout2", train));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC/2, NUM_AXES_, "Axes_FC_Out", train, weightDecay, gradAccumLength_, He));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC/2, NUM_AXES_, "Axes_FC_Out", train, weightDecay, gradAccumLength_, Xavier));
 	CUDAMallocZero(&predictions_, batchSize_*seqLength_*NUM_CTRLS_*sizeof(__half));
 }
 CustomOutLayer::~CustomOutLayer(){
