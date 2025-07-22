@@ -30,19 +30,19 @@ EncoderLayer::~EncoderLayer(){
 __half* EncoderLayer::Forward(__half* data){
 	const __half* residual1 = data;
 	for(size_t i = 0; i < 2; ++i){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		data = layers_[i]->Forward(data);
-		//SummarizeHalfDevice(data, layers_[i]->outNCHW_, "data");
+		SummarizeHalfDevice(data, layers_[i]->outNCHW_, "data");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual1, &alpha_, tensorDesc_, data));
-	//std::cout << "\n" << layers_[2]->layerName_ << " ";
+	std::cout << "\n" << layers_[2]->layerName_ << " ";
 	data = layers_[2]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
+	SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
 	const __half* residual2 = data;
 	for(size_t i = 3; i < layers_.size(); ++i){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		data = layers_[i]->Forward(data);
-		//SummarizeHalfDevice(data, layers_[i]->outNCHW_, "data");
+		SummarizeHalfDevice(data, layers_[i]->outNCHW_, "data");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, residual2, &alpha_, tensorDesc_, data));
 	return data;
@@ -50,19 +50,19 @@ __half* EncoderLayer::Forward(__half* data){
 __half* EncoderLayer::Backward(__half* grad){
 	const __half* gradAdd2 = grad;
 	for(int i = layers_.size(); --i > 2;){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		grad = layers_[i]->Backward(grad);
-		//SummarizeHalfDevice(grad, layers_[i]->outNCHW_, "gradient");
+		SummarizeHalfDevice(grad, layers_[i]->outNCHW_, "gradient");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, gradAdd2, &alpha_, tensorDesc_, grad));
-	//std::cout << "\n" << layers_[2]->layerName_ << " ";
+	std::cout << "\n" << layers_[2]->layerName_ << " ";
 	grad = layers_[2]->Backward(grad);
-	//SummarizeHalfDevice(grad, layers_[2]->outNCHW_, "gradient");
+	SummarizeHalfDevice(grad, layers_[2]->outNCHW_, "gradient");
 	const __half* gradAdd1 = grad;
 	for(int i = 2; --i >= 0;){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		grad = layers_[i]->Backward(grad);
-		//SummarizeHalfDevice(grad, layers_[i]->outNCHW_, "gradient");
+		SummarizeHalfDevice(grad, layers_[i]->outNCHW_, "gradient");
 	}
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &alpha_, tensorDesc_, gradAdd1, &alpha_, tensorDesc_, grad));
 	return grad;
