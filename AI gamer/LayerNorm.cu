@@ -3,7 +3,6 @@ __device__ __forceinline__ float warpReduceSum(float val){
 	for(int offset = 16; offset > 0; offset /= 2){ val += __shfl_down_sync(0xFFFFFFFF, val, offset); }
 	return val;
 }
-// Optimized mean and variance computation using Welford's algorithm
 __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* mean, float* var, int N, int C, int HW){
 	extern __shared__ float sm[];
 	const int tid = threadIdx.x;
@@ -18,7 +17,6 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* m
 	float m = 0.0f, m2 = 0.0f, c = 0.0f;
 	const int stride = C * HW;
 	const __half* xn = x + n * stride;
-	// Process elements using Welford's algorithm
 	for(int i = tid; i < stride; i += blockDim.x){
 		const float v = __half2float(xn[i]);
 		c += 1.0f;
@@ -26,14 +24,10 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* m
 		m += d / c;
 		m2 += d * (v - m);
 	}
-	// Warp-level reduction - properly combine Welford statistics
 	__syncwarp();
-	// Reduce count first
 	float total_c = warpReduceSum(c);
-	// Compute weighted mean
 	float weighted_mean = 0.0f;
 	if(total_c > 0){ weighted_mean = warpReduceSum(m * c) / total_c; }
-	// Combine M2 values accounting for mean differences
 	float combined_m2 = 0.0f;
 	for(int offset = 16; offset > 0; offset /= 2){
 		float other_m = __shfl_down_sync(0xFFFFFFFF, m, offset);
@@ -49,24 +43,19 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* m
 			}
 		}
 	}
-	// Store warp results
 	if(laneId == 0){
 		sMean[warpId] = weighted_mean;
 		sM2[warpId] = (total_c > 0) ? m2 : 0.0f;
 		sCnt[warpId] = total_c;
 	}
 	__syncthreads();
-	// Final reduction in first warp
 	if(tid < warpsPerBlock){
 		float warp_mean = sMean[tid];
 		float warp_m2 = sM2[tid];
 		float warp_c = sCnt[tid];
-		// Reduce counts
 		float total_count = warpReduceSum(warp_c);
-		// Compute final combined mean
 		float final_mean = 0.0f;
 		if(total_count > 0){ final_mean = warpReduceSum(warp_mean * warp_c) / total_count; }
-		// Combine M2 values properly
 		float final_m2 = 0.0f;
 		for(int offset = 16; offset > 0; offset /= 2){
 			float other_mean = __shfl_down_sync(0xFFFFFFFF, warp_mean, offset);
@@ -85,19 +74,16 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* m
 		}
 	}
 }
-// Optimized forward kernel using vectorized loads when possible
 __global__ void LayerNormForwardKernel(__half* __restrict__ y, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ b, const float* __restrict__ mean, const float* __restrict__ var, int N, int C, int HW){
 	extern __shared__ float sp[];
 	float* sg = sp;
 	float* sb = sg + C;
-	// Cooperatively load gamma and beta to shared memory
 	for(int i = threadIdx.x; i < C; i += blockDim.x){
 		sg[i] = g[i];
 		sb[i] = b[i];
 	}
 	__syncthreads();
 	const int tot = N * C * HW;
-	// Process using half2 when possible for better throughput
 	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < tot; idx += blockDim.x * gridDim.x){
 		const int hw = idx % HW;
 		const int c = (idx / HW) % C;
@@ -111,14 +97,12 @@ __global__ void LayerNormForwardKernel(__half* __restrict__ y, const __half* __r
 }
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW){
 	int tpb = BS;
-	// Compute mean and variance
 	const int warpsPerBlock = (tpb + 31) / 32;
 	int sm = 3 * warpsPerBlock * sizeof(float);
 	ComputeMeanVarianceKernel<<<N, tpb, sm>>>(x, mean, var, N, C, HW);
 	cudaDeviceSynchronize();
 	auto e = cudaGetLastError();
 	if(e) printf("LayerNorm Forward error (mean/var): %s\n", cudaGetErrorString(e));
-	// Apply normalization
 	int grids = 0;
 	GetLaunchConfig(N * C * HW, grids, tpb);
 	sm = 2 * C * sizeof(float);
@@ -127,7 +111,6 @@ void LayerNormForward(__half* y, const __half* x, const float* g, const float* b
 	e = cudaGetLastError();
 	if(e) printf("LayerNorm Forward error (norm): %s\n", cudaGetErrorString(e));
 }
-// Optimized gradient computation for gamma and beta
 __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ mean, const float* __restrict__ var, float* __restrict__ dG, float* __restrict__ dB, int N, int C, int HW){
 	extern __shared__ float sm[];
 	const int cid = blockIdx.x;
@@ -152,7 +135,6 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 			tB += dyv;
 		}
 	}
-	// Warp-level reduction
 	__syncwarp();
 	tG = warpReduceSum(tG);
 	tB = warpReduceSum(tB);
@@ -161,11 +143,10 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 		sB[warpId] = tB;
 	}
 	__syncthreads();
-	// Final reduction in first warp - FIXED CONDITION
 	if(tid < warpsPerBlock){
-		float finalG = sG[tid]; // Remove wrong condition check
-		float finalB = sB[tid]; // Remove wrong condition check
-		__syncwarp(); // Add sync for safety
+		float finalG = sG[tid];     
+		float finalB = sB[tid];     
+		__syncwarp();     
 		finalG = warpReduceSum(finalG);
 		finalB = warpReduceSum(finalB);
 		if(tid == 0){
@@ -174,7 +155,6 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 		}
 	}
 }
-// Compute d1 and d2 statistics for input gradient
 __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ mean, const float* __restrict__ var, float* __restrict__ d1, float* __restrict__ d2, int N, int C, int HW){
 	extern __shared__ float sm[];
 	const int n = blockIdx.x;
@@ -200,7 +180,6 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 		tD1 += dy_g;
 		tD2 = fmaf(dy_g, xnorm, tD2);
 	}
-	// Warp-level reduction
 	__syncwarp();
 	tD1 = warpReduceSum(tD1);
 	tD2 = warpReduceSum(tD2);
@@ -209,11 +188,10 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 		sD2[warpId] = tD2;
 	}
 	__syncthreads();
-	// Final reduction in first warp - FIXED CONDITION
 	if(tid < warpsPerBlock){
-		float finalD1 = sD1[tid]; // Remove wrong condition check
-		float finalD2 = sD2[tid]; // Remove wrong condition check
-		__syncwarp(); // Add sync for safety
+		float finalD1 = sD1[tid];     
+		float finalD2 = sD2[tid];     
+		__syncwarp();     
 		finalD1 = warpReduceSum(finalD1);
 		finalD2 = warpReduceSum(finalD2);
 		if(tid == 0){
@@ -222,7 +200,6 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 		}
 	}
 }
-// Optimized input gradient kernel
 __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ d1, const float* __restrict__ d2, const float* __restrict__ mean, const float* __restrict__ var, int N, int C, int HW){
 	const int tot = N * C * HW;
 	const float invM = 1.0f / (C * HW);
@@ -241,36 +218,30 @@ __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restric
 	}
 }
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspace_size, int N, int C, int HW){
-	// Check workspace size
 	const auto required_size = 2 * N * sizeof(float);
 	if(workspace_size < required_size){
 		printf("LayerNorm Backward error: insufficient workspace (need %zu, got %zu)\n", required_size, workspace_size);
 		return;
 	}
-	// Use workspace for d1 and d2
 	auto d1 = static_cast<float*>(workspace);
 	float* d2 = d1 + N;
-	// Initialize gradients - ADD SYNC AFTER MEMSETS
 	cudaMemset(dG, 0, C * sizeof(float));
 	cudaMemset(dB, 0, C * sizeof(float));
 	cudaMemset(d1, 0, N * sizeof(float));
 	cudaMemset(d2, 0, N * sizeof(float));
-	cudaDeviceSynchronize(); // Ensure memsets complete
+	cudaDeviceSynchronize();    
 	int tpb = BS;
-	// Compute gradients for gamma and beta
 	const int warpsPerBlock = (tpb + 31) / 32;
 	int sm = 2 * warpsPerBlock * sizeof(float);
 	GradGammaBetaKernel<<<C, tpb, sm>>>(dy, x, mean, var, dG, dB, N, C, HW);
 	cudaDeviceSynchronize();
 	auto e = cudaGetLastError();
 	if(e) printf("LayerNorm Backward error (gamma/beta): %s\n", cudaGetErrorString(e));
-	// Compute statistics d1 and d2
 	sm = 2 * warpsPerBlock * sizeof(float);
 	ComputeStatsKernel<<<N, tpb, sm>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
 	cudaDeviceSynchronize();
 	e = cudaGetLastError();
 	if(e) printf("LayerNorm Backward error (stats): %s\n", cudaGetErrorString(e));
-	// Compute input gradients
 	int grids = 0;
 	GetLaunchConfig(N * C * HW, grids, tpb);
 	InputGradKernel<<<grids, tpb>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);

@@ -11,6 +11,7 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
+	outNCHW_ = batchSize_*NUM_CTRLS_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1));
 	constexpr auto outC = 1024;
@@ -58,12 +59,12 @@ __half* CustomOutLayer::Forward(__half* data){
 	for(int i = 0; i<buttonLayers_.size(); ++i){
 		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonData = buttonLayers_[i]->Forward(buttonData);
-		//PrintDataHalfDevice(buttonData, 16, "buttonData");
+		//SummarizeHalfDevice(buttonData, buttonLayers_[i]->outNCHW_, "buttonData");
 	}
 	for(int i = 0; i<axisLayers_.size(); ++i){
 		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
 		axisData = axisLayers_[i]->Forward(axisData);
-		//PrintDataHalfDevice(axisData, 16, "axisData");
+		//SummarizeHalfDevice(axisData, axisLayers_[i]->outNCHW_, "axisData");
 	}
 	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_*seqLength_);
 	return predictions_;
@@ -74,12 +75,12 @@ __half* CustomOutLayer::Backward(__half* grad){
 	for(int i = buttonLayers_.size(); --i>=0;){
 		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
 		buttonGrad = buttonLayers_[i]->Backward(buttonGrad);
-		//PrintDataHalfDevice(buttonGrad, 16, "buttonGrad");
+		//SummarizeHalfDevice(buttonGrad, buttonLayers_[i]->outNCHW_, "buttonGrad");
 	}
 	for(int i = axisLayers_.size(); --i>=0;){
 		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
 		axisGrad = axisLayers_[i]->Backward(axisGrad);
-		//PrintDataHalfDevice(axisGrad, 16, "axisGrad");
+		//SummarizeHalfDevice(axisGrad, axisLayers_[i]->outNCHW_, "axisGrad");
 	}
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha, inDesc_, axisGrad, &alpha, inDesc_, buttonGrad));
 	return buttonGrad;
