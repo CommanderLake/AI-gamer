@@ -1,11 +1,12 @@
 #pragma once
 #include "Layer.h"
+#include "WeightInitMethod.h"
 #include <cublas_v2.h>
 #include <cudnn.h>
 class PatchEmbedLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchEmbedLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

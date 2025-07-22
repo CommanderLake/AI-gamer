@@ -207,6 +207,9 @@
     <ClInclude Include="PatchEmbedLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WeightInitMethod.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="CudaStuff.cu" />

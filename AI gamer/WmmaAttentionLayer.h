@@ -1,10 +1,11 @@
 #pragma once
 #include "Layer.h"
+#include "WeightInitMethod.h"
 #include <cublas_v2.h>
 #include <cudnn.h>
 class WmmaAttentionLayer final : public Layer{
 public:
-	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay);
+	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, WeightInitMethod weightInitMethod);
 	~WmmaAttentionLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

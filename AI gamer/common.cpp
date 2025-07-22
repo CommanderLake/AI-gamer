@@ -448,14 +448,18 @@ float* matrixT_ = nullptr;
 size_t matrixTSize_ = 0;
 VSLStreamStatePtr stream_ = nullptr;
 void InitializeStream(){ if(stream_ == nullptr){ vslNewStream(&stream_, VSL_BRNG_SFMT19937, time(nullptr)); } }
-void OrthogonalInit(__half* output, const int rows, const int cols){
+void OrthogonalInit(__half* output, const int rows, const int cols, WeightInitMethod method){
 	bool transpose = false;
 	int m = rows;
 	int n = cols;
+	int fan_in = cols;
+	int fan_out = rows;
 	if(rows < cols){
 		transpose = true;
 		m = cols;
 		n = rows;
+		fan_in = rows;
+		fan_out = cols;
 	}
 	const size_t matrixSize = static_cast<size_t>(m) * n;
 	if(matrixSize_ < matrixSize){
@@ -472,7 +476,6 @@ void OrthogonalInit(__half* output, const int rows, const int cols){
 		matrixT_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
 		matrixTSize_ = matrixSize;
 	}
-	// Allocate tau array
 	const size_t tauSize = min(m, n);
 	if(tauSize_ < tauSize){
 		if(tauSize_ > 0){ _mm_free(tau_); }
@@ -517,8 +520,18 @@ void OrthogonalInit(__half* output, const int rows, const int cols){
 	}
 	float* outF = matrixF_;
 	if(transpose){
-		for(int r = 0; r < rows; ++r){ for(int c = 0; c < cols; ++c){ matrixT_[r * cols + c] = matrixF_[c * rows + r]; } }
+		for(int r = 0; r < rows; ++r){
+			for(int c = 0; c < cols; ++c){
+				matrixT_[r * cols + c] = matrixF_[c * rows + r];
+			}
+		}
 		outF = matrixT_;
+	}
+	auto scale = 1.0f;
+	if(method == He) scale = sqrtf(2.0f / fan_in);
+	if(method == Xavier) scale = sqrtf(1.0f / fan_in);
+	for(int i = 0; i < rows*cols; ++i){
+		outF[i] *= scale;
 	}
 	FloatToHalfAsm(outF, matrixH_, rows * cols);
 	checkCUDA(cudaMemcpy(output, matrixH_, rows * cols * sizeof(__half), cudaMemcpyHostToDevice));

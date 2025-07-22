@@ -1,11 +1,12 @@
 #pragma once
 #include "Layer.h"
+#include "WeightInitMethod.h"
 #include <cudnn.h>
 #include <cublas_v2.h>
 class LSTMLayer final : public Layer{
 public:
 	const bool useAdamW_ = false;
-	LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, int hiddenSize, int batchSize, int inC, const char* layerName, bool train, float weightDecay, const int gradAccumLength);
+	LSTMLayer(cudnnHandle_t cudnnHandle, int seqLength, int numLayers, int hiddenSize, int batchSize, int inC, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~LSTMLayer() override;
 	__half* Forward(__half* x) override;
 	__half* Backward(__half* dy) override;

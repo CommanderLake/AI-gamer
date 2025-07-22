@@ -4,6 +4,7 @@
 #define __CUDACC__
 #endif
 #endif
+#include "WeightInitMethod.h"
 #include <cuda.h>
 #include <curand.h>
 #include <cuda_fp16.h>
@@ -43,9 +44,6 @@ struct pixRGB{
 	unsigned char B;
 	unsigned char G;
 	unsigned char R;
-};
-enum WeightInitMethod{
-	He, Xavier
 };
 float MseLoss(const __half* dPredictions, const float* dTargets, int size);
 void MseLoss2(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);

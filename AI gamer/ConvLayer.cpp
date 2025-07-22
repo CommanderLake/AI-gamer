@@ -1,7 +1,7 @@
 #include "ConvLayer.h"
 #include "CuCommon.cuh"
 #include <iostream>
-ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int* height, int* width, const char* layerName, bool train, float weightDecay, int gradAccumLength) : cudnnHandle_(cudnnHandle),
+ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int* height, int* width, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
 	inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
@@ -25,7 +25,7 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	if(train_){
-		WeightInit(weights_, weightCount_, fanIn, He);
+		WeightInit(weights_, weightCount_, fanIn, weightInitMethod);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, inNCHW_*sizeof(__half));
 		if(useAdamW_){

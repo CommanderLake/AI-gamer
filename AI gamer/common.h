@@ -1,5 +1,6 @@
 #pragma once
 #include "ThreadPool.h"
+#include "WeightInitMethod.h"
 #include <cudnn.h>
 #include <string>
 #include <iostream>
@@ -61,7 +62,7 @@ void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation)
 void LoadBatchLSTM(StateBatch* batch, int batchSize, int seqLength, int stateSize, bool validation);
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
 ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t xDesc, cudnnFilterDescriptor_t wDesc, cudnnConvolutionDescriptor_t convDesc, cudnnTensorDescriptor_t yDesc, bool isTraining);
-void OrthogonalInit(__half* output, int rows, int cols);
+void OrthogonalInit(__half* output, int rows, int cols, WeightInitMethod method);
 const std::string trainDataOutFileName("I:\\TrainingData.bin");
 const std::string ckptFileName("I:\\AIGamer.ckpt");
 const std::string optFileName("I:\\AIGamer.opt");
@@ -78,4 +79,4 @@ void PrintDataHalfDevice(const __half* data, size_t size, const char* label);
 void PrintDataFloatDevice(const float* data, size_t size, const char* label);
 void PrintDataFloatHost(const float* data, size_t size, const char* label);
 void PrintDataCharHost(const unsigned char* data, size_t size, const char* label);
-void SummarizeHalfDevice(const __half* data, const size_t size, const char* label);
+void SummarizeHalfDevice(const __half* data, size_t size, const char* label);

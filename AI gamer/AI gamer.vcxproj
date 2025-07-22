@@ -137,6 +137,7 @@
     <ClInclude Include="ThreadPool.h" />
     <ClInclude Include="Train.h" />
     <ClInclude Include="ViewerLayer.h" />
+    <ClInclude Include="WeightInitMethod.h" />
     <ClInclude Include="WmmaAttentionLayer.h" />
   </ItemGroup>
   <ItemGroup>
