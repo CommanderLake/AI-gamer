@@ -24,4 +24,6 @@ private:
 	int gradAccumLength_;
 	std::vector<Layer*> layers_;
 	const float alpha_ = 1.0f;
+	const float blendFwd_ = 0.5f;
+	const float blendBwd_ = 0.5f;
 };

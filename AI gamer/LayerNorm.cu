@@ -204,6 +204,7 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 		}
 	}
 }
+#define LN_GRAD_CLIP 5.0f
 __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ d1, const float* __restrict__ d2, const float* __restrict__ mean, const float* __restrict__ var, int N, int C, int HW){
 	const int tot = N * C * HW;
 	const float invM = 1.0f / (C * HW);
@@ -218,7 +219,8 @@ __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restric
 		const float xnorm = (xv - m) * invStd;
 		const float gi = g[c];
 		const float dxv = gi * invStd * (dyv - d1[n] * invM - xnorm * d2[n] * invM);
-		dx[idx] = __float2half(dxv);
+		const float clipped = fmaxf(fminf(dxv, LN_GRAD_CLIP), -LN_GRAD_CLIP);
+		dx[idx] = __float2half(clipped);
 	}
 }
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspace_size, int N, int C, int HW){
