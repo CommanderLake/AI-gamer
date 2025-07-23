@@ -146,8 +146,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 	size_t shared_size = sizeof(__half) * (16 * D * 2 + 16 * 16 + 16 * 16 + 16 * 16) + sizeof(float) * (16 * T + 16 + 16 + 16 * num_warps);
 	cudaFuncSetAttribute(WmmaAttentionKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
 	WmmaAttentionKernel<<<grid, block, shared_size>>>(Q, K, V, Out, AttentionWeights, B, T, D, H);
-	cudaDeviceSynchronize();
-	auto e = cudaGetLastError();
+	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("WmmaAttention Forward error: %s\n", cudaGetErrorString(e));
 }
 __global__ void WmmaAttentionBackwardKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const float* __restrict__ AttentionWeights, __half* __restrict__ dQ, __half* __restrict__ dK, __half* __restrict__ dV, int B, int T,

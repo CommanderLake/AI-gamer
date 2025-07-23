@@ -10,13 +10,11 @@ __global__ void ExtractPatchesKernelVec2(const __half* __restrict__ x, __half* _
 	const long total_vec2 = total_elements/2;
 	long idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx >= total_vec2) return;
-	// Process 2 elements at once
 	__half2 vals = __float2half2_rn(0.0f);
 #pragma unroll 2
 	for(int i = 0; i < 2; i++){
 		long elem_idx = idx*2 + i;
 		if(elem_idx >= total_elements) break;
-		// Same decomposition logic as above
 		long patch = elem_idx/patchDim;
 		int inPatch = elem_idx - patch*patchDim;
 		int b = patch/(PH*PW);
@@ -45,7 +43,6 @@ __global__ void ExtractPatchesKernel(const __half* __restrict__ x, __half* __res
 	const long total = static_cast<long>(B)*PH*PW*patchDim;
 	long idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx >= total) return;
-	// Decompose the output index
 	long patch = idx/patchDim;
 	int inPatch = idx - patch*patchDim;
 	int b = patch/(PH*PW);
@@ -78,9 +75,9 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 		GetLaunchConfig(total, blocks, tpb);
 		ExtractPatchesKernel<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	}
-	cudaDeviceSynchronize();
 	const auto e = cudaGetLastError();
-	if(e != cudaSuccess) printf("ExtractPatches error: %s\n", cudaGetErrorString(e));
+	if(e != cudaSuccess) 
+		printf("ExtractPatches error: %s\n", cudaGetErrorString(e));
 }
 __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* __restrict__ dx, int B, int C, int H, int W, int P){
 	const int kPatchArea = P*P;

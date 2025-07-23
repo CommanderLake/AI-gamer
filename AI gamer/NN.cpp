@@ -4,10 +4,9 @@
 #include "ConvLayer.h"
 #include "CustomOutLayer.h"
 #include "EncoderLayer.h"
-#include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
 #include "ViewerLayer.h"
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), seqLength_(1), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
@@ -27,35 +26,13 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
-	constexpr auto wd = 0.00001f;
+	constexpr auto wd = 0.000001f;
 	auto outC = 768;
-	//layers_.push_back(new ViewerLayer(seqLength_*3, netHeight, netWidth, 6, "input viewer"));
-	//layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 3, outC, 5, 2, &netHeight, &netWidth, "Conv0A", train, wd, gradAccumLength_));
-	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv0A_BatchNorm", train, wd, gradAccumLength_));
-	//layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv0A_ReLU"));
-	////layers_.push_back(new ViewerLayer(outC, netHeight, netWidth, 8, "Conv0A viewer"));
-	//layers_.push_back(new PoolLayer(cudnn_, CUDNN_POOLING_AVERAGE_COUNT_EXCLUDE_PADDING, batchSize_, outC, &netHeight, &netWidth, 2, 2, "Conv0_MaxPool", train));
-	//outC = 64;
-	//layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 32, outC, 4, 2, &netHeight, &netWidth, "Conv1A", train, wd, gradAccumLength_));
-	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv1A_BatchNorm", train, wd, gradAccumLength_));
-	//layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv1A_ReLU"));
-	////layers_.push_back(new ViewerLayer(outC, netHeight, netWidth, 16, "Conv1A viewer"));
-	//outC = 128;
-	//layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 64, outC, 4, 2, &netHeight, &netWidth, "Conv2A", train, wd, gradAccumLength_));
-	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv2A_BatchNorm", train, wd, gradAccumLength_));
-	//layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv2A_ReLU"));
-	////layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv2A viewer"));
-	//outC = 256;
-	//layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, 128, outC, 3, 1, &netHeight, &netWidth, "Conv3A", train, wd, gradAccumLength_));
-	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchStateTotal_, outC, netHeight, netWidth, "Conv3A_BatchNorm", train, wd, gradAccumLength_));
-	//layers_.push_back(new Activate(cudnn_, CUDNN_ACTIVATION_RELU, 1.0, batchStateTotal_, outC, netHeight, netWidth, "Conv3A_ReLU"));
-	//layers_.push_back(new ViewerLayer(outC*seqLength_, netHeight, netWidth, 32, "Conv3A viewer"));
 	constexpr auto patchSize = 20;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);
 	layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 4, "Encoder0", train, wd, gradAccumLength_));
-	//layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 4, "Encoder1", train, wd, gradAccumLength_));
-	//layers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchStateTotal_*numPatches, outC, 1, 1, "LayerNorm", train, wd, gradAccumLength_));
+	//layers_.push_back(new ViewerLayer(numPatches, 24, 32, 16, "PatchEmbedLayer viewer"));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, outC*numPatches, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
