@@ -39,7 +39,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	}
 	//layers_.push_back(new ViewerLayer(numPatches, 24, 32, 16, "PatchEmbedLayer viewer"));
 	layers_.push_back(new GlobalPoolLayer(batchStateTotal_, numPatches, outC, "GlobalPool", train));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, outC*numPatches, "SplitOut", train, wd, gradAccumLength_));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, outC, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = max(maxBufferSize_, layer->GetOptimizerStateSize());
