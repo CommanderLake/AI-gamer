@@ -80,6 +80,8 @@ void OptimizedWmmaAttentionBackward(const __half* Q, const __half* K, const __ha
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first);
+void GlobalAvgPoolForward(const __half* input, __half* output, int batchSize, int tokens, int embedDim);
+void GlobalAvgPoolBackward(const __half* grad, __half* outGrad, int batchSize, int tokens, int embedDim);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
 void GetLaunchConfig(int n, int& blocks, int& tpb);

@@ -113,6 +113,7 @@
     <ClInclude Include="CuCommon.cuh" />
     <ClInclude Include="CustomOutLayer.h" />
     <ClInclude Include="GELULayer.h" />
+    <ClInclude Include="GlobalPoolLayer.h" />
     <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="MHALayer.h" />
     <ClInclude Include="PatchEmbedLayer.h" />
@@ -148,6 +149,7 @@
     <ClCompile Include="ConvScale.cpp" />
     <ClCompile Include="CustomOutLayer.cpp" />
     <ClCompile Include="GELULayer.cpp" />
+    <ClCompile Include="GlobalPoolLayer.cpp" />
     <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="MHALayer.cpp" />
     <ClCompile Include="NvDisplayCap.cpp" />

@@ -1,41 +1,41 @@
 #include "WmmaAttentionLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
-WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
-	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), weightDecay_(weightDecay){
+WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, WeightInitMethod weightInitMethod, const int gradAccumLength) : cudnnHandle_(cudnnHandle),
+	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
-	headDim_ = embedDim_/numHeads_;
-	outNCHW_ = batchSize_*tokens_*embedDim_;
-	alphaWeights_ = 1.0f/(batchSize_*tokens_);
-	const size_t projSize = embedDim_*embedDim_;
-	CUDAMallocZero(&qWeights_, projSize*sizeof(__half));
-	CUDAMallocZero(&kWeights_, projSize*sizeof(__half));
-	CUDAMallocZero(&vWeights_, projSize*sizeof(__half));
-	CUDAMallocZero(&oWeights_, projSize*sizeof(__half));
-	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + batchSize_*tokens_*tokens_*numHeads_*sizeof(float));
+	headDim_ = embedDim_ / numHeads_;
+	outNCHW_ = batchSize_ * tokens_ * embedDim_;
+	alphaWeights_ = 1.0f / (batchSize_ * gradAccumLength_);
+	const size_t projSize = embedDim_ * embedDim_;
+	CUDAMallocZero(&qWeights_, projSize * sizeof(__half));
+	CUDAMallocZero(&kWeights_, projSize * sizeof(__half));
+	CUDAMallocZero(&vWeights_, projSize * sizeof(__half));
+	CUDAMallocZero(&oWeights_, projSize * sizeof(__half));
+	CUDAMallocZero(&outData_, outNCHW_ * sizeof(__half));
+	CUDAMallocZero(&workspace_, 4 * outNCHW_ * sizeof(__half) + batchSize_ * tokens_ * tokens_ * numHeads_ * sizeof(float));
 	if(train_){
 		WeightInit(qWeights_, projSize, embedDim_, weightInitMethod);
 		WeightInit(kWeights_, projSize, embedDim_, weightInitMethod);
 		WeightInit(vWeights_, projSize, embedDim_, weightInitMethod);
 		WeightInit(oWeights_, projSize, embedDim_, weightInitMethod);
-		CUDAMallocZero(&gradQ_, projSize*sizeof(__half));
-		CUDAMallocZero(&gradK_, projSize*sizeof(__half));
-		CUDAMallocZero(&gradV_, projSize*sizeof(__half));
-		CUDAMallocZero(&gradOut_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_Q_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_Q_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_K_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_K_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_V_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_V_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_O_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_O_, projSize*sizeof(__half));
-		CUDAMallocZero(&dQ, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dK, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dV, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
+		CUDAMallocZero(&gradQ_, projSize * sizeof(__half));
+		CUDAMallocZero(&gradK_, projSize * sizeof(__half));
+		CUDAMallocZero(&gradV_, projSize * sizeof(__half));
+		CUDAMallocZero(&gradOut_, projSize * sizeof(__half));
+		CUDAMallocZero(&m_Q_, projSize * sizeof(__half));
+		CUDAMallocZero(&v_Q_, projSize * sizeof(__half));
+		CUDAMallocZero(&m_K_, projSize * sizeof(__half));
+		CUDAMallocZero(&v_K_, projSize * sizeof(__half));
+		CUDAMallocZero(&m_V_, projSize * sizeof(__half));
+		CUDAMallocZero(&v_V_, projSize * sizeof(__half));
+		CUDAMallocZero(&m_O_, projSize * sizeof(__half));
+		CUDAMallocZero(&v_O_, projSize * sizeof(__half));
+		CUDAMallocZero(&dQ, outNCHW_ * sizeof(__half));
+		CUDAMallocZero(&dK, outNCHW_ * sizeof(__half));
+		CUDAMallocZero(&dV, outNCHW_ * sizeof(__half));
+		CUDAMallocZero(&outGrad_, outNCHW_ * sizeof(__half));
 	}
 }
 WmmaAttentionLayer::~WmmaAttentionLayer(){

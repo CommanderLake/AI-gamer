@@ -108,3 +108,33 @@ void GetPrediction(const __half* predBatch, float* prediction, const int numCtrl
 	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize*numCtrls);
 	cudaDeviceSynchronize();
 }
+__global__ void GlobalAvgPoolForwardKernel(const __half* input, __half* output, int batchSize, int tokens, int embedDim){
+	int b = blockIdx.x;
+	int c = blockIdx.y * blockDim.x + threadIdx.x;
+	if(b < batchSize && c < embedDim){
+		float sum = 0.0f;
+		for(int t = 0; t < tokens; t++){
+			int idx = (b * tokens + t) * embedDim + c;
+			sum += __half2float(input[idx]);
+		}
+		output[b * embedDim + c] = __float2half(sum / tokens);
+	}
+}
+void GlobalAvgPoolForward(const __half* input, __half* output, int batchSize, int tokens, int embedDim){
+	dim3 grid (batchSize, DivCeil(embedDim, BS));
+	GlobalAvgPoolForwardKernel<<<grid, BS>>>(input, output, batchSize, tokens, embedDim);
+}
+__global__ void GlobalAvgPoolBackwardKernel(const __half* grad, __half* outGrad, int batchSize, int tokens, int embedDim){
+	int b = blockIdx.x;
+	int t = blockIdx.y;
+	int c = threadIdx.x + blockIdx.z * blockDim.x;
+	if(b < batchSize && t < tokens && c < embedDim){
+		int out_idx = (b * tokens + t) * embedDim + c;
+		int in_idx = b * embedDim + c;
+		outGrad[out_idx] = __float2half(__half2float(grad[in_idx]) / tokens);
+	}
+}
+void GlobalAvgPoolBackward(const __half* grad, __half* outGrad, int batchSize, int tokens, int embedDim){
+	dim3 grid(batchSize, tokens, DivCeil(embedDim, BS));
+	GlobalAvgPoolBackwardKernel<<<grid, BS>>>(grad, outGrad, batchSize, tokens, embedDim);
+}

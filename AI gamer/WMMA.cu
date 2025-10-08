@@ -549,7 +549,7 @@ OptimizedWmmaAttentionBackwardKernel(const __half* __restrict__ Q, const __half*
 #pragma unroll
 					for(int i = 0; i < WMMA_M; i++){
 #pragma unroll
-						for(int j = 0; j < WMMA_K && k_block * TILE_K + k * WMMA_K + j < T; j++){ datt_tile[i * WMMA_K + j] = dAtt_smem[(m * WMMA_M + i) * (T + 8) + k_block * TILE_K + k * WMMA_K + j] * scale; }
+						for(int j = 0; j < WMMA_K && k_block * TILE_K + k * WMMA_K + j < T; j++){ datt_tile[i * WMMA_K + j] = dAtt_smem[(m * WMMA_M + i) * (T + 8) + k_block * TILE_K + k * WMMA_K + j]/scale; }
 					}
 					__half datt_tile_half[WMMA_M * WMMA_K];
 #pragma unroll
@@ -578,7 +578,7 @@ OptimizedWmmaAttentionBackwardKernel(const __half* __restrict__ Q, const __half*
 #pragma unroll
 				for(int i = 0; i < WMMA_M && block_m * TILE_M + i < T; i++){
 #pragma unroll
-					for(int j = 0; j < WMMA_K && k_block * TILE_K + m * WMMA_M + j < T; j++){ datt_tile[j * WMMA_M + i] = dAtt_smem[i * (T + 8) + k_block * TILE_K + m * WMMA_M + j] * scale; }
+					for(int j = 0; j < WMMA_K && k_block * TILE_K + m * WMMA_M + j < T; j++){ datt_tile[j * WMMA_M + i] = dAtt_smem[i * (T + 8) + k_block * TILE_K + m * WMMA_M + j]/scale; }
 				}
 				__half datt_tile_half[WMMA_M * WMMA_K];
 #pragma unroll

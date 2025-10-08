@@ -23,6 +23,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
 	if(train_){
 		WeightInit(weights_, weightCount_, embedDim_, weightInitMethod);
+		WeightInit(posEmbed_, posCount_, embedDim_, weightInitMethod);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&gradPosEmbed_, posCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, batchSize_*inC_*inH_*inW_*sizeof(__half));
