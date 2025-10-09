@@ -55,6 +55,9 @@ struct ConvolutionAlgorithms{
 };
 extern std::vector<std::string> trainDataFiles;
 extern std::string valDataFile;
+extern std::string trainDataOutFileName;
+extern std::string ckptFileName;
+extern std::string optFileName;
 extern std::vector<RecordIndex> trainRecordIndices;
 extern std::vector<RecordIndex> valRecordIndices;
 extern ThreadPool threadPool;
@@ -63,9 +66,6 @@ void LoadBatchLSTM(StateBatch* batch, int batchSize, int seqLength, int stateSiz
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
 ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t xDesc, cudnnFilterDescriptor_t wDesc, cudnnConvolutionDescriptor_t convDesc, cudnnTensorDescriptor_t yDesc, bool isTraining);
 void OrthogonalInit(__half* output, int rows, int cols, WeightInitMethod method);
-const std::string trainDataOutFileName("I:\\TrainingData.bin");
-const std::string ckptFileName("I:\\AIGamer.ckpt");
-const std::string optFileName("I:\\AIGamer.opt");
 constexpr int NUM_BUTS_ = 14;
 constexpr int NUM_AXES_ = 2;
 constexpr int NUM_CTRLS_ = NUM_BUTS_ + NUM_AXES_;
