@@ -713,4 +713,5 @@ void OptimizedWmmaAttentionBackward(const __half* Q, const __half* K, const __ha
 	if(!launched){
 		WmmaAttentionBackward(Q, K, V, dOut, Att, dQ, dK, dV, B, T, D, H);
 	}
+	checkCUDA(cudaDeviceSynchronize());
 }
