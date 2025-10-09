@@ -149,8 +149,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("WmmaAttention Forward error: %s\n", cudaGetErrorString(e));
 }
-__global__ void WmmaAttentionBackwardKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const float* __restrict__ AttentionWeights, __half* __restrict__ dQ, __half* __restrict__ dK, __half* __restrict__ dV, int B, int T,
-											int D, int H){
+__global__ void WmmaAttentionBackwardKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const float* __restrict__ AttentionWeights, __half* __restrict__ dQ, __half* __restrict__ dK, __half* __restrict__ dV, int B, int T, int D, int H){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int row_block = blockIdx.x;
@@ -415,7 +414,9 @@ OptimizedWmmaAttentionBackwardKernel(const __half* __restrict__ Q, const __half*
 	__syncthreads();
 	// Step 1: Compute dV = Att^T @ dOut
 	// Process in tiles to accumulate results in registers before writing
-	float dV_accum[4][4] = {0.0f}; // Local accumulator for each thread
+	float dV_accum[WMMA_M*WMMA_N];
+#pragma unroll
+	for(int i = 0; i < WMMA_M*WMMA_N; ++i){ dV_accum[i] = 0.0f; }
 	for(int k_block = 0; k_block < (T + TILE_K - 1) / TILE_K; k_block++){
 		// Load K tile for current k_block
 #pragma unroll
@@ -452,12 +453,14 @@ OptimizedWmmaAttentionBackwardKernel(const __half* __restrict__ Q, const __half*
 			}
 			// Store to accumulator
 			if(k_block*TILE_K + warp_m*WMMA_M < T && d_block*WMMA_N < D){
-				wmma::store_matrix_sync(&dV_accum[0][0], c_frag, 4, wmma::mem_row_major);
+				wmma::store_matrix_sync(dV_accum, c_frag, WMMA_N, wmma::mem_row_major);
 				// Write to global memory with coalesced access
 #pragma unroll
 				for(int i = 0; i < WMMA_M && k_block*TILE_K + warp_m*WMMA_M + i < T; i++){
 #pragma unroll
-					for(int j = 0; j < WMMA_N && d_block*WMMA_N + j < D; j++){ atomicAdd(&dV[batch_head_offset + (k_block*TILE_K + warp_m*WMMA_M + i)*D + d_block*WMMA_N + j], __float2half(dV_accum[i][j])); }
+					for(int j = 0; j < WMMA_N && d_block*WMMA_N + j < D; j++){
+						atomicAdd(&dV[batch_head_offset + (k_block*TILE_K + warp_m*WMMA_M + i)*D + d_block*WMMA_N + j], __float2half(dV_accum[i*WMMA_N + j]));
+					}
 				}
 			}
 		}
