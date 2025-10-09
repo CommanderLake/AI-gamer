@@ -307,9 +307,9 @@ void ClearScreen(char fill){
 }
 std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\trainingData0.bin", "E:\\TrainingData\\trainingData1.bin"};
 std::string valDataFile = "E:\\TrainingData\\validationData.bin";
-std::string trainDataOutFileName = "I:\\TrainingData.bin";
-std::string ckptFileName = "I:\\AIGamer.ckpt";
-std::string optFileName = "I:\\AIGamer.opt";
+std::string trainDataOutFileName = "E:\\TrainingData.bin";
+std::string ckptFileName = "E:\\AIGamer.ckpt";
+std::string optFileName = "E:\\AIGamer.opt";
 std::vector<RecordIndex> trainRecordIndices;
 std::vector<RecordIndex> valRecordIndices;
 std::mutex recordIndicesMutex;

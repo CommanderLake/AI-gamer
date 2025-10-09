@@ -32,7 +32,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto patchSize = 20;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);
-	constexpr int numEncoders = 4;
+	constexpr int numEncoders = 8;
 	for(int i = 0; i < numEncoders; ++i){
 		std::string name = "Encoder" + std::to_string(i);
 		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 6, _strdup(name.c_str()), train, wd, gradAccumLength_));
