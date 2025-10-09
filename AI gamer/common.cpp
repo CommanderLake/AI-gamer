@@ -300,7 +300,7 @@ void ClearScreen(char fill){
 	const HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
 	GetConsoleScreenBufferInfo(console, &s);
 	DWORD written;
-	const DWORD cells = s.dwSize.X * s.dwSize.Y;
+	const DWORD cells = s.dwSize.X*s.dwSize.Y;
 	FillConsoleOutputCharacter(console, fill, cells, tl, &written);
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
@@ -358,14 +358,14 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 					std::cerr << "Failed to read input states at index " << i << " from file: " << *record.fileName << "\n";
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData + i * stateSize), stateSize)){ std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n"; }
+				if(!file.read(reinterpret_cast<char*>(batch->stateData + i*stateSize), stateSize)){ std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n"; }
 			} catch(const std::exception&){ }
 		});
 	}
 }
 void LoadBatchLSTM(StateBatch* batch, const int batchSize, int seqLength, const int stateSize, const bool validation){
 	const std::vector<RecordIndex>* recordIndices = validation ? &valRecordIndices : &trainRecordIndices;
-	if(recordIndices->size() < batchSize * seqLength){
+	if(recordIndices->size() < batchSize*seqLength){
 		std::cerr << "Not enough records in the index to load the batch\n";
 		return;
 	}
@@ -383,12 +383,12 @@ void LoadBatchLSTM(StateBatch* batch, const int batchSize, int seqLength, const 
 						std::cerr << "Failed to seek to position:" << record.position << " in file: " << *record.fileName << "\n";
 						return;
 					}
-					const auto index = i * seqLength + t;
+					const auto index = i*seqLength + t;
 					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[index]), sizeof(InputState))){
 						std::cerr << "Failed to read input states for sequence " << index << " from file: " << *record.fileName << "\n";
 						return;
 					}
-					if(!file.read(reinterpret_cast<char*>(batch->stateData + index * stateSize), stateSize)){
+					if(!file.read(reinterpret_cast<char*>(batch->stateData + index*stateSize), stateSize)){
 						std::cerr << "Failed to read stateData at index " << index << " from file: " << *record.fileName << "\n";
 						return;
 					}
@@ -408,7 +408,7 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
 			const auto& record = states[randomIndex];
 			batch->inputStates[i] = record->inputState;
-			if(batch->stateData && record->stateData){ std::memcpy(batch->stateData + i * stateSize, record->stateData, stateSize); } else{ std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << "\n"; }
+			if(batch->stateData && record->stateData){ std::memcpy(batch->stateData + i*stateSize, record->stateData, stateSize); } else{ std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << "\n"; }
 		});
 	}
 }
@@ -464,25 +464,25 @@ void OrthogonalInit(__half* output, const int rows, const int cols, WeightInitMe
 		fan_in = rows;
 		fan_out = cols;
 	}
-	const size_t matrixSize = static_cast<size_t>(m) * n;
+	const size_t matrixSize = static_cast<size_t>(m)*n;
 	if(matrixSize_ < matrixSize){
 		if(matrixSize_ > 0){
 			_mm_free(matrixF_);
 			_mm_free(matrixH_);
 		}
-		matrixF_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
-		matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize * sizeof(__half), 64));
+		matrixF_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
+		matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize*sizeof(__half), 64));
 		matrixSize_ = matrixSize;
 	}
 	if(transpose && matrixTSize_ < matrixSize){
 		if(matrixTSize_ > 0){ _mm_free(matrixT_); }
-		matrixT_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
+		matrixT_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
 		matrixTSize_ = matrixSize;
 	}
 	const size_t tauSize = min(m, n);
 	if(tauSize_ < tauSize){
 		if(tauSize_ > 0){ _mm_free(tau_); }
-		tau_ = static_cast<float*>(_mm_malloc(tauSize * sizeof(float), 64));
+		tau_ = static_cast<float*>(_mm_malloc(tauSize*sizeof(float), 64));
 		tauSize_ = tauSize;
 	}
 	InitializeStream();
@@ -492,10 +492,10 @@ void OrthogonalInit(__half* output, const int rows, const int cols, WeightInitMe
 	if(info != 0){
 		return;
 	}
-	const auto tempMatrix = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
-	const auto tempTau = static_cast<float*>(_mm_malloc(tauSize * sizeof(float), 64));
-	memcpy(tempMatrix, matrixF_, matrixSize * sizeof(float));
-	const auto tempWork = static_cast<float*>(_mm_malloc(static_cast<size_t>(workQueryQRF) * sizeof(float), 64));
+	const auto tempMatrix = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
+	const auto tempTau = static_cast<float*>(_mm_malloc(tauSize*sizeof(float), 64));
+	memcpy(tempMatrix, matrixF_, matrixSize*sizeof(float));
+	const auto tempWork = static_cast<float*>(_mm_malloc(static_cast<size_t>(workQueryQRF)*sizeof(float), 64));
 	LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, tempMatrix, m, tempTau, tempWork, static_cast<lapack_int>(workQueryQRF));
 	info = LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, tauSize, tempMatrix, m, tempTau, &workQueryORGQR, -1);
 	if(info != 0){
@@ -510,7 +510,7 @@ void OrthogonalInit(__half* output, const int rows, const int cols, WeightInitMe
 	const size_t optimalWorkSize = max(static_cast<size_t>(workQueryQRF), static_cast<size_t>(workQueryORGQR));
 	if(workSize_ < optimalWorkSize){
 		if(workSize_ > 0){ _mm_free(work_); }
-		work_ = static_cast<float*>(_mm_malloc(optimalWorkSize * sizeof(float), 64));
+		work_ = static_cast<float*>(_mm_malloc(optimalWorkSize*sizeof(float), 64));
 		workSize_ = optimalWorkSize;
 	}
 	info = LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, work_, workSize_);
@@ -525,7 +525,7 @@ void OrthogonalInit(__half* output, const int rows, const int cols, WeightInitMe
 	if(transpose){
 		for(int r = 0; r < rows; ++r){
 			for(int c = 0; c < cols; ++c){
-				matrixT_[r * cols + c] = matrixF_[c * rows + r];
+				matrixT_[r*cols + c] = matrixF_[c*rows + r];
 			}
 		}
 		outF = matrixT_;
@@ -536,6 +536,6 @@ void OrthogonalInit(__half* output, const int rows, const int cols, WeightInitMe
 	for(int i = 0; i < rows*cols; ++i){
 		outF[i] *= scale;
 	}
-	FloatToHalfAsm(outF, matrixH_, rows * cols);
-	checkCUDA(cudaMemcpy(output, matrixH_, rows * cols * sizeof(__half), cudaMemcpyHostToDevice));
+	FloatToHalfAsm(outF, matrixH_, rows*cols);
+	checkCUDA(cudaMemcpy(output, matrixH_, rows*cols*sizeof(__half), cudaMemcpyHostToDevice));
 }

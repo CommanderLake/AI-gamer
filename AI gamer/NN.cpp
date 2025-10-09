@@ -27,7 +27,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
-	constexpr auto wd = 0.000001f;
+	constexpr auto wd = 0.00001f;
 	auto outC = 768;
 	constexpr auto patchSize = 20;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_, Xavier));

@@ -110,14 +110,14 @@ void GetPrediction(const __half* predBatch, float* prediction, const int numCtrl
 }
 __global__ void GlobalAvgPoolForwardKernel(const __half* input, __half* output, int batchSize, int tokens, int embedDim){
 	int b = blockIdx.x;
-	int c = blockIdx.y * blockDim.x + threadIdx.x;
+	int c = blockIdx.y*blockDim.x + threadIdx.x;
 	if(b < batchSize && c < embedDim){
 		float sum = 0.0f;
 		for(int t = 0; t < tokens; t++){
-			int idx = (b * tokens + t) * embedDim + c;
+			int idx = (b*tokens + t)*embedDim + c;
 			sum += __half2float(input[idx]);
 		}
-		output[b * embedDim + c] = __float2half(sum / tokens);
+		output[b*embedDim + c] = __float2half(sum / tokens);
 	}
 }
 void GlobalAvgPoolForward(const __half* input, __half* output, int batchSize, int tokens, int embedDim){
@@ -127,10 +127,10 @@ void GlobalAvgPoolForward(const __half* input, __half* output, int batchSize, in
 __global__ void GlobalAvgPoolBackwardKernel(const __half* grad, __half* outGrad, int batchSize, int tokens, int embedDim){
 	int b = blockIdx.x;
 	int t = blockIdx.y;
-	int c = threadIdx.x + blockIdx.z * blockDim.x;
+	int c = threadIdx.x + blockIdx.z*blockDim.x;
 	if(b < batchSize && t < tokens && c < embedDim){
-		int out_idx = (b * tokens + t) * embedDim + c;
-		int in_idx = b * embedDim + c;
+		int out_idx = (b*tokens + t)*embedDim + c;
+		int in_idx = b*embedDim + c;
 		outGrad[out_idx] = __float2half(__half2float(grad[in_idx]) / tokens);
 	}
 }
