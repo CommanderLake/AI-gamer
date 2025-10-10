@@ -6,7 +6,7 @@
 #include "EncoderLayer.h"
 #include "GlobalPoolLayer.h"
 #include "PatchEmbedLayer.h"
-#include "ViewerLayer.h"
+//#include "ViewerLayer.h"
 NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
@@ -28,21 +28,23 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.00001f;
-	auto outC = 768;
 	constexpr auto patchSize = 20;
-	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, outC, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
+	constexpr auto embedDim = 768;
+	constexpr auto ffDim = embedDim*4;
+	constexpr int numHeads = 12;
+	constexpr int numEncoders = 12;
+	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);
-	constexpr int numEncoders = 8;
 	for(int i = 0; i < numEncoders; ++i){
 		std::string name = "Encoder" + std::to_string(i);
-		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, outC, outC, 6, _strdup(name.c_str()), train, wd, gradAccumLength_));
+		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_));
 	}
 	//layers_.push_back(new ViewerLayer(numPatches, 24, 32, 16, "PatchEmbedLayer viewer"));
-	layers_.push_back(new GlobalPoolLayer(batchStateTotal_, numPatches, outC, "GlobalPool", train));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, outC, "SplitOut", train, wd, gradAccumLength_));
+	layers_.push_back(new GlobalPoolLayer(batchStateTotal_, numPatches, embedDim, "GlobalPool", train));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, embedDim, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
-		maxBufferSize_ = max(maxBufferSize_, layer->GetParameterSize());
-		maxBufferSize_ = max(maxBufferSize_, layer->GetOptimizerStateSize());
+		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
+		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
 	}
 	std::cout<<"Done\n";
 	if(ckptFile.is_open()){

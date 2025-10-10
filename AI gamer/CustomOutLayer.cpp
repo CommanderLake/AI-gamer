@@ -6,7 +6,7 @@
 #include "Dropout.h"
 #include "GELULayer.h"
 #include "SigmoidLayer.h"
-#include "ViewerLayer.h"
+//#include "ViewerLayer.h"
 CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int inputSize, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
 	cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
@@ -14,18 +14,18 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	outNCHW_ = batchSize_*NUM_CTRLS_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1));
-	constexpr auto outC = 1024;
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Buts_FC1", train, weightDecay, gradAccumLength_, Xavier));
-	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, outC, 1, 1, "Buts_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
-	buttonLayers_.push_back(new GELULayer(batchSize_*seqLength_, outC, 1, 1, "GELU"));
-	buttonLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_*seqLength_, outC, 1, 1, "Buts_Dropout1", train));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC, NUM_BUTS_, "Buts_FC_Out", train, weightDecay, gradAccumLength_, Xavier));
+	const int hiddenDim = std::max(inputSize*3/2, 1536);
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, hiddenDim, "Buts_FC1", train, weightDecay, gradAccumLength_, Xavier));
+	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, hiddenDim, 1, 1, "Buts_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
+	buttonLayers_.push_back(new GELULayer(batchSize_*seqLength_, hiddenDim, 1, 1, "GELU"));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_*seqLength_, hiddenDim, 1, 1, "Buts_Dropout1", train));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, hiddenDim, NUM_BUTS_, "Buts_FC_Out", train, weightDecay, gradAccumLength_, Xavier));
 	buttonLayers_.push_back(new SigmoidLayer(batchSize_*seqLength_, NUM_BUTS_, NUM_BUTS_, "Buts_Sigmoid"));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, outC, "Axes_FC1", train, weightDecay, gradAccumLength_, Xavier));
-	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, outC, 1, 1, "Axes_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
-	axisLayers_.push_back(new GELULayer(batchSize_*seqLength_, outC, 1, 1, "GELU"));
-	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_*seqLength_, outC, 1, 1, "Axes_Dropout1", train));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, outC, NUM_AXES_, "Axes_FC_Out", train, weightDecay, gradAccumLength_, Xavier));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, hiddenDim, "Axes_FC1", train, weightDecay, gradAccumLength_, Xavier));
+	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, hiddenDim, 1, 1, "Axes_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
+	axisLayers_.push_back(new GELULayer(batchSize_*seqLength_, hiddenDim, 1, 1, "GELU"));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_*seqLength_, hiddenDim, 1, 1, "Axes_Dropout1", train));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, hiddenDim, NUM_AXES_, "Axes_FC_Out", train, weightDecay, gradAccumLength_, Xavier));
 	CUDAMallocZero(&predictions_, batchSize_*seqLength_*NUM_CTRLS_*sizeof(__half));
 }
 CustomOutLayer::~CustomOutLayer(){
@@ -95,14 +95,14 @@ void CustomOutLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buff
 }
 size_t CustomOutLayer::GetParameterSize(){
 	size_t maxSize = 0;
-	for(int i = 0; i<buttonLayers_.size(); ++i){ maxSize = max(maxSize, buttonLayers_[i]->GetParameterSize()); }
-	for(int i = 0; i<axisLayers_.size(); ++i){ maxSize = max(maxSize, axisLayers_[i]->GetParameterSize()); }
+	for(int i = 0; i<buttonLayers_.size(); ++i){ maxSize = std::max(maxSize, buttonLayers_[i]->GetParameterSize()); }
+	for(int i = 0; i<axisLayers_.size(); ++i){ maxSize = std::max(maxSize, axisLayers_[i]->GetParameterSize()); }
 	return maxSize;
 }
 size_t CustomOutLayer::GetOptimizerStateSize(){
 	size_t maxSize = 0;
-	for(int i = 0; i<buttonLayers_.size(); ++i){ maxSize = max(maxSize, buttonLayers_[i]->GetOptimizerStateSize()); }
-	for(int i = 0; i<axisLayers_.size(); ++i){ maxSize = max(maxSize, axisLayers_[i]->GetOptimizerStateSize()); }
+	for(int i = 0; i<buttonLayers_.size(); ++i){ maxSize = std::max(maxSize, buttonLayers_[i]->GetOptimizerStateSize()); }
+	for(int i = 0; i<axisLayers_.size(); ++i){ maxSize = std::max(maxSize, axisLayers_[i]->GetOptimizerStateSize()); }
 	return maxSize;
 }
 void CustomOutLayer::SetTrain(const bool enable){
