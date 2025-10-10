@@ -1,5 +1,5 @@
-#include "CuCommon.cuh"
 #define __CUDACC__
+#include "CuCommon.cuh"
 #include <device_launch_parameters.h>
 #include <device_functions.h>
 #include <math_functions.h>
@@ -18,9 +18,8 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	const int batch_head_offset = (batch*H + head)*T*D;
 	extern __shared__ char shared_mem_bytes[];
 	auto Q_shared = (__half*)shared_mem_bytes;
-	__half* K_shared = Q_shared + 16*D;
-	__half* K_transposed = K_shared + 16*D;
-	__half* V_tile = K_transposed + 16*16;
+	__half* K_tile = Q_shared + 16*D;
+	__half* V_tile = K_tile + 16*16;
 	auto scores_shared = (float*)(V_tile + 16*16);
 	float* row_max = scores_shared + 16*T;
 	float* row_sum = row_max + 16;
@@ -45,25 +44,27 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	for(int col_block = 0; col_block < (T + 15) / 16; col_block++){
 		fill_fragment(scores_frag, 0.0f);
 #pragma unroll
-		for(int d = threadIdx.x; d < D*16; d += blockDim.x){
-			const int row = d / D;
-			const int col = d % D;
-			if(col_block*16 + row < T){ K_shared[row*D + col] = K[batch_head_offset + (col_block*16 + row)*D + col]; } else{ K_shared[row*D + col] = __float2half(0.0f); }
-		}
-		__syncthreads();
-#pragma unroll
 		for(int d_block = 0; d_block < (D + 15) / 16; d_block++){
-			if(warp_id == 0){
-#pragma unroll
-				for(int i = lane_id; i < 16*16; i += 32){
-					const int row = i / 16;
-					const int col = i % 16;
-					if(d_block*16 + col < D){ K_transposed[col*16 + row] = K_shared[row*D + d_block*16 + col]; } else{ K_transposed[col*16 + row] = __float2half(0.0f); }
+			const int total_pairs = (16*16) / 2;
+			for(int pair_idx = threadIdx.x; pair_idx < total_pairs; pair_idx += blockDim.x){
+				const int col = pair_idx / 8;
+				const int pair_in_col = pair_idx % 8;
+				const int row = pair_in_col * 2;
+				const int global_col = col_block*16 + col;
+				const int global_row0 = d_block*16 + row;
+				const int global_row1 = global_row0 + 1;
+				__half val0 = __float2half(0.0f);
+				__half val1 = __float2half(0.0f);
+				if(global_col < T && global_row0 < D){
+					const int base_index = batch_head_offset + global_col*D + global_row0;
+					val0 = K[base_index];
+					if(global_row1 < D){ val1 = K[base_index + 1]; }
 				}
+				reinterpret_cast<__half2*>(K_tile + col*16 + row)[0] = __halves2half2(val0, val1);
 			}
 			__syncthreads();
 			load_matrix_sync(q_frag, Q_shared + d_block*16, D);
-			load_matrix_sync(k_frag, K_transposed, 16);
+			load_matrix_sync(k_frag, K_tile, 16);
 			mma_sync(scores_frag, q_frag, k_frag, scores_frag);
 		}
 #pragma unroll
@@ -113,13 +114,21 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 #pragma unroll
 		for(int col_block = 0; col_block < (T + 15) / 16; col_block++){
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> att_frag;
-			if(warp_id == 0){
-#pragma unroll
-				for(int i = lane_id; i < 16*16; i += 32){
-					const int row = i / 16;
-					const int col = i % 16;
-					if(col_block*16 + col < T){ att_tile[row*16 + col] = __float2half(scores_shared[row*T + col_block*16 + col]); } else{ att_tile[row*16 + col] = __float2half(0.0f); }
+			const int att_pairs = (16*16) / 2;
+			for(int pair_idx = threadIdx.x; pair_idx < att_pairs; pair_idx += blockDim.x){
+				const int row = pair_idx / 8;
+				const int pair_in_row = pair_idx % 8;
+				const int col = pair_in_row * 2;
+				const int global_row = row_block*16 + row;
+				const int global_col0 = col_block*16 + col;
+				const int global_col1 = global_col0 + 1;
+				float val0 = 0.0f;
+				float val1 = 0.0f;
+				if(global_row < T){
+					if(global_col0 < T){ val0 = scores_shared[row*T + global_col0]; }
+					if(global_col1 < T){ val1 = scores_shared[row*T + global_col1]; }
 				}
+				reinterpret_cast<__half2*>(att_tile + row*16 + col)[0] = __halves2half2(__float2half(val0), __float2half(val1));
 			}
 			__syncthreads();
 #pragma unroll
@@ -148,7 +157,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 	dim3 block(128);
 	dim3 grid((T + 15) / 16, B, H);
 	const int num_warps = block.x / 32;
-	size_t shared_size = sizeof(__half)*(16*D*2 + 16*16 + 16*16 + 16*16) + sizeof(float)*(16*T + 16 + 16 + 16*num_warps);
+	size_t shared_size = sizeof(__half)*(16*D + 3*16*16) + sizeof(float)*(16*T + 16 + 16 + 16*num_warps);
 	cudaFuncSetAttribute(WmmaAttentionKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
 	WmmaAttentionKernel<<<grid, block, shared_size>>>(Q, K, V, Out, AttentionWeights, B, T, D, H);
 	const auto e = cudaGetLastError();
