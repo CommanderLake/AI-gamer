@@ -1,4 +1,10 @@
+#define __CUDACC__
 #include "CuCommon.cuh"
+#include <device_launch_parameters.h>
+#include <device_functions.h>
+#include <math_functions.h>
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
 __device__ __forceinline__ float warpReduceSum(float val){
 	for(int offset = 16; offset > 0; offset /= 2){ val += __shfl_down_sync(0xFFFFFFFF, val, offset); }
 	return val;
@@ -25,17 +31,17 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* m
 		m2 += d*(v - m);
 	}
 	__syncwarp();
-	float total_c = warpReduceSum(c);
+	const float total_c = warpReduceSum(c);
 	float weighted_mean = 0.0f;
 	if(total_c > 0){ weighted_mean = warpReduceSum(m*c) / total_c; }
 	float combined_m2 = 0.0f;
 	for(int offset = 16; offset > 0; offset /= 2){
-		float other_m = __shfl_down_sync(0xFFFFFFFF, m, offset);
-		float other_m2 = __shfl_down_sync(0xFFFFFFFF, m2, offset);
-		float other_c = __shfl_down_sync(0xFFFFFFFF, c, offset);
+		const float other_m = __shfl_down_sync(0xFFFFFFFF, m, offset);
+		const float other_m2 = __shfl_down_sync(0xFFFFFFFF, m2, offset);
+		const float other_c = __shfl_down_sync(0xFFFFFFFF, c, offset);
 		if(laneId + offset < 32 && other_c > 0){
-			float delta = other_m - m;
-			float new_c = c + other_c;
+			const float delta = other_m - m;
+			const float new_c = c + other_c;
 			if(new_c > 0){
 				combined_m2 = m2 + other_m2 + delta*delta*c*other_c / new_c;
 				m2 = combined_m2;
@@ -50,20 +56,20 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* m
 	}
 	__syncthreads();
 	if(tid < warpsPerBlock){
-		float warp_mean = sMean[tid];
+		const float warp_mean = sMean[tid];
 		float warp_m2 = sM2[tid];
 		float warp_c = sCnt[tid];
-		float total_count = warpReduceSum(warp_c);
+		const float total_count = warpReduceSum(warp_c);
 		float final_mean = 0.0f;
 		if(total_count > 0){ final_mean = warpReduceSum(warp_mean*warp_c) / total_count; }
 		float final_m2 = 0.0f;
 		for(int offset = 16; offset > 0; offset /= 2){
-			float other_mean = __shfl_down_sync(0xFFFFFFFF, warp_mean, offset);
-			float other_m2 = __shfl_down_sync(0xFFFFFFFF, warp_m2, offset);
-			float other_c = __shfl_down_sync(0xFFFFFFFF, warp_c, offset);
+			const float other_mean = __shfl_down_sync(0xFFFFFFFF, warp_mean, offset);
+			const float other_m2 = __shfl_down_sync(0xFFFFFFFF, warp_m2, offset);
+			const float other_c = __shfl_down_sync(0xFFFFFFFF, warp_c, offset);
 			if(tid + offset < warpsPerBlock && other_c > 0){
-				float delta = other_mean - warp_mean;
-				float new_c = warp_c + other_c;
+				const float delta = other_mean - warp_mean;
+				const float new_c = warp_c + other_c;
 				if(new_c > 0){
 					final_m2 = warp_m2 + other_m2 + delta*delta*warp_c*other_c / new_c;
 					warp_m2 = final_m2;
@@ -229,7 +235,7 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 		printf("LayerNorm Backward error: insufficient workspace (need %zu, got %zu)\n", required_size, workspace_size);
 		return;
 	}
-	auto d1 = static_cast<float*>(workspace);
+	const auto d1 = static_cast<float*>(workspace);
 	float* d2 = d1 + N;
 	// Clear gradients
 	cudaMemset(dG, 0, C*sizeof(float));
