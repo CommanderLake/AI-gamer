@@ -7,7 +7,7 @@
 #include "GlobalPoolLayer.h"
 #include "PatchEmbedLayer.h"
 //#include "ViewerLayer.h"
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), seqLength_(1), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(20), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
@@ -28,10 +28,10 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.00001f;
-	constexpr auto patchSize = 20;
-	constexpr auto embedDim = 768;
-	constexpr auto ffDim = embedDim*4;
-	constexpr int numHeads = 12;
+	constexpr auto patchSize = 10;
+	constexpr auto embedDim = 384;
+	constexpr auto ffDim = embedDim*3;
+	constexpr int numHeads = 8;
 	constexpr int numEncoders = 12;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);

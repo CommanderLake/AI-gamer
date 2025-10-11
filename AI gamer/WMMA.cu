@@ -26,6 +26,8 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	auto att_tile = (__half*)(row_sum + 16);
 	auto warp_row_max = reinterpret_cast<float*>(att_tile + 16*16);
 	auto warp_row_sum = warp_row_max + 16*num_warps;
+	const float scale = rsqrtf(static_cast<float>(D));
+	const __half scale_half = __float2half(scale);
 	wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> q_frag;
 	wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> k_frag;
 	wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> v_frag;
@@ -39,7 +41,11 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	for(int d = threadIdx.x; d < D*16; d += blockDim.x){
 		const int row = d / D;
 		const int col = d % D;
-		if(row_block*16 + row < T){ Q_shared[row*D + col] = Q[batch_head_offset + (row_block*16 + row)*D + col]; } else{ Q_shared[row*D + col] = __float2half(0.0f); }
+		if(row_block*16 + row < T){
+			Q_shared[row*D + col] = __hmul(Q[batch_head_offset + (row_block*16 + row)*D + col], scale_half);
+		} else{
+			Q_shared[row*D + col] = __float2half(0.0f);
+		}
 	}
 	__syncthreads();
 	const int warp_col_start = warp_id*32 + lane_id;
@@ -71,8 +77,6 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			load_matrix_sync(k_frag, K_tile, 16);
 			mma_sync(scores_frag, q_frag, k_frag, scores_frag);
 		}
-#pragma unroll
-		for(int i = 0; i < scores_frag.num_elements; i++){ scores_frag.x[i] *= rsqrtf(static_cast<float>(D)); }
 		if(warp_id == 0){ store_matrix_sync(scores_shared + col_block*16, scores_frag, T, wmma::mem_row_major); }
 		__syncthreads();
 	}
