@@ -1,6 +1,9 @@
+#define __CUDACC__
 #include "CuCommon.cuh"
+#include <device_launch_parameters.h>
+#include <cuda_fp16.h>
 #define BETA1_F 0.9f
-#define BETA2_F 0.999f
+#define BETA2_F 0.95f
 #define CLIP 1.0f
 __global__ void SGDHalfKernel(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
 	const auto stride = blockDim.x*gridDim.x;
@@ -43,6 +46,7 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 	__syncthreads();
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	const int stride = blockDim.x*gridDim.x;
+	const float lrWeightDecay = lr*wd;
 #pragma unroll 4
 	for(int i = idx; i < n / 4; i += stride){
 		float4 params4 = reinterpret_cast<const float4*>(params)[i];
@@ -67,11 +71,6 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 		vNew.y = BETA2_F*v4.y + sBeta3Complement*gradClipped.y*gradClipped.y;
 		vNew.z = BETA2_F*v4.z + sBeta3Complement*gradClipped.z*gradClipped.z;
 		vNew.w = BETA2_F*v4.w + sBeta3Complement*gradClipped.w*gradClipped.w;
-		// Apply weight decay
-		params4.x *= 1.0f - wd;
-		params4.y *= 1.0f - wd;
-		params4.z *= 1.0f - wd;
-		params4.w *= 1.0f - wd;
 		// Compute updates
 		float4 update;
 		update.x = sLrT*mNew.x / (sqrtf(vNew.x / sBiasCorrection2) + EPSILON_F);
@@ -79,10 +78,14 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 		update.z = sLrT*mNew.z / (sqrtf(vNew.z / sBiasCorrection2) + EPSILON_F);
 		update.w = sLrT*mNew.w / (sqrtf(vNew.w / sBiasCorrection2) + EPSILON_F);
 		// Apply updates
-		params4.x -= update.x;
-		params4.y -= update.y;
-		params4.z -= update.z;
-		params4.w -= update.w;
+		const float paramX = params4.x;
+		const float paramY = params4.y;
+		const float paramZ = params4.z;
+		const float paramW = params4.w;
+		params4.x = paramX - update.x - lrWeightDecay*paramX;
+		params4.y = paramY - update.y - lrWeightDecay*paramY;
+		params4.z = paramZ - update.z - lrWeightDecay*paramZ;
+		params4.w = paramW - update.w - lrWeightDecay*paramW;
 		// Store results
 		reinterpret_cast<float4*>(params)[i] = params4;
 		reinterpret_cast<float4*>(m)[i] = mNew;
@@ -94,7 +97,9 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 		const float grad = fmaxf(fminf(grads[i], CLIP), -CLIP);
 		const float mVal = BETA1_F*m[i] + sBeta1Complement*grad;
 		const float vVal = BETA2_F*v[i] + sBeta3Complement*grad*grad;
-		params[i] = (params[i] - sLrT*mVal / (sqrtf(vVal / sBiasCorrection2) + EPSILON_F))*(1.0f - wd);
+		const float param = params[i];
+		const float update = sLrT*mVal / (sqrtf(vVal / sBiasCorrection2) + EPSILON_F);
+		params[i] = param - update - lrWeightDecay*param;
 		m[i] = mVal;
 		v[i] = vVal;
 	}
@@ -111,7 +116,7 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 	__shared__ float sLrT;
 	__shared__ float sBeta1Complement;
 	__shared__ float sBeta3Complement;
-	__shared__ float sWeightDecay;
+	__shared__ float sLrWeightDecay;
 	// First thread in block computes constants
 	if(threadIdx.x == 0){
 		sBiasCorrection1 = 1.0f - powf(BETA1_F, t);
@@ -119,7 +124,7 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 		sLrT = lr / sBiasCorrection1;
 		sBeta1Complement = 1.0f - BETA1_F;
 		sBeta3Complement = 1.0f - BETA2_F;
-		sWeightDecay = 1.0f - wd;
+		sLrWeightDecay = lr*wd;
 	}
 	__syncthreads();
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -162,16 +167,17 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 			// Update velocity
 			vF2[j].x = BETA2_F*vF2[j].x + sBeta3Complement*gradsF2[j].x*gradsF2[j].x;
 			vF2[j].y = BETA2_F*vF2[j].y + sBeta3Complement*gradsF2[j].y*gradsF2[j].y;
-			// Apply weight decay
-			paramsF2[j].x *= sWeightDecay;
-			paramsF2[j].y *= sWeightDecay;
 			// Compute denominator
 			float2 denom;
 			denom.x = sqrtf(vF2[j].x / sBiasCorrection2) + EPSILON_F;
 			denom.y = sqrtf(vF2[j].y / sBiasCorrection2) + EPSILON_F;
 			// Update parameters
-			paramsF2[j].x -= sLrT*mF2[j].x / denom.x;
-			paramsF2[j].y -= sLrT*mF2[j].y / denom.y;
+			const float updateX = sLrT*mF2[j].x / denom.x;
+			const float updateY = sLrT*mF2[j].y / denom.y;
+			const float paramX = paramsF2[j].x;
+			const float paramY = paramsF2[j].y;
+			paramsF2[j].x = paramX - updateX - sLrWeightDecay*paramX;
+			paramsF2[j].y = paramY - updateY - sLrWeightDecay*paramY;
 			// Convert back to half2
 			paramsH2[j] = __float22half2_rn(paramsF2[j]);
 			mH2[j] = __float22half2_rn(mF2[j]);
@@ -191,9 +197,10 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 		const float grad = fmaxf(fminf(__half2float(grads[i]), CLIP), -CLIP);
 		const float mVal = BETA1_F*__half2float(m[i]) + sBeta1Complement*grad;
 		const float vVal = BETA2_F*__half2float(v[i]) + sBeta3Complement*grad*grad;
-		const float param = __half2float(params[i])*sWeightDecay;
+		const float param = __half2float(params[i]);
 		const float denom = sqrtf(vVal/sBiasCorrection2) + EPSILON_F;
-		params[i] = __float2half(param - sLrT*mVal/denom);
+		const float update = sLrT*mVal/denom;
+		params[i] = __float2half(param - update - sLrWeightDecay*param);
 		m[i] = __float2half(mVal);
 		v[i] = __float2half(vVal);
 	}

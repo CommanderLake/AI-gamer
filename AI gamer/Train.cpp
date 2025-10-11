@@ -19,6 +19,19 @@ void Train::Free(){
 	cudaFree(dStateBatchHalf);
 	cudaFree(dStateBatchBytes);
 }
+float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
+	constexpr float baseLr = 0.001f;
+	const float minLr = 0.00001f;
+	const size_t warmupSteps = epochBatchCount*1;
+	const size_t totalSteps = epochBatchCount*10;
+	const size_t currentStep = epoch * epochBatchCount + batch;
+	if(currentStep < warmupSteps){
+		return baseLr * static_cast<float>(currentStep) / static_cast<float>(warmupSteps);
+	}
+	const float progress = static_cast<float>(currentStep - warmupSteps) / static_cast<float>(totalSteps - warmupSteps);
+	const float cosineDecay = 0.5f * (1.0f + cosf(3.14159f*progress));
+	return minLr + (baseLr - minLr) * cosineDecay;
+}
 int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const float lr){
 	for(size_t i = 0; i < nn->batchStateTotal_; ++i){
 		for(int j = 0; j < NUM_BUTS_; ++j){
@@ -90,7 +103,8 @@ void Train::TrainModel(const int width, const int height){
 			nan = false;
 			threadPool.WaitAll();
 			fetchBatch(false);
-			const auto result = TrainBatch(nn, sbRead, true, 0.00001f);
+			const float lr = GetLearningRate(epoch, batch, epochBatchCount);
+			const auto result = TrainBatch(nn, sbRead, true, lr);
 			if(result == -1) nan = true;
 		}
 		threadPool.WaitAll();

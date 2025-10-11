@@ -27,7 +27,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
-	constexpr auto wd = 0.00001f;
+	constexpr auto wd = 0.05f;
 	constexpr auto patchSize = 10;
 	constexpr auto embedDim = 384;
 	constexpr auto ffDim = embedDim*3;

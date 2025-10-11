@@ -26,7 +26,7 @@ const char* cublasGetErrorString(cublasStatus_t status);
         throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(status)); \
     } \
 }
-#define EPSILON_F 1e-5f
+#define EPSILON_F 1e-6f
 extern curandGenerator_t generator_;
 extern int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 struct pixARGB{
@@ -74,8 +74,8 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first);
-void GlobalAvgPoolForward(const __half* input, __half* output, int batchSize, int tokens, int embedDim);
-void GlobalAvgPoolBackward(const __half* grad, __half* outGrad, int batchSize, int tokens, int embedDim);
+void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
+void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
 void GetLaunchConfig(int n, int& blocks, int& tpb);
