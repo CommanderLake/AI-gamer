@@ -5,7 +5,7 @@
 #include <cudnn.h>
 class WmmaAttentionLayer final : public Layer{
 public:
-	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, int maxTokens);
 	~WmmaAttentionLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -30,6 +30,9 @@ private:
 	__half *m_Q_, *v_Q_, *m_K_, *v_K_, *m_V_, *v_V_, *m_O_, *v_O_;
 	__half *dQ, *dK, *dV;
 	__half* workspace_;
+	float* attnGradWorkspace_ = nullptr;
+	size_t attnGradWorkspaceSize_ = 0;
+	int gradWorkspaceTokens_ = 0;
 	int gradAccumLength_;
 	int t_ = 1;
 	const float alpha_ = 1.0f;
