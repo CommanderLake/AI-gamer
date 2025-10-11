@@ -90,7 +90,7 @@ void Train::TrainModel(const int width, const int height){
 			nan = false;
 			threadPool.WaitAll();
 			fetchBatch(false);
-			const auto result = TrainBatch(nn, sbRead, true, 0.00001f);
+			const auto result = TrainBatch(nn, sbRead, true, 0.0001f);
 			if(result == -1) nan = true;
 		}
 		threadPool.WaitAll();

@@ -37,4 +37,5 @@ private:
 	const float beta1_ = 1.0f;
 	float weightDecay_;
 	float alphaWeights_ = 1.0f;
+	int accumCount_ = 0;
 };

@@ -132,9 +132,9 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 	extern __shared__ unsigned char smem[];
 	auto* warpBuffer = reinterpret_cast<PairData*>(smem);
 	PairData threadData{0.0f, 0.0f};
-	for(int n = 0; n < N; ++n){
-		const float invStd = rsqrtf(var[n] + EPSILON_F);
-		const float m = mean[n];
+	for(int n = blockIdx.y; n < N; n += gridDim.y){
+		const float invStd = rsqrtf(__ldg(var + n) + EPSILON_F);
+		const float m = __ldg(mean + n);
 		const int base = n * C * HW + cid * HW;
 		for(int i = tid; i < HW; i += blockDim.x){
 			const int idx = base + i;
@@ -153,8 +153,8 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 		if(laneId < warpsPerBlock){ blockData = warpBuffer[laneId]; }
 		blockData = WarpReducePair(blockData);
 		if(laneId == 0){
-			dG[cid] = blockData.x;
-			dB[cid] = blockData.y;
+			atomicAdd(dG + cid, blockData.x);
+			atomicAdd(dB + cid, blockData.y);
 		}
 	}
 }
@@ -238,7 +238,14 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	const int gradThreads = SelectLayerNormThreads(HW);
 	const int gradWarps = (gradThreads + 31) / 32;
 	const size_t gradSm = gradWarps * sizeof(PairData);
-	GradGammaBetaKernel<<<C, gradThreads, gradSm>>>(dy, x, mean, var, dG, dB, N, C, HW);
+	int rowsPerBlockTarget = (HW > 0) ? (4096 / HW) : 4096;
+	if(rowsPerBlockTarget < 1){ rowsPerBlockTarget = 1; }
+	int gradGridY = (N + rowsPerBlockTarget - 1) / rowsPerBlockTarget;
+	if(gradGridY > N){ gradGridY = N; }
+	if(gradGridY < 1){ gradGridY = 1; }
+	if(gradGridY > 65535){ gradGridY = 65535; }
+	dim3 gradGrid(C, gradGridY, 1);
+	GradGammaBetaKernel<<<gradGrid, gradThreads, gradSm>>>(dy, x, mean, var, dG, dB, N, C, HW);
 	auto e = cudaGetLastError();
 	if(e != cudaSuccess){
 		printf("LayerNorm Backward error (gamma/beta): %s\n", cudaGetErrorString(e));
