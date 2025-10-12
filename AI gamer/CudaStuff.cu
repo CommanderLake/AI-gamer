@@ -1,6 +1,7 @@
 #include "CuCommon.cuh"
 #include <cuda.h>
 #include <curand.h>
+#include <device_launch_parameters.h>
 void BlockShiftHalf(__half* hPtr, const int shiftBy, const int blocksToShift){
 	auto blockSize = shiftBy;
 	if(blockSize < 0) blockSize = -blockSize;

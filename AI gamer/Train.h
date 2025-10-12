@@ -7,7 +7,7 @@ public:
 	~Train();
 	void Allocate(int batchSize, int seqLength, int stateSize);
 	void Free();
-	int TrainBatch(NN* nn, const StateBatch* sb, bool smoothLoss, float lr);
+	int TrainBatch(NN* nn, const StateBatch* sb, bool smoothLoss, float lr, std::size_t batchIndex, std::size_t epochBatchCount);
 	void TrainModel(int width, int height);
 	void TuneModel(NN* nn, const std::vector<StateSingle*>& states, int epochs, float lr);
 	float lossButs_ = 0.0f;
