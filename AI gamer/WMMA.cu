@@ -10,7 +10,7 @@ using namespace nvcuda;
 namespace{
 	constexpr int kMaxTileCols = 128;
 	constexpr int kMaxValueBlocks = 8;
-	inline int GetAttentionTileCols(const int T){
+	int GetAttentionTileCols(const int T){
 		int limited = T;
 		if(limited < 16) limited = 16;
 		if(limited > kMaxTileCols) limited = kMaxTileCols;
@@ -22,218 +22,218 @@ namespace{
 __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, float* __restrict__ AttentionWeights, int B, int T, int D, int H, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
-	const int row_block = blockIdx.x;
-	if(row_block*16 >= T) return;
-	const int warp_id = threadIdx.x / 32;
-	const int lane_id = threadIdx.x % 32;
-	const int num_warps = blockDim.x / 32;
-	const int batch_head_offset = (batch*H + head)*T*D;
-	extern __shared__ char shared_mem_bytes[];
-	auto Q_shared = (__half*)shared_mem_bytes;
-	__half* K_tile = Q_shared + 16*D;
-	__half* V_tile = K_tile + 16*16;
-	__half* att_tile = V_tile + 16*16;
-	auto scores_tile = reinterpret_cast<float*>(att_tile + 16*16);
-	float* row_max = scores_tile + 16*tileCols;
-	float* row_sum = row_max + 16;
+	const int rowBlock = blockIdx.x;
+	if(rowBlock*16 >= T) return;
+	const int warpId = threadIdx.x / 32;
+	const int laneId = threadIdx.x % 32;
+	const int numWarps = blockDim.x / 32;
+	const int batchHeadOffset = (batch*H + head)*T*D;
+	extern __shared__ char sharedMemBytes[];
+	auto qShared = reinterpret_cast<__half*>(sharedMemBytes);
+	__half* kTile = qShared + 16*D;
+	__half* vTile = kTile + 16*16;
+	__half* attTile = vTile + 16*16;
+	auto scoresTile = reinterpret_cast<float*>(attTile + 16*16);
+	float* rowMax = scoresTile + 16*tileCols;
+	float* rowSum = rowMax + 16;
 	const float scale = rsqrtf(static_cast<float>(D));
-	const __half scale_half = __float2half(scale);
+	const __half scaleHalf = __float2half(scale);
 	wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> q_frag;
 	wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> k_frag;
 	wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> v_frag;
 	wmma::fragment<wmma::accumulator, 16, 16, 16, float> scores_frag;
 	if(threadIdx.x < 16){
-		row_max[threadIdx.x] = -FLT_MAX;
-		row_sum[threadIdx.x] = 0.0f;
+		rowMax[threadIdx.x] = -FLT_MAX;
+		rowSum[threadIdx.x] = 0.0f;
 	}
 	__syncthreads();
 #pragma unroll
 	for(int d = threadIdx.x; d < D*16; d += blockDim.x){
 		const int row = d / D;
 		const int col = d % D;
-		if(row_block*16 + row < T){
-			Q_shared[row*D + col] = __hmul(Q[batch_head_offset + (row_block*16 + row)*D + col], scale_half);
+		if(rowBlock*16 + row < T){
+			qShared[row*D + col] = __hmul(Q[batchHeadOffset + (rowBlock*16 + row)*D + col], scaleHalf);
 		} else{
-			Q_shared[row*D + col] = __float2half(0.0f);
+			qShared[row*D + col] = __float2half(0.0f);
 		}
 	}
 	__syncthreads();
-	const int attention_offset = (batch*H + head)*T*T;
-	for(int tile_start = 0; tile_start < T; tile_start += tileCols){
-		const int remaining = T - tile_start;
-		const int tile_width = remaining > tileCols ? tileCols : remaining;
-		if(tile_width <= 0) break;
-		for(int col_block = 0; col_block < tile_width; col_block += 16){
-			if(warp_id == 0){ fill_fragment(scores_frag, 0.0f); }
-			for(int d_block = 0; d_block < (D + 15) / 16; d_block++){
-				const int total_pairs = (16*16) / 2;
-				for(int pair_idx = threadIdx.x; pair_idx < total_pairs; pair_idx += blockDim.x){
-					const int col = pair_idx / 8;
-					const int pair_in_col = pair_idx % 8;
-					const int row = pair_in_col * 2;
-					const int global_col = tile_start + col_block + col;
-					const int global_row0 = d_block*16 + row;
-					const int global_row1 = global_row0 + 1;
+	const int attentionOffset = (batch*H + head)*T*T;
+	for(int tileStart = 0; tileStart < T; tileStart += tileCols){
+		const int remaining = T - tileStart;
+		const int tileWidth = remaining > tileCols ? tileCols : remaining;
+		if(tileWidth <= 0) break;
+		for(int colBlock = 0; colBlock < tileWidth; colBlock += 16){
+			if(warpId == 0){ fill_fragment(scores_frag, 0.0f); }
+			for(int dBlock = 0; dBlock < (D + 15) / 16; dBlock++){
+				constexpr int totalPairs = 16*16 / 2;
+				for(int pairIdx = threadIdx.x; pairIdx < totalPairs; pairIdx += blockDim.x){
+					const int col = pairIdx / 8;
+					const int pairInCol = pairIdx % 8;
+					const int row = pairInCol * 2;
+					const int globalCol = tileStart + colBlock + col;
+					const int globalRow0 = dBlock*16 + row;
+					const int globalRow1 = globalRow0 + 1;
 					__half val0 = __float2half(0.0f);
 					__half val1 = __float2half(0.0f);
-					if(global_col < T && global_row0 < D){
-						const int base_index = batch_head_offset + global_col*D + global_row0;
-						val0 = K[base_index];
-						if(global_row1 < D){ val1 = K[base_index + 1]; }
+					if(globalCol < T && globalRow0 < D){
+						const int baseIndex = batchHeadOffset + globalCol*D + globalRow0;
+						val0 = K[baseIndex];
+						if(globalRow1 < D){ val1 = K[baseIndex + 1]; }
 					}
-					reinterpret_cast<__half2*>(K_tile + col*16 + row)[0] = __halves2half2(val0, val1);
+					reinterpret_cast<__half2*>(kTile + col*16 + row)[0] = __halves2half2(val0, val1);
 				}
 				__syncthreads();
-				if(warp_id == 0){
-					load_matrix_sync(q_frag, Q_shared + d_block*16, D);
-					load_matrix_sync(k_frag, K_tile, 16);
+				if(warpId == 0){
+					load_matrix_sync(q_frag, qShared + dBlock*16, D);
+					load_matrix_sync(k_frag, kTile, 16);
 					mma_sync(scores_frag, q_frag, k_frag, scores_frag);
 				}
 			}
-			if(warp_id == 0){ store_matrix_sync(scores_tile + col_block, scores_frag, tileCols, wmma::mem_row_major); }
+			if(warpId == 0){ store_matrix_sync(scoresTile + colBlock, scores_frag, tileCols, wmma::mem_row_major); }
 			__syncthreads();
 		}
-		for(int row = warp_id; row < 16; row += num_warps){
-			const int global_row = row_block*16 + row;
-			const float prev_max = row_max[row];
-			const float prev_sum = row_sum[row];
-			if(global_row >= T){
-				if(lane_id == 0){
-					row_max[row] = prev_max;
-					row_sum[row] = prev_sum;
+		for(int row = warpId; row < 16; row += numWarps){
+			const int globalRow = rowBlock*16 + row;
+			const float prevMax = rowMax[row];
+			const float prevSum = rowSum[row];
+			if(globalRow >= T){
+				if(laneId == 0){
+					rowMax[row] = prevMax;
+					rowSum[row] = prevSum;
 				}
 				continue;
 			}
-			float local_max = -FLT_MAX;
-			for(int col = lane_id; col < tile_width; col += 32){
-				const float val = scores_tile[row*tileCols + col];
-				local_max = fmaxf(local_max, val);
+			float localMax = -FLT_MAX;
+			for(int col = laneId; col < tileWidth; col += 32){
+				const float val = scoresTile[row*tileCols + col];
+				localMax = fmaxf(localMax, val);
 			}
-			for(int offset = 16; offset > 0; offset /= 2){ local_max = fmaxf(local_max, __shfl_down_sync(0xffffffff, local_max, offset)); }
-			const float block_max = __shfl_sync(0xffffffff, local_max, 0);
-			const float new_max = fmaxf(prev_max, block_max);
-			const float scale_prev = (prev_sum > 0.0f) ? expf(prev_max - new_max) : 0.0f;
-			float local_sum = 0.0f;
-			for(int col = lane_id; col < tile_width; col += 32){
-				const float val = scores_tile[row*tileCols + col];
-				local_sum += expf(val - new_max);
+			for(int offset = 16; offset > 0; offset /= 2){ localMax = fmaxf(localMax, __shfl_down_sync(0xffffffff, localMax, offset)); }
+			const float blockMax = __shfl_sync(0xffffffff, localMax, 0);
+			const float newMax = fmaxf(prevMax, blockMax);
+			const float scalePrev = prevSum > 0.0f ? expf(prevMax - newMax) : 0.0f;
+			float localSum = 0.0f;
+			for(int col = laneId; col < tileWidth; col += 32){
+				const float val = scoresTile[row*tileCols + col];
+				localSum += expf(val - newMax);
 			}
-			for(int offset = 16; offset > 0; offset /= 2){ local_sum += __shfl_down_sync(0xffffffff, local_sum, offset); }
-			if(lane_id == 0){
-				row_max[row] = new_max;
-				row_sum[row] = prev_sum * scale_prev + local_sum;
+			for(int offset = 16; offset > 0; offset /= 2){ localSum += __shfl_down_sync(0xffffffff, localSum, offset); }
+			if(laneId == 0){
+				rowMax[row] = newMax;
+				rowSum[row] = prevSum * scalePrev + localSum;
 			}
 		}
 		__syncthreads();
 	}
 	__syncthreads();
-	const int value_blocks = (D + 15) / 16;
-	if(value_blocks > kMaxValueBlocks){
+	const int valueBlocks = (D + 15) / 16;
+	if(valueBlocks > kMaxValueBlocks){
 		if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0){
-			printf("WmmaAttention: value blocks %d exceed limit %d\n", value_blocks, kMaxValueBlocks);
+			printf("WmmaAttention: value blocks %d exceed limit %d\n", valueBlocks, kMaxValueBlocks);
 		}
 		return;
 	}
 	wmma::fragment<wmma::accumulator, 16, 16, 16, float> out_frags[kMaxValueBlocks];
-	if(warp_id == 0){
-		for(int vb = 0; vb < value_blocks; ++vb){ fill_fragment(out_frags[vb], 0.0f); }
+	if(warpId == 0){
+		for(int vb = 0; vb < valueBlocks; ++vb){ fill_fragment(out_frags[vb], 0.0f); }
 	}
-	for(int tile_start = 0; tile_start < T; tile_start += tileCols){
-		const int remaining = T - tile_start;
-		const int tile_width = remaining > tileCols ? tileCols : remaining;
-		if(tile_width <= 0) break;
-		for(int col_block = 0; col_block < tile_width; col_block += 16){
-			if(warp_id == 0){ fill_fragment(scores_frag, 0.0f); }
-			for(int k_block = 0; k_block < (D + 15) / 16; k_block++){
-				const int total_pairs = (16*16) / 2;
-				for(int pair_idx = threadIdx.x; pair_idx < total_pairs; pair_idx += blockDim.x){
-					const int col = pair_idx / 8;
-					const int pair_in_col = pair_idx % 8;
-					const int row = pair_in_col * 2;
-					const int global_col = tile_start + col_block + col;
-					const int global_row0 = k_block*16 + row;
-					const int global_row1 = global_row0 + 1;
+	for(int tileStart = 0; tileStart < T; tileStart += tileCols){
+		const int remaining = T - tileStart;
+		const int tileWidth = remaining > tileCols ? tileCols : remaining;
+		if(tileWidth <= 0) break;
+		for(int colBlock = 0; colBlock < tileWidth; colBlock += 16){
+			if(warpId == 0){ fill_fragment(scores_frag, 0.0f); }
+			for(int kBlock = 0; kBlock < (D + 15) / 16; kBlock++){
+				constexpr int totalPairs = 16*16 / 2;
+				for(int pairIdx = threadIdx.x; pairIdx < totalPairs; pairIdx += blockDim.x){
+					const int col = pairIdx / 8;
+					const int pairInCol = pairIdx % 8;
+					const int row = pairInCol * 2;
+					const int globalCol = tileStart + colBlock + col;
+					const int globalRow0 = kBlock*16 + row;
+					const int globalRow1 = globalRow0 + 1;
 					__half val0 = __float2half(0.0f);
 					__half val1 = __float2half(0.0f);
-					if(global_col < T && global_row0 < D){
-						const int base_index = batch_head_offset + global_col*D + global_row0;
-						val0 = K[base_index];
-						if(global_row1 < D){ val1 = K[base_index + 1]; }
+					if(globalCol < T && globalRow0 < D){
+						const int baseIndex = batchHeadOffset + globalCol*D + globalRow0;
+						val0 = K[baseIndex];
+						if(globalRow1 < D){ val1 = K[baseIndex + 1]; }
 					}
-					reinterpret_cast<__half2*>(K_tile + col*16 + row)[0] = __halves2half2(val0, val1);
+					reinterpret_cast<__half2*>(kTile + col*16 + row)[0] = __halves2half2(val0, val1);
 				}
 				__syncthreads();
-				if(warp_id == 0){
-					load_matrix_sync(q_frag, Q_shared + k_block*16, D);
-					load_matrix_sync(k_frag, K_tile, 16);
+				if(warpId == 0){
+					load_matrix_sync(q_frag, qShared + kBlock*16, D);
+					load_matrix_sync(k_frag, kTile, 16);
 					mma_sync(scores_frag, q_frag, k_frag, scores_frag);
 				}
 			}
-			if(warp_id == 0){ store_matrix_sync(scores_tile + col_block, scores_frag, tileCols, wmma::mem_row_major); }
+			if(warpId == 0){ store_matrix_sync(scoresTile + colBlock, scores_frag, tileCols, wmma::mem_row_major); }
 			__syncthreads();
 		}
-		for(int row = warp_id; row < 16; row += num_warps){
-			const int global_row = row_block*16 + row;
-			if(global_row >= T) continue;
-			const float max_val = row_max[row];
-			const float denom = row_sum[row];
-			const float inv_denom = denom > 0.0f ? 1.0f / denom : 0.0f;
-			for(int col = lane_id; col < tile_width; col += 32){
-				const int global_col = tile_start + col;
-				float logits = scores_tile[row*tileCols + col];
+		for(int row = warpId; row < 16; row += numWarps){
+			const int globalRow = rowBlock*16 + row;
+			if(globalRow >= T) continue;
+			const float maxVal = rowMax[row];
+			const float denom = rowSum[row];
+			const float invDenom = denom > 0.0f ? 1.0f / denom : 0.0f;
+			for(int col = laneId; col < tileWidth; col += 32){
+				const int globalCol = tileStart + col;
+				float logits = scoresTile[row*tileCols + col];
 				float normalized = 0.0f;
-				if(global_col < T){ normalized = expf(logits - max_val) * inv_denom; }
-				scores_tile[row*tileCols + col] = normalized;
-				if(AttentionWeights){ AttentionWeights[attention_offset + global_row*T + global_col] = normalized; }
+				if(globalCol < T){ normalized = expf(logits - maxVal) * invDenom; }
+				scoresTile[row*tileCols + col] = normalized;
+				if(AttentionWeights){ AttentionWeights[attentionOffset + globalRow*T + globalCol] = normalized; }
 			}
 		}
 		__syncthreads();
-		for(int col_block = 0; col_block < tile_width; col_block += 16){
+		for(int colBlock = 0; colBlock < tileWidth; colBlock += 16){
 			for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
 				const int row = idx / 16;
 				const int col = idx % 16;
-				const int global_row = row_block*16 + row;
-				const int local_col = col_block + col;
-				const int global_col = tile_start + local_col;
+				const int globalRow = rowBlock*16 + row;
+				const int localCol = colBlock + col;
+				const int globalCol = tileStart + localCol;
 				float val = 0.0f;
-				if(global_row < T && local_col < tile_width && global_col < T){
-					val = scores_tile[row*tileCols + local_col];
+				if(globalRow < T && localCol < tileWidth && globalCol < T){
+					val = scoresTile[row*tileCols + localCol];
 				}
-				att_tile[row*16 + col] = __float2half(val);
+				attTile[row*16 + col] = __float2half(val);
 			}
 			__syncthreads();
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> att_frag;
-			if(warp_id == 0){ load_matrix_sync(att_frag, att_tile, 16); }
-			for(int vb = 0; vb < value_blocks; ++vb){
+			if(warpId == 0){ load_matrix_sync(att_frag, attTile, 16); }
+			for(int vb = 0; vb < valueBlocks; ++vb){
 				for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
 					const int row = idx / 16;
 					const int col = idx % 16;
-					const int key_idx = tile_start + col_block + row;
-					const int value_idx = vb*16 + col;
+					const int keyIdx = tileStart + colBlock + row;
+					const int valueIdx = vb*16 + col;
 					__half val = __float2half(0.0f);
-					if(key_idx < T && value_idx < D){
-						val = V[batch_head_offset + key_idx*D + value_idx];
+					if(keyIdx < T && valueIdx < D){
+						val = V[batchHeadOffset + keyIdx*D + valueIdx];
 					}
-					V_tile[row*16 + col] = val;
+					vTile[row*16 + col] = val;
 				}
 				__syncthreads();
-				if(warp_id == 0){
-					load_matrix_sync(v_frag, V_tile, 16);
+				if(warpId == 0){
+					load_matrix_sync(v_frag, vTile, 16);
 					mma_sync(out_frags[vb], att_frag, v_frag, out_frags[vb]);
 				}
 				__syncthreads();
 			}
 		}
 	}
-	for(int vb = 0; vb < value_blocks; ++vb){
-		if(warp_id == 0){
+	for(int vb = 0; vb < valueBlocks; ++vb){
+		if(warpId == 0){
 #pragma unroll
 			for(int i = 0; i < out_frags[vb].num_elements; i++){
 				const int row = i / 16;
 				const int col = i % 16;
-				const int global_row = row_block*16 + row;
-				const int global_col = vb*16 + col;
-				if(global_row < T && global_col < D){ Out[batch_head_offset + global_row*D + global_col] = __float2half(out_frags[vb].x[i]); }
+				const int globalRow = rowBlock*16 + row;
+				const int globalCol = vb*16 + col;
+				if(globalRow < T && globalCol < D){ Out[batchHeadOffset + globalRow*D + globalCol] = __float2half(out_frags[vb].x[i]); }
 			}
 		}
 		__syncthreads();
@@ -242,11 +242,10 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, float* AttentionWeights, int B, int T, int D, int H){
 	dim3 block(128);
 	dim3 grid((T + 15) / 16, B, H);
-	const int numWarps = block.x / 32;
 	const int tileCols = GetAttentionTileCols(T);
-	size_t shared_size = sizeof(__half)*(16*D + 3*16*16) + sizeof(float)*(16*tileCols + 16 + 16);
+	size_t sharedSize = sizeof(__half)*(16*D + 3*16*16) + sizeof(float)*(16*tileCols + 16 + 16);
 	cudaFuncSetAttribute(WmmaAttentionKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
-	WmmaAttentionKernel<<<grid, block, shared_size>>>(Q, K, V, Out, AttentionWeights, B, T, D, H, tileCols);
+	WmmaAttentionKernel<<<grid, block, sharedSize>>>(Q, K, V, Out, AttentionWeights, B, T, D, H, tileCols);
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("WmmaAttention Forward error: %s\n", cudaGetErrorString(e));
 }
@@ -269,11 +268,11 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q,
 	const int attOffset = batchHead * T * T;
 	const int numKeyBlocks = (T + 15) / 16;
 	const int numDBlocks = (D + 15) / 16;
-	const int warp_id = threadIdx.x / 32;
+	const int warpId = threadIdx.x / 32;
 	extern __shared__ char sharedBytes[];
-	float* fragStore = reinterpret_cast<float*>(sharedBytes);
+	auto fragStore = reinterpret_cast<float*>(sharedBytes);
 	float* rowSums = fragStore + 16 * 16;
-	__half* tileA = reinterpret_cast<__half*>(rowSums + 16);
+	auto tileA = reinterpret_cast<__half*>(rowSums + 16);
 	__half* tileB = tileA + 16 * 16;
 	if(threadIdx.x < 16){ rowSums[threadIdx.x] = 0.0f; }
 	__syncthreads();
@@ -283,7 +282,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q,
 		const int tileBlocks = (tileWidth + 15) / 16;
 		for(int colBlock = 0; colBlock < tileBlocks; ++colBlock){
 			wmma::fragment<wmma::accumulator, 16, 16, 16, float> accFrag;
-			if(warp_id == 0){ fill_fragment(accFrag, 0.0f); }
+			if(warpId == 0){ fill_fragment(accFrag, 0.0f); }
 			const int keyBase = tileStart + colBlock * 16;
 			for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
 				for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
@@ -305,7 +304,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q,
 					tileB[c * 16 + r] = val;
 				}
 				__syncthreads();
-				if(warp_id == 0){
+				if(warpId == 0){
 					wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> outFrag;
 					wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> vFrag;
 					load_matrix_sync(outFrag, tileA, 16);
@@ -314,7 +313,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q,
 				}
 				__syncthreads();
 			}
-			if(warp_id == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
+			if(warpId == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
 			__syncthreads();
 			for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
 				const int r = idx / 16;
@@ -369,7 +368,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q,
 	const float scale = rsqrtf(static_cast<float>(D));
 	for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
 		wmma::fragment<wmma::accumulator, 16, 16, 16, float> accFrag;
-		if(warp_id == 0){ fill_fragment(accFrag, 0.0f); }
+		if(warpId == 0){ fill_fragment(accFrag, 0.0f); }
 		for(int keyBlock = 0; keyBlock < numKeyBlocks; ++keyBlock){
 			const int keyBase = keyBlock * 16;
 			for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
@@ -391,7 +390,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q,
 				tileB[r * 16 + c] = val;
 			}
 			__syncthreads();
-			if(warp_id == 0){
+			if(warpId == 0){
 				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> attFrag;
 				wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> kFrag;
 				load_matrix_sync(attFrag, tileA, 16);
@@ -400,7 +399,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q,
 			}
 			__syncthreads();
 		}
-		if(warp_id == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
+		if(warpId == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
 		__syncthreads();
 		for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
 			const int r = idx / 16;
@@ -430,14 +429,14 @@ __global__ void ComputeDVKernel(const float* __restrict__ attention,
 	const int attOffset = batchHead * T * T;
 	const int numRowBlocks = (T + 15) / 16;
 	const int numDBlocks = (D + 15) / 16;
-	const int warp_id = threadIdx.x / 32;
+	const int warpId = threadIdx.x / 32;
 	extern __shared__ char sharedBytes[];
-	float* fragStore = reinterpret_cast<float*>(sharedBytes);
-	__half* tileA = reinterpret_cast<__half*>(fragStore + 16 * 16);
+	const auto fragStore = reinterpret_cast<float*>(sharedBytes);
+	const auto tileA = reinterpret_cast<__half*>(fragStore + 16 * 16);
 	__half* tileB = tileA + 16 * 16;
 	for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
 		wmma::fragment<wmma::accumulator, 16, 16, 16, float> accFrag;
-		if(warp_id == 0){ fill_fragment(accFrag, 0.0f); }
+		if(warpId == 0){ fill_fragment(accFrag, 0.0f); }
 		for(int rowBlock = 0; rowBlock < numRowBlocks; ++rowBlock){
 			for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
 				const int r = idx / 16;
@@ -458,7 +457,7 @@ __global__ void ComputeDVKernel(const float* __restrict__ attention,
 				tileB[r * 16 + c] = val;
 			}
 			__syncthreads();
-			if(warp_id == 0){
+			if(warpId == 0){
 				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> attFrag;
 				wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> outFrag;
 				load_matrix_sync(attFrag, tileA, 16);
@@ -467,7 +466,7 @@ __global__ void ComputeDVKernel(const float* __restrict__ attention,
 			}
 			__syncthreads();
 		}
-		if(warp_id == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
+		if(warpId == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
 		__syncthreads();
 		for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
 			const int r = idx / 16;
@@ -497,14 +496,14 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt,
 	const int numRowBlocks = (T + 15) / 16;
 	const int numDBlocks = (D + 15) / 16;
 	const float scale = rsqrtf(static_cast<float>(D));
-	const int warp_id = threadIdx.x / 32;
+	const int warpId = threadIdx.x / 32;
 	extern __shared__ char sharedBytes[];
-	float* fragStore = reinterpret_cast<float*>(sharedBytes);
-	__half* tileA = reinterpret_cast<__half*>(fragStore + 16 * 16);
+	const auto fragStore = reinterpret_cast<float*>(sharedBytes);
+	const auto tileA = reinterpret_cast<__half*>(fragStore + 16 * 16);
 	__half* tileB = tileA + 16 * 16;
 	for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
 		wmma::fragment<wmma::accumulator, 16, 16, 16, float> accFrag;
-		if(warp_id == 0){ fill_fragment(accFrag, 0.0f); }
+		if(warpId == 0){ fill_fragment(accFrag, 0.0f); }
 		for(int rowBlock = 0; rowBlock < numRowBlocks; ++rowBlock){
 			for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
 				const int r = idx / 16;
@@ -525,7 +524,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt,
 				tileB[r * 16 + c] = val;
 			}
 			__syncthreads();
-			if(warp_id == 0){
+			if(warpId == 0){
 				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> attFrag;
 				wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> qFrag;
 				load_matrix_sync(attFrag, tileA, 16);
@@ -534,7 +533,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt,
 			}
 			__syncthreads();
 		}
-		if(warp_id == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
+		if(warpId == 0){ store_matrix_sync(fragStore, accFrag, 16, wmma::mem_row_major); }
 		__syncthreads();
 		for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
 			const int r = idx / 16;

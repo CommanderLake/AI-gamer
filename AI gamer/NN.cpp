@@ -32,7 +32,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto embedDim = 384;
 	constexpr auto ffDim = embedDim*3;
 	constexpr int numHeads = 8;
-	constexpr int numEncoders = 12;
+	constexpr int numEncoders = 1;
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);
 	const auto attentionWorkspaceTokens = numPatches;
