@@ -120,7 +120,7 @@ void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W,
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("CombinePatchGrads error: %s\n", cudaGetErrorString(e));
 }
-__global__ void SumPositionalGradKernel(const __half* grad, __half* out, int B, int C, int P, bool first){
+__global__ void SumPositionalGradKernel(const __half* grad, __half* out, int B, int C, int P, bool first, float scale){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	const int total = C*P;
 	if(idx >= total) return;
@@ -131,13 +131,19 @@ __global__ void SumPositionalGradKernel(const __half* grad, __half* out, int B, 
 		const int index = c + C*(b*P + p);
 		sum += __half2float(grad[index]);
 	}
-	if(first) out[idx] = __float2half(sum); else out[idx] = __float2half(__half2float(out[idx]) + sum);
+	const float scaled = sum*scale;
+	if(first){
+		out[idx] = __float2half(scaled);
+	} else{
+		const float prev = __half2float(out[idx]);
+		out[idx] = __float2half(prev + scaled);
+	}
 }
 
-void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first){
+void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale){
 	int blocks = 0, tpb = 0;
 	GetLaunchConfig(C*P, blocks, tpb);
-	SumPositionalGradKernel<<<blocks, tpb>>>(grad, out, B, C, P, first);
+	SumPositionalGradKernel<<<blocks, tpb>>>(grad, out, B, C, P, first, scale);
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("SumPositionalGrad error: %s\n", cudaGetErrorString(e));
 }

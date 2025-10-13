@@ -73,7 +73,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const float* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int B, int T, int D, int H);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
-void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first);
+void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
 int ConvertSmVer2Cores(int major, int minor);
