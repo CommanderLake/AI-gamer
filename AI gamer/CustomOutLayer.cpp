@@ -16,13 +16,13 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1));
 	const int hiddenDim = 512;
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, hiddenDim, "Buts_FC1", train, weightDecay, gradAccumLength_, Xavier));
-	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, hiddenDim, 1, 1, "Buts_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
+	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, hiddenDim, 1, 1, "Buts_FC1_BatchNorm", train, gradAccumLength_));
 	buttonLayers_.push_back(new GELULayer(batchSize_*seqLength_, hiddenDim, 1, 1, "GELU"));
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_*seqLength_, hiddenDim, 1, 1, "Buts_Dropout1", train));
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, hiddenDim, NUM_BUTS_, "Buts_FC_Out", train, weightDecay, gradAccumLength_, Xavier));
 	buttonLayers_.push_back(new SigmoidLayer(batchSize_*seqLength_, NUM_BUTS_, NUM_BUTS_, "Buts_Sigmoid"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, hiddenDim, "Axes_FC1", train, weightDecay, gradAccumLength_, Xavier));
-	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, hiddenDim, 1, 1, "Axes_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
+	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, hiddenDim, 1, 1, "Axes_FC1_BatchNorm", train, gradAccumLength_));
 	axisLayers_.push_back(new GELULayer(batchSize_*seqLength_, hiddenDim, 1, 1, "GELU"));
 	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_*seqLength_, hiddenDim, 1, 1, "Axes_Dropout1", train));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, hiddenDim, NUM_AXES_, "Axes_FC_Out", train, weightDecay, gradAccumLength_, Xavier));

@@ -13,10 +13,10 @@ ResFCLayer::ResFCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cub
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 	layers_.push_back(new FCLayer(cudnnHandle, cublasHandle, batchSize_, inC_, hiddenC_, "FC0", train, weightDecay, gradAccumLength_, He));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, hiddenC_, 1, 1, "FC0 BatchNorm", train_, weightDecay, gradAccumLength_));
+	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, hiddenC_, 1, 1, "FC0 BatchNorm", train_, gradAccumLength_));
 	layers_.push_back(new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, hiddenC_, 1, 1, "FC0 ReLU"));
 	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle, batchSize_, hiddenC_, outC_, "FC1", train, weightDecay, gradAccumLength_, He));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, 1, 1, "FC1 BatchNorm", train_, weightDecay, gradAccumLength_));
+	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, 1, 1, "FC1 BatchNorm", train_, gradAccumLength_));
 	residue_ = new FCLayer(cudnnHandle_, cublasHandle, batchSize_, inC_, outC_, "Residue", train, weightDecay, gradAccumLength_, He);
 	resAct_ = new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC_, 1, 1, "Residue ReLU");
 }
