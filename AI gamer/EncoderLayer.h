@@ -23,7 +23,5 @@ private:
 	int batchSize_, tokens_, embedDim_, ffDim_;
 	int gradAccumLength_;
 	std::vector<Layer*> layers_;
-	const float alpha_ = 1.0f;
-	const float blendFwd_ = 0.5f;
-	const float blendBwd_ = 0.5f;
+	const float mix_ = 0.5f;
 };

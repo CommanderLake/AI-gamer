@@ -1,12 +1,12 @@
 #include "ViewerLayer.h"
 #include "CuCommon.cuh"
 ViewerLayer::ViewerLayer(const int channels, const int height, const int width, const int gridWidth, std::string windowTitle, bool backwardPass, __half* displayData) : displayData_(displayData), backwardPass_(backwardPass), inC_(channels), inH_(height),
-	inW_(width), gridW_(gridWidth){
+	inW_(width), gridW_(gridWidth), windowTitle_(windowTitle){
 	viewer_ = new Viewer();
 	gridH_ = (inC_+gridW_-1)/gridW_;
 	mosaicDimW_ = inW_*gridW_;
 	mosaicDimH_ = inH_*gridH_;
-	viewer_->InitializeWindow(mosaicDimW_, mosaicDimH_, windowTitle.c_str());
+	viewer_->InitializeWindow(mosaicDimW_, mosaicDimH_, windowTitle_.c_str());
 	mosaicH_ = static_cast<unsigned char*>(_mm_malloc(mosaicDimW_*mosaicDimH_, 64));
 	CUDAMallocZero(&mosaicD_, mosaicDimW_*mosaicDimH_);
 }

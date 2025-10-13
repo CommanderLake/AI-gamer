@@ -10,6 +10,7 @@ public:
 	__half* Backward(__half* grad) override;
 	Viewer* viewer_ = nullptr;
 	__half* displayData_;
+	std::string windowTitle_;
 	bool backwardPass_;
 	unsigned char* mosaicD_ = nullptr;
 	unsigned char* mosaicH_ = nullptr;
