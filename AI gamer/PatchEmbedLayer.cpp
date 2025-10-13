@@ -12,7 +12,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	outNCHW_ = batchSize_*embedDim_*numPatches_;
 	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
 	weightCount_ = embedDim_*patchDim_;
 	posCount_ = embedDim_*numPatches_;
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
@@ -20,7 +20,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&patchBuffer_, batchSize_*numPatches_*patchDim_*sizeof(__half));
 	checkCUDNN(cudnnCreateTensorDescriptor(&posDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
 	if(train_){
 		WeightInit(weights_, weightCount_, embedDim_, weightInitMethod);
 		WeightInit(posEmbed_, posCount_, embedDim_, weightInitMethod);
@@ -126,6 +126,6 @@ void PatchEmbedLayer::SetTrain(bool enable){
 		batchSize_ = 1;
 	}
 	outNCHW_ = batchSize_*embedDim_*numPatches_;
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
 }
