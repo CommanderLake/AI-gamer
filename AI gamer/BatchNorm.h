@@ -4,7 +4,7 @@
 class BatchNorm final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	BatchNorm(cudnnHandle_t cudnnHandle, cudnnBatchNormMode_t bnMode, int batchSize, int channels, int height, int width, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	BatchNorm(cudnnHandle_t cudnnHandle, cudnnBatchNormMode_t bnMode, int batchSize, int channels, int height, int width, const char* layerName, bool train, int gradAccumLength);
 	~BatchNorm() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -40,7 +40,6 @@ public:
 	float alphaWeights_ = 1.0f;
 	const float beta0_ = 0.0f;
 	const float beta1_ = 1.0f;
-	float weightDecay_;
 	int gradAccumLength_;
 	int accumCount_ = 0;
 };
