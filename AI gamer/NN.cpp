@@ -29,7 +29,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
-	constexpr auto wd = 0.05f;
+	constexpr auto wd = 0.1f;
 	constexpr auto patchSize = 8;
 	constexpr auto embedDim = 384;
 	constexpr auto ffDim = embedDim*2;
@@ -46,7 +46,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 		auto name = "Encoder" + std::to_string(i);
 		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_, numPatches));
 		if(enableViewerLayers){
-			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
+			if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
 				layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, name + " Output Viewer"));
 		}
 	}

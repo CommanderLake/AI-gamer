@@ -53,7 +53,7 @@ void ReadStateData(int* width, int* height){
 }
 int main(){
 	std::ios::sync_with_stdio(false);
-	std::cout << std::fixed << std::setprecision(4);
+	std::cout << std::fixed << std::setprecision(6);
 	std::cout << "R for Record mode, T for Train mode, V for View mode, I for Infer mode, F for Fine tune infer mode... ";
 	char mode;
 	std::cin >> mode;
