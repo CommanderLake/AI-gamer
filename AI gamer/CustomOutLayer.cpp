@@ -14,7 +14,7 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	outNCHW_ = batchSize_*NUM_CTRLS_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1));
-	const int hiddenDim = std::max(inputSize*3/2, 1536);
+	const int hiddenDim = 512;
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, hiddenDim, "Buts_FC1", train, weightDecay, gradAccumLength_, Xavier));
 	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_*seqLength_, hiddenDim, 1, 1, "Buts_FC1_BatchNorm", train, weightDecay, gradAccumLength_));
 	buttonLayers_.push_back(new GELULayer(batchSize_*seqLength_, hiddenDim, 1, 1, "GELU"));

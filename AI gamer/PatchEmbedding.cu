@@ -1,6 +1,7 @@
 #include "CuCommon.cuh"
 #include <cstdio>
 #include <cuda_runtime_api.h>
+#include <device_launch_parameters.h>
 __global__ void ExtractPatchesKernelVec2(const __half* __restrict__ x, __half* __restrict__ y, int B, int C, int H, int W, int P){
 	const int kPatchArea = P*P;
 	const int PH = (H + P - 1)/P;
@@ -66,17 +67,20 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 	const int PH = (H + P - 1)/P;
 	const int PW = (W + P - 1)/P;
 	const size_t total = static_cast<size_t>(B)*PH*PW*C*P*P;
+	if(total == 0) return;
 	if(total % 2 == 0){
 		int blocks = 0, tpb = 0;
 		GetLaunchConfig(total/2, blocks, tpb);
-		ExtractPatchesKernelVec2<<<blocks, tpb>>>(in, out, B, C, H, W, P);
+		if(blocks > 0 && tpb > 0)
+			ExtractPatchesKernelVec2<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	} else{
 		int blocks = 0, tpb = 0;
 		GetLaunchConfig(total, blocks, tpb);
-		ExtractPatchesKernel<<<blocks, tpb>>>(in, out, B, C, H, W, P);
+		if(blocks > 0 && tpb > 0)
+			ExtractPatchesKernel<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	}
 	const auto e = cudaGetLastError();
-	if(e != cudaSuccess) 
+	if(e != cudaSuccess)
 		printf("ExtractPatches error: %s\n", cudaGetErrorString(e));
 }
 __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* __restrict__ dx, int B, int C, int H, int W, int P){

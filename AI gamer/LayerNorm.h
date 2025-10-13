@@ -2,7 +2,7 @@
 #include "Layer.h"
 class LayerNorm final : public Layer{
 public:
-	LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, bool train, float weightDecay);
+	LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, bool train);
 	~LayerNorm() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -29,5 +29,4 @@ public:
 	float *workspace_;
 	int workspaceSize_;
 	int t_ = 1;
-	float weightDecay_;
 };

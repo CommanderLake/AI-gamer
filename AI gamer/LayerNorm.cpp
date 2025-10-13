@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <vector>
-LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train, const float weightDecay) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width), weightDecay_(weightDecay){
+LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHW_;
@@ -56,8 +56,8 @@ __half* LayerNorm::Backward(__half* grad){
 	return outGrad_;
 }
 void LayerNorm::UpdateParameters(float learningRate){
-	AdamWFloat(gamma_, gradGamma_, mGamma_, vGamma_, learningRate, t_, weightDecay_, outC_);
-	AdamWFloat(beta_, gradBeta_, mBeta_, vBeta_, learningRate, t_, weightDecay_, outC_);
+	AdamWFloat(gamma_, gradGamma_, mGamma_, vGamma_, learningRate, t_, 0.0f, outC_);
+	AdamWFloat(beta_, gradBeta_, mBeta_, vBeta_, learningRate, t_, 0.0f, outC_);
 	++t_;
 }
 void LayerNorm::SaveParameters(std::ofstream& file, unsigned char* buffer){

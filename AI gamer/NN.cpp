@@ -6,7 +6,9 @@
 #include "EncoderLayer.h"
 #include "GlobalPoolLayer.h"
 #include "PatchEmbedLayer.h"
-//#include "ViewerLayer.h"
+#include "ViewerLayer.h"
+#undef min
+#undef max
 NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(20), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
@@ -28,20 +30,28 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.05f;
-	constexpr auto patchSize = 10;
+	constexpr auto patchSize = 8;
 	constexpr auto embedDim = 384;
-	constexpr auto ffDim = embedDim*3;
+	constexpr auto ffDim = embedDim*2;
 	constexpr int numHeads = 8;
-	constexpr int numEncoders = 8;
+	constexpr int numEncoders = 6;
+	const int patchRows = DivCeil(netHeight, patchSize);
+	const int patchCols = DivCeil(netWidth, patchSize);
+	constexpr bool enableViewerLayers = true;
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(3, netHeight, netWidth, 3, "Input Viewer"));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
-	const auto numPatches = DivCeil(netHeight, patchSize)*DivCeil(netWidth, patchSize);
-	const auto attentionWorkspaceTokens = numPatches;
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, "Patch Embedding Viewer"));
+	const auto numPatches = patchRows*patchCols;
 	for(int i = 0; i < numEncoders; ++i){
-		std::string name = "Encoder" + std::to_string(i);
-		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_, attentionWorkspaceTokens));
+		auto name = "Encoder" + std::to_string(i);
+		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_, numPatches));
+		if(enableViewerLayers){
+			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
+				layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, name + " Output Viewer"));
+		}
 	}
-	//layers_.push_back(new ViewerLayer(numPatches, 24, 32, 16, "PatchEmbedLayer viewer"));
 	layers_.push_back(new GlobalPoolLayer(batchStateTotal_, numPatches, embedDim, "GlobalPool", train));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, 1, 1, 24, "Global Pool Viewer"));
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, embedDim, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
