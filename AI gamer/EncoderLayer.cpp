@@ -35,14 +35,14 @@ __half* EncoderLayer::Forward(__half* data){
 	data = layers_[0]->Forward(data);
 	data = layers_[1]->Forward(data);
 	data = layers_[2]->Forward(data);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mix_, tensorDesc_, residual1, &mix_, tensorDesc_, data));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, tensorDesc_, residual1, &mixFwd_, tensorDesc_, data));
 	const auto* residual2 = data;
 	data = layers_[3]->Forward(data);
 	data = layers_[4]->Forward(data);
 	data = layers_[5]->Forward(data);
 	data = layers_[6]->Forward(data);
 	data = layers_[7]->Forward(data);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mix_, tensorDesc_, residual2, &mix_, tensorDesc_, data));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, tensorDesc_, residual2, &mixFwd_, tensorDesc_, data));
 	return data;
 }
 __half* EncoderLayer::Backward(__half* grad){
@@ -52,15 +52,15 @@ __half* EncoderLayer::Backward(__half* grad){
 	grad = layers_[5]->Backward(grad);
 	grad = layers_[4]->Backward(grad);
 	grad = layers_[3]->Backward(grad);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mix_, tensorDesc_, residual2, &mix_, tensorDesc_, grad));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, tensorDesc_, residual2, &mixBwd_, tensorDesc_, grad));
 	const auto* residual1 = grad;
 	grad = layers_[2]->Backward(grad);
 	grad = layers_[1]->Backward(grad);
 	grad = layers_[0]->Backward(grad);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mix_, tensorDesc_, residual1, &mix_, tensorDesc_, grad));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, tensorDesc_, residual1, &mixBwd_, tensorDesc_, grad));
 	return grad;
 }
-void EncoderLayer::UpdateParameters(float learningRate){ for(const auto layer : layers_){ layer->UpdateParameters(learningRate); } }
+void EncoderLayer::UpdateParameters(const float learningRate){ for(const auto layer : layers_){ layer->UpdateParameters(learningRate); } }
 void EncoderLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){ for(const auto layer : layers_){ layer->SaveParameters(file, buffer); } }
 void EncoderLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){ for(const auto layer : layers_){ layer->LoadParameters(file, buffer); } }
 void EncoderLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){ for(const auto layer : layers_){ layer->SaveOptimizerState(file, buffer); } }

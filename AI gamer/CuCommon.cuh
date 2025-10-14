@@ -68,7 +68,7 @@ void LayerNormForward(__half* y, const __half* x, const float* g, const float* b
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspace_size, int N, int C, int HW);
 bool IsnanHalf(const __half* data, int size);
 void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale);
-void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, cudaStream_t stream = nullptr);
+void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, float* AttentionWeights, int B, int T, int D, int H);
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const float* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int B, int T, int D, int H);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);

@@ -20,8 +20,8 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
-	constexpr float baseLr = 0.001f;
-	const float minLr = 0.00001f;
+	constexpr float baseLr = 0.0001f;
+	const float minLr = 0.000001f;
 	const size_t warmupSteps = epochBatchCount * 1;
 	const size_t totalSteps = epochBatchCount * 10;
 	const size_t currentStep = epoch * epochBatchCount + batch;
@@ -98,8 +98,8 @@ void Train::TrainModel(const int width, const int height){
 		for(size_t batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
 			threadPool.WaitAll();
 			fetchBatch(false);
-			//const float lr = GetLearningRate(epoch, batch, epochBatchCount);
-			const auto result = TrainBatch(nn, sbRead, true, 0.00001, batch, epochBatchCount);
+			const float lr = GetLearningRate(epoch, batch, epochBatchCount);
+			const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
 			if(result == -1){ stopTraining = true; }
 		}
 		if(stopTraining){

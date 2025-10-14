@@ -4,7 +4,6 @@
 #include "ConvLayer.h"
 #include "CustomOutLayer.h"
 #include "EncoderLayer.h"
-#include "GlobalPoolLayer.h"
 #include "PatchEmbedLayer.h"
 #include "ViewerLayer.h"
 #undef min
@@ -37,22 +36,21 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr int numEncoders = 6;
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);
-	constexpr bool enableViewerLayers = true;
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(3, netHeight, netWidth, 3, "Input Viewer"));
-	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, "Patch Embedding Viewer"));
 	const auto numPatches = patchRows*patchCols;
+	constexpr bool enableViewerLayers = false;
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(3, netHeight, netWidth, 3, "Input Viewer", 1.0f, false));
+	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, "Patch Embedding Viewer", 1.0f, false));
 	for(int i = 0; i < numEncoders; ++i){
 		auto name = "Encoder" + std::to_string(i);
 		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, numPatches, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_, numPatches));
-		if(enableViewerLayers){
-			if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
-				layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, name + " Output Viewer"));
-		}
+		//if(enableViewerLayers){
+			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
+				//layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, name + " Output Viewer", 1.0f, false));
+		//}
 	}
-	layers_.push_back(new GlobalPoolLayer(batchStateTotal_, numPatches, embedDim, "GlobalPool", train));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, 1, 1, 24, "Global Pool Viewer"));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, embedDim, "SplitOut", train, wd, gradAccumLength_));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, "Encoders Output Viewer", 100.0f, true));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, embedDim*numPatches, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
