@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <iostream>
-MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int timeSize, const int vectorSize, const int numHeads, const char* layerName, const bool train, const float weightDecay) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), timeSize_(timeSize), vectorSize_(vectorSize), numHeads_(numHeads), inData_(nullptr), weightDecay_(weightDecay){
+MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int timeSize, const int vectorSize, const int numHeads, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), timeSize_(timeSize), vectorSize_(vectorSize), numHeads_(numHeads), inData_(nullptr), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	checkCUDNN(cudnnCreateAttnDescriptor(&attnDesc_));
@@ -37,7 +37,6 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 		checkCUDNN(cudnnGetTensorNdDescriptor(wDesc, ndims, &dt, &ndims, d, s));
 		const size_t elems = static_cast<size_t>(d[0])*d[1]*d[2];
 		const int fanIn = d[2];
-		const int fanOut = d[0]*d[1];
 		WeightInit(static_cast<__half*>(addr), static_cast<int>(elems), fanIn, Xavier);
 	};
 	initWeight(CUDNN_MH_ATTN_Q_WEIGHTS);
@@ -45,7 +44,9 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 	initWeight(CUDNN_MH_ATTN_V_WEIGHTS);
 	initWeight(CUDNN_MH_ATTN_O_WEIGHTS);
 	cudnnDestroyTensorDescriptor(wDesc);
-	const size_t dataSize = batchSize_*timeSize_*vectorSize_;
+	outNCHW_ = batchSize_*timeSize_*vectorSize_;
+	alphaWeights_ = gradAccumLength_ > 0 ? 1.0f/(static_cast<float>(batchSize_)*timeSize_*gradAccumLength_) : 1.0f;
+	const size_t dataSize = outNCHW_;
 	CUDAMallocZero(&outData_, dataSize*sizeof(__half));
 	if(train_){
 		CUDAMallocZero(&gradWeights_, weightSize_);
@@ -90,19 +91,25 @@ MultiHeadAttentionLayer::~MultiHeadAttentionLayer(){
 __half* MultiHeadAttentionLayer::Forward(__half* data){
 	inData_ = data;
 	const int currIdx = train_ ? -1 : 0;
-	checkCUDNN(cudnnMultiHeadAttnForward(cudnnHandle_, attnDesc_, currIdx, (*loWinIdx).data(), (*hiWinIdx).data(), d_SeqLengths, d_SeqLengths, qkvDesc_, data, nullptr, // residuals
-		qkvDesc_, data, qkvDesc_, data, outDesc_, outData_, weightSize_, weights_, workspaceSize_, workspace_, train_ ? reserveSpaceSize_ : 0, train_ ? reserveSpace_ : nullptr));
+	checkCUDNN(cudnnMultiHeadAttnForward(cudnnHandle_, attnDesc_, currIdx, (*loWinIdx).data(), (*hiWinIdx).data(), d_SeqLengths, d_SeqLengths, qkvDesc_, data, nullptr, qkvDesc_, data, qkvDesc_, data, outDesc_, outData_, weightSize_, weights_, workspaceSize_, workspace_, train_ ? reserveSpaceSize_ : 0, train_ ? reserveSpace_ : nullptr));
 	return outData_;
 }
 __half* MultiHeadAttentionLayer::Backward(__half* grad){
-	checkCUDNN(cudnnMultiHeadAttnBackwardData(cudnnHandle_, attnDesc_,
-		(*loWinIdx).data(), (*hiWinIdx).data(), d_SeqLengths, d_SeqLengths, outDesc_, grad, qkvDesc_, outGrad_, inData_, qkvDesc_, gradKeys_, inData_, qkvDesc_, gradValues_, inData_, weightSize_, weights_, workspaceSize_, workspace_,
-		reserveSpaceSize_, reserveSpace_));
-	checkCUDNN(cudnnMultiHeadAttnBackwardWeights(cudnnHandle_, attnDesc_,
-		CUDNN_WGRAD_MODE_SET, qkvDesc_, inData_, qkvDesc_, inData_, qkvDesc_, inData_, outDesc_, grad, weightSize_, weights_, gradWeights_, workspaceSize_, workspace_, reserveSpaceSize_, reserveSpace_));
+	if(!train_){
+		return grad;
+	}
+	const int prevCount = accumCount_++;
+	checkCUDNN(cudnnMultiHeadAttnBackwardData(cudnnHandle_, attnDesc_, (*loWinIdx).data(), (*hiWinIdx).data(), d_SeqLengths, d_SeqLengths, outDesc_, grad, qkvDesc_, outGrad_, inData_, qkvDesc_, gradKeys_, inData_, qkvDesc_, gradValues_, inData_, weightSize_, weights_, workspaceSize_, workspace_, reserveSpaceSize_, reserveSpace_));
+	const int accumLen = gradAccumLength_ > 0 ? gradAccumLength_ : 1;
+	const auto wgradMode = prevCount % accumLen == 0 ? CUDNN_WGRAD_MODE_SET : CUDNN_WGRAD_MODE_ADD;
+	checkCUDNN(cudnnMultiHeadAttnBackwardWeights(cudnnHandle_, attnDesc_, wgradMode, qkvDesc_, inData_, qkvDesc_, inData_, qkvDesc_, inData_, outDesc_, grad, weightSize_, weights_, gradWeights_, workspaceSize_, workspace_, reserveSpaceSize_, reserveSpace_));
 	return outGrad_;
 }
 void MultiHeadAttentionLayer::UpdateParameters(float learningRate){
+	if(!train_) return;
+	if(gradAccumLength_ <= 0) return;
+	if(accumCount_%gradAccumLength_>0) return;
+	ScaleArrayHalf(gradWeights_, weightSize_/sizeof(__half), alphaWeights_);
 	if(useAdamW_){
 		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightSize_/sizeof(__half));
 		++t_;
@@ -145,6 +152,8 @@ void MultiHeadAttentionLayer::SetTrain(const bool enable){
 		train_ = false;
 		bs = 1;
 	}
+	outNCHW_ = bs*timeSize_*vectorSize_;
+	alphaWeights_ = gradAccumLength_ > 0 ? 1.0f/(static_cast<float>(bs)*timeSize_*gradAccumLength_) : 1.0f;
 	int dimA[CUDNN_SEQDATA_DIM_COUNT];
 	dimA[CUDNN_SEQDATA_TIME_DIM] = timeSize_;
 	dimA[CUDNN_SEQDATA_BATCH_DIM] = bs;

@@ -229,3 +229,17 @@ void AttentionPoolBackward(const __half* grad, const __half* input, const __half
 	dim3 gradInputGrid(batchSize, tokens, DivCeil(embedDim, BS));
 	AttentionPoolGradInputKernel<<<gradInputGrid, BS>>>(outGrad, grad, attnWeights, tempBuffer, query, batchSize, tokens, embedDim, invSqrtDim);
 }
+__global__ void ScaleHalfKernel(__half* data, const size_t count, const float scale){
+	const size_t stride = static_cast<size_t>(blockDim.x) * gridDim.x;
+	for(size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < count; idx += stride){
+		data[idx] = __float2half(__half2float(data[idx]) * scale);
+	}
+}
+void ScaleArrayHalf(__half* data, const size_t count, const float scale){
+	if(!data || scale == 1.0f || count == 0) return;
+	constexpr int threads = 256;
+	const int blocks = static_cast<int>((count + threads - 1) / threads);
+	if(blocks <= 0) return;
+	ScaleHalfKernel<<<blocks, threads>>>(data, count, scale);
+	checkCUDA(cudaGetLastError());
+}

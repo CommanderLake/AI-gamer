@@ -6,7 +6,7 @@
 class MultiHeadAttentionLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int timeSize, int vectorSize, int numHeads, const char* layerName, bool train, float weightDecay);
+	MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int timeSize, int vectorSize, int numHeads, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~MultiHeadAttentionLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -38,4 +38,7 @@ public:
 	std::vector<int>* loWinIdx;
 	std::vector<int>* hiWinIdx;
 	float weightDecay_;
+	int gradAccumLength_;
+	float alphaWeights_ = 1.0f;
+	int accumCount_ = 0;
 };
