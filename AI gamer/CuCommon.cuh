@@ -77,6 +77,8 @@ void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, boo
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void ScaleArrayHalf(__half* data, size_t count, float scale);
+void AddBias(__half* output, const __half* bias, int channels, int batch);
+void AccumulateBiasGrad(const __half* grad, __half* gradBias, int channels, int batch, float scale, bool reset);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
 void GetLaunchConfig(int n, int& blocks, int& tpb);

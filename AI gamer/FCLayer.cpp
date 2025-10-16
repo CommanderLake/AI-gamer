@@ -2,8 +2,8 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <iostream>
-FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod, const float weightScale) :
-	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const float weightScale, const bool useBias) :
+	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_ * outC_;
@@ -13,37 +13,54 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	weightCount_ = inC_ * outC_;
 	CUDAMallocZero(&weights_, weightCount_ * sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_ * sizeof(__half));
+	if(useBias_){ CUDAMallocZero(&biases_, outC_ * sizeof(__half)); }
 	if(train_){
 		WeightInit(weights_, weightCount_, inC_, weightInitMethod, weightScale);
 		CUDAMallocZero(&gradWeights_, weightCount_ * sizeof(__half));
 		CUDAMallocZero(&outGrad_, batchSize_ * inC_ * sizeof(__half));
+		if(useBias_){ CUDAMallocZero(&gradBiases_, outC_ * sizeof(__half)); }
 		if(useAdamW_){
 			CUDAMallocZero(&m_Weights_, weightCount_ * sizeof(__half));
 			CUDAMallocZero(&v_Weights_, weightCount_ * sizeof(__half));
+			if(useBias_){
+				CUDAMallocZero(&m_Biases_, outC_ * sizeof(__half));
+				CUDAMallocZero(&v_Biases_, outC_ * sizeof(__half));
+			}
 		}
 	}
 }
 FCLayer::~FCLayer(){
 	cudaFree(weights_);
 	cudaFree(outData_);
+	if(useBias_){ cudaFree(biases_); }
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 	if(train_){
 		cudaFree(outGrad_);
 		cudaFree(gradWeights_);
+		if(useBias_){ cudaFree(gradBiases_); }
 		if(useAdamW_){
 			cudaFree(m_Weights_);
 			cudaFree(v_Weights_);
+			if(useBias_){
+				cudaFree(m_Biases_);
+				cudaFree(v_Biases_);
+			}
 		}
 	}
 }
 __half* FCLayer::Forward(__half* data){
 	inData_ = data;
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, outC_, batchSize_, inC_, &alpha_, weights_, CUDA_R_16F, outC_, data, CUDA_R_16F, inC_, &beta0_, outData_, CUDA_R_16F, outC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	if(useBias_){ AddBias(outData_, biases_, outC_, batchSize_); }
 	return outData_;
 }
 __half* FCLayer::Backward(__half* grad){
 	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, outC_, inC_, batchSize_, &alphaWeights_, grad, CUDA_R_16F, outC_, inData_, CUDA_R_16F, inC_, betaWeights, gradWeights_, CUDA_R_16F, outC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	if(useBias_){
+		const bool reset = betaWeights == &beta0_;
+		AccumulateBiasGrad(grad, gradBiases_, outC_, batchSize_, alphaWeights_, reset);
+	}
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, inC_, batchSize_, outC_, &alpha_, weights_, CUDA_R_16F, outC_, grad, CUDA_R_16F, outC_, &beta0_, outGrad_, CUDA_R_16F, inC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outGrad_;
 }
@@ -52,15 +69,27 @@ void FCLayer::UpdateParameters(const float learningRate){
 	if(useAdamW_){
 		++t_;
 		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightCount_);
-	} else{ SGDHalf(weights_, gradWeights_, weightCount_, learningRate, weightDecay_); }
+		if(useBias_){ AdamWHalf(biases_, gradBiases_, m_Biases_, v_Biases_, learningRate, t_, 0.0f, outC_); }
+	} else{
+		SGDHalf(weights_, gradWeights_, weightCount_, learningRate, weightDecay_);
+		if(useBias_){ SGDHalf(biases_, gradBiases_, outC_, learningRate, 0.0f); }
+	}
 }
 void FCLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	cudaMemcpy(buffer, weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	if(useBias_){
+		cudaMemcpy(buffer, biases_, outC_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(__half));
+	}
 }
 void FCLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	if(useBias_){
+		file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(__half));
+		cudaMemcpy(biases_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
+	}
 }
 void FCLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
@@ -68,6 +97,12 @@ void FCLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	if(useBias_){
+		cudaMemcpy(buffer, m_Biases_, outC_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(__half));
+		cudaMemcpy(buffer, v_Biases_, outC_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(__half));
+	}
 }
 void FCLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
@@ -75,9 +110,21 @@ void FCLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(v_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	if(useBias_){
+		file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(__half));
+		cudaMemcpy(m_Biases_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(__half));
+		cudaMemcpy(v_Biases_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
+	}
 }
-size_t FCLayer::GetParameterSize(){ return weightCount_*sizeof(__half); }
-size_t FCLayer::GetOptimizerStateSize(){ return weightCount_*sizeof(__half); }
+size_t FCLayer::GetParameterSize(){
+	const size_t biasCount = useBias_ ? outC_ : 0;
+	return std::max(weightCount_, biasCount)*sizeof(__half);
+}
+size_t FCLayer::GetOptimizerStateSize(){
+	const size_t biasCount = useBias_ ? outC_ : 0;
+	return std::max(weightCount_, biasCount)*sizeof(__half);
+}
 void FCLayer::SetTrain(const bool enable){
 	if(enable){
 		train_ = true;
@@ -88,4 +135,5 @@ void FCLayer::SetTrain(const bool enable){
 	}
 	outNCHW_ = batchSize_*outC_;
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
+	alphaWeights_ = 1.0f / (batchSize_ * gradAccumLength_);
 }

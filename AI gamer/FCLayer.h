@@ -6,7 +6,7 @@
 class FCLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, float weightScale = 1.0f);
+	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, float weightScale = 1.0f, bool useBias = false);
 	~FCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -24,8 +24,12 @@ public:
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;
 	__half* gradWeights_ = nullptr;
-	const __half* inData_;
-	__half *m_Weights_, *v_Weights_;
+	__half* biases_ = nullptr;
+	__half* gradBiases_ = nullptr;
+	const __half* inData_ = nullptr;
+	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;
+	__half *m_Biases_ = nullptr, *v_Biases_ = nullptr;
+	const bool useBias_;
 	int t_ = 0;
 	const float alpha_ = 1.0f;
 	float alphaWeights_ = 1.0f;

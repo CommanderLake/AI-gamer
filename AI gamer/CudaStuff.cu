@@ -237,9 +237,39 @@ __global__ void ScaleHalfKernel(__half* data, const size_t count, const float sc
 }
 void ScaleArrayHalf(__half* data, const size_t count, const float scale){
 	if(!data || scale == 1.0f || count == 0) return;
-	constexpr int threads = 256;
-	const int blocks = static_cast<int>((count + threads - 1) / threads);
-	if(blocks <= 0) return;
-	ScaleHalfKernel<<<blocks, threads>>>(data, count, scale);
+	constexpr int bs = 256;
+	const int blocks = DivCeil(count, bs);
+	ScaleHalfKernel<<<blocks, bs>>>(data, count, scale);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void AddBiasKernel(__half* output, const __half* bias, const int channels, const int batch){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int total = channels*batch;
+	if(idx >= total){ return; }
+	const int c = idx % channels;
+	output[idx] = output[idx] + bias[c];
+}
+void AddBias(__half* output, const __half* bias, const int channels, const int batch){
+	constexpr int bs = 256;
+	const int blocks = DivCeil(channels*batch, bs);
+	AddBiasKernel<<<blocks, bs>>>(output, bias, channels, batch);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void AccumulateBiasGradKernel(const __half* grad, __half* gradBias, const int channels, const int batch, const float scale, const bool reset){
+	const int c = blockIdx.x*blockDim.x + threadIdx.x;
+	if(c >= channels){ return; }
+	float sum = 0.0f;
+	for(int b = 0; b < batch; ++b){ sum += __half2float(grad[c + b*channels]); }
+	const float scaled = sum*scale;
+	if(reset){
+		gradBias[c] = __float2half(scaled);
+	} else{
+		gradBias[c] = __float2half(__half2float(gradBias[c]) + scaled);
+	}
+}
+void AccumulateBiasGrad(const __half* grad, __half* gradBias, const int channels, const int batch, const float scale, const bool reset){
+	constexpr int bs = 256;
+	const int blocks = DivCeil(channels, bs);
+	AccumulateBiasGradKernel<<<blocks, bs>>>(grad, gradBias, channels, batch, scale, reset);
 	checkCUDA(cudaGetLastError());
 }
