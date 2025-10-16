@@ -56,11 +56,12 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	}
 	layers_.push_back(new LayerNorm(batchStateTotal_, nTokens, embedSqrt, embedSqrt, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", 1.0f, false));
-	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, nTokens, 1, embedSqrt, embedSqrt, &adapterHeight, &adapterWidth, "Output Adapter ConvLayer", train, wd, gradAccumLength_, Xavier));
-	layers_.push_back(new LayerNorm(batchStateTotal_, 1, embedSqrt, embedSqrt, "Post-encoder norm", train));
-	layers_.push_back(new GELULayer(batchStateTotal_, 1, embedSqrt, embedSqrt, "GELU"));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(1, embedSqrt, embedSqrt, 1, "ConvLayer Output Viewer", 1.0f, false));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, nTokens, "SplitOut", train, wd, gradAccumLength_));
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, nTokens, 1, 1, 1, &adapterHeight, &adapterWidth, "Output Adapter ConvLayer", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new LayerNorm(batchStateTotal_, 1, adapterHeight, adapterWidth, "Post-adapter norm", train));
+	layers_.push_back(new GELULayer(batchStateTotal_, 1, adapterHeight, adapterWidth, "GELU"));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(1, adapterHeight, adapterWidth, 1, "ConvLayer Output Viewer", 1.0f, false));
+	const int adapterFeatures = 1*adapterHeight*adapterWidth;
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, adapterFeatures, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
