@@ -32,7 +32,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.1f;
 	constexpr auto patchSize = 10;
-	constexpr auto embedSqrt = 24;
+	constexpr auto embedSqrt = 16;
 	constexpr auto embedDim = embedSqrt*embedSqrt;
 	constexpr auto ffDim = embedDim*4;
 	constexpr int numHeads = 8;
@@ -55,11 +55,11 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 		//}
 	}
 	layers_.push_back(new LayerNorm(batchStateTotal_, nTokens, embedSqrt, embedSqrt, "Post-encoder norm", train));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", 1.0f, false));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", 0.25f, false));
 	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_, nTokens, 1, 1, 1, &adapterHeight, &adapterWidth, "Output Adapter ConvLayer", train, wd, gradAccumLength_, Xavier));
 	layers_.push_back(new LayerNorm(batchStateTotal_, 1, adapterHeight, adapterWidth, "Post-adapter norm", train));
 	layers_.push_back(new GELULayer(batchStateTotal_, 1, adapterHeight, adapterWidth, "GELU"));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(1, adapterHeight, adapterWidth, 1, "ConvLayer Output Viewer", 1.0f, false));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(1, adapterHeight, adapterWidth, 1, "ConvLayer Output Viewer", 0.25f, false));
 	const int adapterFeatures = 1*adapterHeight*adapterWidth;
 	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, adapterFeatures, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){

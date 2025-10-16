@@ -31,7 +31,6 @@ CustomOutLayer::~CustomOutLayer(){
 	axisLayers_.clear();
 	buttonLayers_.clear();
 	cudnnDestroyTensorDescriptor(inDesc_);
-	cudnnDestroyTensorDescriptor(outDesc_);
 }
 __half* CustomOutLayer::Forward(__half* data){
 	auto buttonData = data;
