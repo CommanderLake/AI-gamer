@@ -4,6 +4,7 @@
 #include "ConvLayer.h"
 #include "CustomOutLayer.h"
 #include "EncoderLayer.h"
+#include "GELULayer.h"
 #include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
 #include "ViewerLayer.h"
@@ -31,28 +32,36 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.1f;
 	constexpr auto patchSize = 10;
-	constexpr auto embedDim = 384;
+	constexpr auto embedDim = 576;
 	constexpr auto ffDim = embedDim*4;
-	constexpr int numHeads = 6;
-	constexpr int numEncoders = 6;
+	constexpr int numHeads = 8;
+	constexpr int numEncoders = 8;
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);
 	const auto nTokens = patchRows*patchCols;
-	constexpr bool enableViewerLayers = false;
+	constexpr bool enableViewerLayers = true;
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(3, netHeight, netWidth, 3, "Input Viewer", 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, "Patch Embedding Viewer", 1.0f, false));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, 24, 24, 32, "Patch Embedding Viewer", 1.0f, false));
 	for(int i = 0; i < numEncoders; ++i){
 		auto name = "Encoder" + std::to_string(i);
 		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, nTokens, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_, nTokens));
 		//if(enableViewerLayers){
 			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
-				//layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, name + " Output Viewer", 1.0f, false));
+				//layers_.push_back(new ViewerLayer(nTokens, 16, 24, 32, name + " Output Viewer", 1.0f, false));
 		//}
 	}
 	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedDim, 1, 1, "Post-encoder norm", train));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(embedDim, patchRows, patchCols, 24, "Encoders Output Viewer", 100.0f, true));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, embedDim*nTokens, "SplitOut", train, wd, gradAccumLength_));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, 24, 24, 32, "Encoders Output Viewer", 1.0f, false));
+	int adapterHeight = 1;
+	int adapterWidth = 1;
+	constexpr int adapterOutChannels = NUM_CTRLS_;
+	layers_.push_back(new ConvLayer(cudnn_, batchStateTotal_*nTokens, embedDim, adapterOutChannels, 1, 1, &adapterHeight, &adapterWidth, "Output Adapter ConvLayer", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedDim, 1, 1, "Post-encoder norm", train));
+	layers_.push_back(new GELULayer(batchStateTotal_, 1, 24, 24, "GELU"));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(1, 24, 24, 1, "ConvLayer Output Viewer", 1.0f, false));
+	const int adaptedDim = adapterOutChannels * nTokens;
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, adaptedDim, "SplitOut", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
