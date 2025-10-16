@@ -2,23 +2,24 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <iostream>
-FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod, const float weightScale) :
+	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), inData_(nullptr), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	outNCHW_ = batchSize_*outC_;
-	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
+	outNCHW_ = batchSize_ * outC_;
+	alphaWeights_ = 1.0f / (batchSize_ * gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
-	weightCount_ = inC_*outC_;
-	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
-	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
+	weightCount_ = inC_ * outC_;
+	CUDAMallocZero(&weights_, weightCount_ * sizeof(__half));
+	CUDAMallocZero(&outData_, outNCHW_ * sizeof(__half));
 	if(train_){
-		WeightInit(weights_, weightCount_, inC_, weightInitMethod);
-		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
-		CUDAMallocZero(&outGrad_, batchSize_*inC_*sizeof(__half));
+		WeightInit(weights_, weightCount_, inC_, weightInitMethod, weightScale);
+		CUDAMallocZero(&gradWeights_, weightCount_ * sizeof(__half));
+		CUDAMallocZero(&outGrad_, batchSize_ * inC_ * sizeof(__half));
 		if(useAdamW_){
-			CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
-			CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
+			CUDAMallocZero(&m_Weights_, weightCount_ * sizeof(__half));
+			CUDAMallocZero(&v_Weights_, weightCount_ * sizeof(__half));
 		}
 	}
 }

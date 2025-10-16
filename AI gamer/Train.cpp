@@ -46,7 +46,7 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 	}
 	MseLoss2(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchStateTotal_, &lossButs_, &lossAxes_);
 	if(smoothLoss){
-		constexpr float smoothing = 0.98f;
+		constexpr float smoothing = 0.95f;
 		emaLossButs_ = smoothing * emaLossButs_ + (1.0f - smoothing) * lossButs_;
 		emaLossAxes_ = smoothing * emaLossAxes_ + (1.0f - smoothing) * lossAxes_;
 	} else{
