@@ -71,29 +71,32 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 		rowSum[threadIdx.x] = 0.0f;
 	}
 	__syncthreads();
-	// Load Q with vectorized operations where possible (half2)
-	const int qElements = 16 * qStride;
-	auto Q2 = reinterpret_cast<const __half2*>(Q);
-	auto qShared2 = reinterpret_cast<__half2*>(qShared);
-#pragma unroll 4
-	for(int idx = threadIdx.x; idx < qElements / 2; idx += blockDim.x){
-		const int row = (idx * 2) / qStride;
-		const int col = (idx * 2) % qStride;
-		if(row < 16 && col + 1 < D){
-			const int globalRow = rowBlock * 16 + row;
-			if(globalRow < T){
-				const int globalIdx = batchHeadOffset + globalRow * D + col;
-				__half2 val = Q2[globalIdx / 2];
-				qShared2[idx] = __hmul2(val, scaleHalf2);
-			} else{ qShared2[idx] = __float2half2_rn(0.0f); }
-		} else{ qShared2[idx] = __float2half2_rn(0.0f); }
-	}
-	// Handle remaining odd elements
-	if(D & 1){
-		const int idx = threadIdx.x;
-		if(idx < 16){
-			const int globalRow = rowBlock * 16 + idx;
-			if(globalRow < T){ qShared[idx * qStride + D - 1] = __hmul(Q[batchHeadOffset + globalRow * D + D - 1], scaleHalf); }
+	// Load Q rows cooperatively with alignment-safe vectorization
+	for(int row = 0; row < 16; ++row){
+		const int globalRow = rowBlock * 16 + row;
+		__half* sharedRow = qShared + row * qStride;
+		for(int col = threadIdx.x; col < qStride; col += blockDim.x){ sharedRow[col] = __float2half(0.0f); }
+		if(globalRow >= T){ continue; }
+		const __half* qRow = Q + batchHeadOffset + globalRow * D;
+		int sharedOffset = 0;
+		int remaining = D;
+		if(remaining > 0 && (reinterpret_cast<uintptr_t>(qRow) & 0x3)){ // handle leading misalignment
+			if(threadIdx.x == 0){ sharedRow[0] = __hmul(qRow[0], scaleHalf); }
+			qRow += 1;
+			sharedOffset = 1;
+			remaining -= 1;
+		}
+		const int pairCount = remaining / 2;
+		if(pairCount > 0){
+			auto qRow2 = reinterpret_cast<const __half2*>(qRow);
+			auto sharedRow2 = reinterpret_cast<__half2*>(sharedRow + sharedOffset);
+			for(int pairIdx = threadIdx.x; pairIdx < pairCount; pairIdx += blockDim.x){
+				__half2 val = __ldg(qRow2 + pairIdx);
+				sharedRow2[pairIdx] = __hmul2(val, scaleHalf2);
+			}
+		}
+		if((remaining & 1) != 0){
+			if(threadIdx.x == 0){ sharedRow[sharedOffset + pairCount * 2] = __hmul(qRow[pairCount * 2], scaleHalf); }
 		}
 	}
 	__syncthreads();
