@@ -15,7 +15,7 @@ ThreadPool::ThreadPool(size_t numThreads) : stop(false), generators(numThreads){
 				}
 				task();
 			}
-		});
+			});
 	}
 }
 ThreadPool::~ThreadPool(){
@@ -27,8 +27,8 @@ ThreadPool::~ThreadPool(){
 	for(std::thread& worker : workers){ worker.join(); }
 }
 void ThreadPool::WaitAll(){
-	for(auto& future : futures){ future.wait(); }
-	futures.clear();
+	std::unique_lock<std::mutex> lock(completionMutex);
+	completionCondition.wait(lock, [this]{ return tasksInFlight.load(std::memory_order_acquire) == 0; });
 }
 std::mt19937& ThreadPool::GetThreadGenerator(){
 	// Get the thread index based on the current thread id
@@ -38,4 +38,10 @@ std::mt19937& ThreadPool::GetThreadGenerator(){
 		return generators[index];
 	}
 	throw std::runtime_error("Thread not found in thread pool");
+}
+void ThreadPool::TaskCompleted(){
+	if(tasksInFlight.fetch_sub(1, std::memory_order_acq_rel) == 1){
+		std::lock_guard<std::mutex> lock(completionMutex);
+		completionCondition.notify_all();
+	}
 }

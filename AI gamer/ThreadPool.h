@@ -7,6 +7,7 @@
 #include <future>
 #include <condition_variable>
 #include <random>
+#include <atomic>
 
 class ThreadPool{
 public:
@@ -18,11 +19,14 @@ public:
 private:
 	std::vector<std::thread> workers;
 	std::queue<std::function<void()>> tasks;
-	std::vector<std::shared_future<void>> futures;
 	std::mutex queueMutex;
 	std::condition_variable condition;
 	bool stop;
 	std::vector<std::mt19937> generators; // Vector of random number generators
+	std::atomic<size_t> tasksInFlight{0};
+	std::condition_variable completionCondition;
+	std::mutex completionMutex;
+	void TaskCompleted();
 };
 
 template <class F, class... Args>
@@ -33,9 +37,15 @@ std::future<std::result_of_t<F(Args ...)>> ThreadPool::Enqueue(F&& f, Args&&... 
 	{
 		std::unique_lock<std::mutex> lock(queueMutex);
 		if(stop) throw std::runtime_error("enqueue on stopped ThreadPool");
-		tasks.emplace([task](){ (*task)(); });
+		tasks.emplace([this, task]{
+			struct TaskCompletionGuard{
+				ThreadPool* pool;
+				~TaskCompletionGuard(){ pool->TaskCompleted(); }
+			} guard{this};
+			(*task)();
+			});
+		tasksInFlight.fetch_add(1, std::memory_order_acq_rel);
 	}
 	condition.notify_one();
-	futures.emplace_back(res.share());
 	return res;
 }
