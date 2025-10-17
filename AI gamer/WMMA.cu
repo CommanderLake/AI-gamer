@@ -674,3 +674,61 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	err = cudaDeviceSynchronize();
 	if(err != cudaSuccess) printf("WmmaAttention Backward sync error: %s\n", cudaGetErrorString(err));
 }
+__global__ void PackColumnsToHeadsKernel(const __half* __restrict__ input, __half* __restrict__ output, int B, int T, int H, int D){
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	const int total = B * T * H * D;
+	if(idx >= total) return;
+	const int d = idx % D;
+	int tmp = idx / D;
+	const int t = tmp % T;
+	tmp /= T;
+	const int h = tmp % H;
+	const int b = tmp / H;
+	const int embedDim = H * D;
+	const int col = t * B + b;
+	const int row = h * D + d;
+	output[idx] = input[row + col * embedDim];
+}
+void PackColumnsToHeads(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads){
+	if(numHeads <= 0) return;
+	if(embedDim % numHeads != 0){
+		printf("PackColumnsToHeads embedDim %d not divisible by numHeads %d\n", embedDim, numHeads);
+		return;
+	}
+	const int headDim = embedDim / numHeads;
+	const int total = batch * tokens * embedDim;
+	constexpr int bs = 256;
+	const int blocks = DivCeil(total, bs);
+	PackColumnsToHeadsKernel<<<blocks, bs>>>(input, output, batch, tokens, numHeads, headDim);
+	const auto err = cudaGetLastError();
+	if(err != cudaSuccess){ printf("PackColumnsToHeads error: %s\n", cudaGetErrorString(err)); }
+}
+__global__ void PackHeadsToColumnsKernel(const __half* __restrict__ input, __half* __restrict__ output, int B, int T, int H, int D){
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	const int total = B * T * H * D;
+	if(idx >= total) return;
+	const int d = idx % D;
+	int tmp = idx / D;
+	const int t = tmp % T;
+	tmp /= T;
+	const int h = tmp % H;
+	const int b = tmp / H;
+	const int embedDim = H * D;
+	const int col = t * B + b;
+	const int row = h * D + d;
+	output[row + col * embedDim] = input[idx];
+}
+void PackHeadsToColumns(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads){
+	if(numHeads <= 0) return;
+	if(embedDim % numHeads != 0){
+		printf("PackHeadsToColumns embedDim %d not divisible by numHeads %d\n", embedDim, numHeads);
+		return;
+	}
+	const int headDim = embedDim / numHeads;
+	const int total = batch * tokens * embedDim;
+	constexpr int bs = 256;
+	const int blocks = DivCeil(total, bs);
+	PackHeadsToColumnsKernel<<<blocks, bs>>>(input, output, batch, tokens, numHeads, headDim);
+	const auto err = cudaGetLastError();
+	if(err != cudaSuccess){ printf("PackHeadsToColumns error: %s\n", cudaGetErrorString(err)); }
+}

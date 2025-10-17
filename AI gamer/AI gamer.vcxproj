@@ -125,6 +125,7 @@
     <ClInclude Include="NN.h" />
     <ClInclude Include="ResFCLayer.h" />
     <ClInclude Include="EncoderLayer.h" />
+    <ClInclude Include="SpatialActionHead.h" />
     <ClInclude Include="TransposeLayer.h" />
     <ClInclude Include="SwishLayer.h" />
     <ClInclude Include="Viewer.h" />
@@ -162,6 +163,7 @@
     <ClCompile Include="NN.cpp" />
     <ClCompile Include="ResFCLayer.cpp" />
     <ClCompile Include="EncoderLayer.cpp" />
+    <ClCompile Include="SpatialActionHead.cpp" />
     <ClCompile Include="TransposeLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />
     <ClCompile Include="Viewer.cpp" />

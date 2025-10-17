@@ -79,6 +79,10 @@ void AttentionPoolBackward(const __half* grad, const __half* input, const __half
 void ScaleArrayHalf(__half* data, size_t count, float scale);
 void AddBias(__half* output, const __half* bias, int channels, int batch);
 void AccumulateBiasGrad(const __half* grad, __half* gradBias, int channels, int batch, float scale, bool reset);
+void PackColumnsToHeads(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);
+void PackHeadsToColumns(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);
+void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
+void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
 void GetLaunchConfig(int n, int& blocks, int& tpb);

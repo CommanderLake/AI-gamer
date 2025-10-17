@@ -29,6 +29,8 @@ private:
 	__half *gradQ_, *gradK_, *gradV_, *gradOut_;
 	__half *m_Q_, *v_Q_, *m_K_, *v_K_, *m_V_, *v_V_, *m_O_, *v_O_;
 	__half *dQ, *dK, *dV;
+	__half *qPacked_ = nullptr, *kPacked_ = nullptr, *vPacked_ = nullptr, *attnOutPacked_ = nullptr;
+	__half *dQPacked_ = nullptr, *dKPacked_ = nullptr, *dVPacked_ = nullptr;
 	__half* workspace_;
 	float* attnGradWorkspace_ = nullptr;
 	size_t attnGradWorkspaceSize_ = 0;

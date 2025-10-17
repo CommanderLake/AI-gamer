@@ -16,6 +16,10 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 	CUDAMallocZero(&oWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + batchSize_*tokens_*tokens_*numHeads_*sizeof(float));
+	CUDAMallocZero(&qPacked_, outNCHW_*sizeof(__half));
+	CUDAMallocZero(&kPacked_, outNCHW_*sizeof(__half));
+	CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
+	CUDAMallocZero(&attnOutPacked_, outNCHW_*sizeof(__half));
 	if(train_){
 		WeightInit(qWeights_, projSize, embedDim_, weightInitMethod);
 		WeightInit(kWeights_, projSize, embedDim_, weightInitMethod);
@@ -40,6 +44,9 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 		CUDAMallocZero(&dK, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&dV, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
+		CUDAMallocZero(&dQPacked_, outNCHW_*sizeof(__half));
+		CUDAMallocZero(&dKPacked_, outNCHW_*sizeof(__half));
+		CUDAMallocZero(&dVPacked_, outNCHW_*sizeof(__half));
 	}
 }
 WmmaAttentionLayer::~WmmaAttentionLayer(){
@@ -49,6 +56,10 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	cudaFree(oWeights_);
 	cudaFree(outData_);
 	cudaFree(workspace_);
+	cudaFree(qPacked_);
+	cudaFree(kPacked_);
+	cudaFree(vPacked_);
+	cudaFree(attnOutPacked_);
 	if(train_){
 		cudaFree(attnGradWorkspace_);
 		cudaFree(gradQ_);
@@ -67,6 +78,9 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 		cudaFree(dK);
 		cudaFree(dV);
 		cudaFree(outGrad_);
+		cudaFree(dQPacked_);
+		cudaFree(dKPacked_);
+		cudaFree(dVPacked_);
 	}
 }
 __half* WmmaAttentionLayer::Forward(__half* data){
@@ -79,14 +93,15 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, qWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, Q, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, kWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, K, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, vWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, V, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	WmmaAttention(Q, K, V, attnOut, attentionWeights, batchSize_, tokens_, headDim_, numHeads_);
+	PackColumnsToHeads(Q, qPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+	PackColumnsToHeads(K, kPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+	PackColumnsToHeads(V, vPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, attentionWeights, batchSize_, tokens_, headDim_, numHeads_);
+	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
-	const __half* Q = workspace_;
-	const __half* K = workspace_ + outNCHW_;
-	const __half* V = workspace_ + 2*outNCHW_;
 	__half* attnOut = workspace_ + 3*outNCHW_;
 	const auto attentionWeights = reinterpret_cast<float*>(workspace_ + 4*outNCHW_);
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &beta0_ : &beta1_;
@@ -106,7 +121,11 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	}
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, betaWeights, gradOut_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &beta0_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	WmmaAttentionBackward(Q, K, V, attnOut, attentionWeights, dQ, dK, dV, attnGradWorkspace_, attnGradWorkspaceSize_, batchSize_, tokens_, headDim_, numHeads_);
+	PackColumnsToHeads(attnOut, attnOutPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+	WmmaAttentionBackward(qPacked_, kPacked_, vPacked_, attnOutPacked_, attentionWeights, dQPacked_, dKPacked_, dVPacked_, attnGradWorkspace_, attnGradWorkspaceSize_, batchSize_, tokens_, headDim_, numHeads_);
+	PackHeadsToColumns(dQPacked_, dQ, batchSize_, tokens_, embedDim_, numHeads_);
+	PackHeadsToColumns(dKPacked_, dK, batchSize_, tokens_, embedDim_, numHeads_);
+	PackHeadsToColumns(dVPacked_, dV, batchSize_, tokens_, embedDim_, numHeads_);
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dQ, CUDA_R_16F, embedDim_, inData_, CUDA_R_16F, embedDim_, betaWeights, gradQ_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dK, CUDA_R_16F, embedDim_, inData_, CUDA_R_16F, embedDim_, betaWeights, gradK_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dV, CUDA_R_16F, embedDim_, inData_, CUDA_R_16F, embedDim_, betaWeights, gradV_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
