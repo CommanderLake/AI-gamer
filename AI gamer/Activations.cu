@@ -83,8 +83,7 @@ __global__ void SigmoidBackwardKernel(half* __restrict__ grad, const half* __res
 	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < size; idx += stride){
 		if(idx % numCtrls < numButs){
 			const float val = __half2float(dataIn[idx]);
-			const float sigmoid = 1.0f / (1.0f + expf(-val));
-			const float derivative = sigmoid * (1.0f - sigmoid);
+			const float derivative = val * (1.0f - val);
 			grad[idx] = __float2half(__half2float(grad[idx]) * derivative);
 		}
 	}
