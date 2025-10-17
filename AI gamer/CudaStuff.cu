@@ -263,9 +263,9 @@ __global__ void TokensToSpatialKernel(const __half* input, __half* output, int b
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
 	const size_t total = static_cast<size_t>(batch) * tokens * embedDim;
 	int blocks = 0;
-	int threads = 0;
-	GetLaunchConfig(static_cast<int>(total), blocks, threads);
-	TokensToSpatialKernel<<<blocks, threads>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
+	int bs = 0;
+	GetLaunchConfig(static_cast<int>(total), blocks, bs);
+	TokensToSpatialKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
 	checkCUDA(cudaGetLastError());
 }
 __global__ void SpatialToTokensKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
@@ -283,8 +283,8 @@ __global__ void SpatialToTokensKernel(const __half* input, __half* output, int b
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
 	const size_t total = static_cast<size_t>(batch) * embedDim * patchRows * patchCols;
 	int blocks = 0;
-	int threads = 0;
-	GetLaunchConfig(static_cast<int>(total), blocks, threads);
-	SpatialToTokensKernel<<<blocks, threads>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
+	int bs = 0;
+	GetLaunchConfig(static_cast<int>(total), blocks, bs);
+	SpatialToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
 	checkCUDA(cudaGetLastError());
 }

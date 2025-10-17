@@ -1,6 +1,6 @@
 #include "ViewerLayer.h"
 #include "CuCommon.cuh"
-ViewerLayer::ViewerLayer(const int channels, const int height, const int width, const int gridWidth, const std::string windowTitle, const float scale, bool backwardPass, __half* displayData) : displayData_(displayData), windowTitle_(windowTitle), backwardPass_(backwardPass), inC_(channels), inH_(height), inW_(width), gridW_(gridWidth), scale_(scale){
+ViewerLayer::ViewerLayer(const int channels, const int patchHeight, const int patchWidth, const int gridWidth, const std::string windowTitle, const float scale, bool backwardPass, __half* displayData) : displayData_(displayData), windowTitle_(windowTitle), backwardPass_(backwardPass), inC_(channels), inH_(patchHeight), inW_(patchWidth), gridW_(gridWidth), scale_(scale){
 	viewer_ = new Viewer();
 	gridH_ = (inC_ + gridW_ - 1) / gridW_;
 	mosaicDimW_ = inW_ * gridW_;

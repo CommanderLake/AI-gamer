@@ -102,6 +102,7 @@
     <CudaCompile>
       <CodeGeneration>compute_70,sm_70</CodeGeneration>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <FastMath>true</FastMath>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>

@@ -39,7 +39,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);
 	const auto nTokens = patchRows*patchCols;
-	constexpr bool enableViewerLayers = true;
+	constexpr bool enableViewerLayers = false;
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(3, netHeight, netWidth, 3, "Input Viewer", 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, "Patch Embedding Viewer", 1.0f, false));
