@@ -358,6 +358,9 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 	const uintptr_t dOutAlignedPtr = reinterpret_cast<uintptr_t>(dOut + embOffset);
 	const uintptr_t outTilesAlignedPtr = reinterpret_cast<uintptr_t>(outTiles);
 	const bool canVectorizeOutTiles = ((dOutAlignedPtr | outTilesAlignedPtr) & 0x3) == 0 && ((D & 1) == 0);
+	const uintptr_t valueTilesAlignedPtr = reinterpret_cast<uintptr_t>(valueTiles);
+	const uintptr_t vAlignedPtr = reinterpret_cast<uintptr_t>(V + embOffset);
+	const bool canVectorizeValueTiles = ((valueTilesAlignedPtr | vAlignedPtr) & 0x3u) == 0u && ((D & 1) == 0) && (D >= 2);
 	for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
 		const int colBase = dBlock * 16;
 		int validCols = D - colBase;
@@ -425,17 +428,70 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 				const __half* outTile = outTiles + dBlock * paddedTileElements;
 				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> outFrag;
 				load_matrix_sync(outFrag, outTile, tileStride);
-				for(int idx = threadIdx.x; idx < activeWarps * elementsPerTile; idx += blockDim.x){
-					const int warpLocal = idx / elementsPerTile;
-					const int tileIndex = idx % elementsPerTile;
-					const int r = tileIndex / 16;
-					const int c = tileIndex % 16;
-					const int warpColBase = warpLocal * 16;
-					const int globalRow = tileStart + colBlock + warpColBase + r;
-					const int globalCol = dBlock * 16 + c;
-					__half val = __float2half(0.0f);
-					if(globalRow < T && globalCol < D && warpColBase + r < remainingCols){ val = V[embOffset + globalRow * D + globalCol]; }
-					valueTiles[warpLocal * paddedTileElements + c * tileStride + r] = val;
+				if(canVectorizeValueTiles){
+					constexpr int kRowPairsPerTile = 8;
+					constexpr int kColPairsPerTile = 8;
+					constexpr int kVecsPerTile = kRowPairsPerTile * kColPairsPerTile;
+					const int totalVecs = activeWarps * kVecsPerTile;
+					for(int vecIdx = threadIdx.x; vecIdx < totalVecs; vecIdx += blockDim.x){
+						const int warpLocal = vecIdx / kVecsPerTile;
+						const int pairIndex = vecIdx % kVecsPerTile;
+						const int rowPair = (pairIndex / kColPairsPerTile) * 2;
+						const int colPair = (pairIndex % kColPairsPerTile) * 2;
+						const int warpColBase = warpLocal * 16;
+						int validRows = remainingCols - warpColBase;
+						if(validRows < 0) validRows = 0;
+						if(validRows > 16) validRows = 16;
+						const int globalRow0 = tileStart + colBlock + warpColBase + rowPair;
+						const int globalRow1 = globalRow0 + 1;
+						const int globalCol0 = dBlock * 16 + colPair;
+						const int globalCol1 = globalCol0 + 1;
+						const bool row0Valid = globalRow0 < T;
+						const bool row1Valid = globalRow1 < T;
+						const bool row0InTile = rowPair < validRows;
+						const bool row1InTile = (rowPair + 1) < validRows;
+						const bool col0Valid = globalCol0 < D;
+						const bool col1Valid = globalCol1 < D;
+						__half row0Col0 = __half(0.0f);
+						__half row1Col0 = __half(0.0f);
+						__half row0Col1 = __half(0.0f);
+						__half row1Col1 = __half(0.0f);
+						if(col0Valid && row0Valid && row0InTile){
+							const __half* rowPtr = V + embOffset + globalRow0 * D + globalCol0;
+							if(col1Valid){
+								const __half2 vec = reinterpret_cast<const __half2*>(rowPtr)[0];
+								row0Col0 = __low2half(vec);
+								row0Col1 = __high2half(vec);
+							} else{ row0Col0 = rowPtr[0]; }
+						}
+						if(col0Valid && row1Valid && row1InTile){
+							const __half* rowPtr = V + embOffset + globalRow1 * D + globalCol0;
+							if(col1Valid){
+								const __half2 vec = reinterpret_cast<const __half2*>(rowPtr)[0];
+								row1Col0 = __low2half(vec);
+								row1Col1 = __high2half(vec);
+							} else{ row1Col0 = rowPtr[0]; }
+						}
+						auto warpBasePtr = valueTiles + warpLocal * paddedTileElements;
+						auto col0Ptr = reinterpret_cast<__half2*>(warpBasePtr + colPair * tileStride + rowPair);
+						col0Ptr[0] = __halves2half2(row0Col0, row1Col0);
+						auto col1Ptr = reinterpret_cast<__half2*>(warpBasePtr + (colPair + 1) * tileStride + rowPair);
+						col1Ptr[0] = __halves2half2(row0Col1, row1Col1);
+					}
+				} else{
+#pragma unroll
+					for(int idx = threadIdx.x; idx < activeWarps * elementsPerTile; idx += blockDim.x){
+						const int warpLocal = idx / elementsPerTile;
+						const int tileIndex = idx % elementsPerTile;
+						const int r = tileIndex / 16;
+						const int c = tileIndex % 16;
+						const int warpColBase = warpLocal * 16;
+						const int globalRow = tileStart + colBlock + warpColBase + r;
+						const int globalCol = dBlock * 16 + c;
+						__half val = __float2half(0.0f);
+						if(globalRow < T && globalCol < D && warpColBase + r < remainingCols){ val = V[embOffset + globalRow * D + globalCol]; }
+						valueTiles[warpLocal * paddedTileElements + c * tileStride + r] = val;
+					}
 				}
 				__syncthreads();
 				if(warpId < activeWarps){
