@@ -250,7 +250,8 @@ void AccumulateBiasGrad(const __half* grad, __half* gradBias, const int channels
 }
 __global__ void TokensToSpatialKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
 	const size_t total = static_cast<size_t>(batch) * tokens * embedDim;
-	for(size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += static_cast<size_t>(blockDim.x) * gridDim.x){
+	const size_t stride = static_cast<size_t>(blockDim.x) * gridDim.x;
+	for(size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
 		const int feature = idx % embedDim;
 		const int tokenIndex = (idx / embedDim) % tokens;
 		const int batchIndex = idx / (embedDim * tokens);
@@ -274,7 +275,8 @@ void TokensToSpatial(const __half* input, __half* output, int batch, int tokens,
 }
 __global__ void SpatialToTokensKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
 	const size_t total = static_cast<size_t>(batch) * embedDim * patchRows * patchCols;
-	for(size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += static_cast<size_t>(blockDim.x) * gridDim.x){
+	const size_t stride = static_cast<size_t>(blockDim.x) * gridDim.x;
+	for(size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
 		const int col = idx % patchCols;
 		const int row = (idx / patchCols) % patchRows;
 		const int feature = (idx / (patchCols * patchRows)) % embedDim;
