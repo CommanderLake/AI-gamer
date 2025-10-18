@@ -51,6 +51,7 @@ void ConvertFloatToHalfScale(__half* halfWeights, const float* weights, size_t s
 void SGDHalf(__half* params, const __half* grads, int size, float learningRate, float weightDecay);
 void SGDFloat(float* params, const float* grads, int size, float learningRate, float weightDecay);
 void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
+void AdamWMixed(__half* paramsHalf, const __half* gradsHalf, float* paramsMaster, float* m, float* v, float lr, int t, float weightDecay, int size);
 void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
 void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, float clip, int size);
 void SplitGradient(__half* dGradient, const __half* dPredictions, const float* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);

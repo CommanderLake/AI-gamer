@@ -206,7 +206,48 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 	}
 }
 void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, const float lr, const int t, const float weightDecay, const int size){
-	int blocks, tpb = 16;
-	GetLaunchConfig(size, blocks, tpb);
-	AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
+        int blocks, tpb = 16;
+        GetLaunchConfig(size, blocks, tpb);
+        AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
+}
+
+__global__ void AdamwKernelMixed(__half* __restrict__ paramsHalf, const __half* __restrict__ gradsHalf, float* __restrict__ paramsMaster, float* __restrict__ m, float* __restrict__ v, const float lr, const int t, const float wd, const int n){
+        __shared__ float sBiasCorrection1;
+        __shared__ float sBiasCorrection2;
+        __shared__ float sLrT;
+        __shared__ float sBeta1Complement;
+        __shared__ float sBeta3Complement;
+        __shared__ float sLrWeightDecay;
+        if(threadIdx.x == 0){
+                sBiasCorrection1 = 1.0f - powf(BETA1_F, t);
+                sBiasCorrection2 = 1.0f - powf(BETA2_F, t);
+                sLrT = lr / sBiasCorrection1;
+                sBeta1Complement = 1.0f - BETA1_F;
+                sBeta3Complement = 1.0f - BETA2_F;
+                sLrWeightDecay = lr * wd;
+        }
+        __syncthreads();
+        const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        const int stride = blockDim.x * gridDim.x;
+        for(int i = idx; i < n; i += stride){
+                const float gradVal = fmaxf(fminf(__half2float(gradsHalf[i]), CLIP), -CLIP);
+                float mVal = m[i];
+                float vVal = v[i];
+                mVal = BETA1_F * mVal + sBeta1Complement * gradVal;
+                vVal = BETA2_F * vVal + sBeta3Complement * gradVal * gradVal;
+                const float denom = sqrtf(vVal / sBiasCorrection2) + EPSILON_F;
+                const float update = sLrT * mVal / denom;
+                float param = paramsMaster[i];
+                param = param - update - sLrWeightDecay * param;
+                paramsMaster[i] = param;
+                paramsHalf[i] = __float2half(param);
+                m[i] = mVal;
+                v[i] = vVal;
+        }
+}
+
+void AdamWMixed(__half* paramsHalf, const __half* gradsHalf, float* paramsMaster, float* m, float* v, const float lr, const int t, const float weightDecay, const int size){
+        int blocks, tpb = 64;
+        GetLaunchConfig(size, blocks, tpb);
+        AdamwKernelMixed<<<blocks, tpb>>>(paramsHalf, gradsHalf, paramsMaster, m, v, lr, t, weightDecay, size);
 }

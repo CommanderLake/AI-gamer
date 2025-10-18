@@ -1,5 +1,6 @@
 #include "NN.h"
 #include "BatchNorm.h"
+#include "common.h"
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
 #include "EncoderLayer.h"
@@ -99,7 +100,8 @@ __half* NN::Backward(__half* grad){
 	return outGrad;
 }
 void NN::UpdateParams(const float lr){
-	for(const auto layer : layers_){ layer->UpdateParameters(lr); }
+        for(const auto layer : layers_){ layer->UpdateParameters(lr); }
+        if(gDebugOptions.syncAfterOptimizerStep){ checkCUDA(cudaDeviceSynchronize()); }
 }
 void NN::SaveModel(const std::string& filename){
 	std::ofstream file(filename, std::ios::binary);

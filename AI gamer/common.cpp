@@ -5,6 +5,8 @@
 #include <vector>
 #include <windows.h>
 #include <sstream>
+#include <cstdlib>
+#include <algorithm>
 #define checkCUDNN(status) { \
     if (status != CUDNN_STATUS_SUCCESS) { \
         std::cerr << "\ncuDNN error: " << cudnnGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
@@ -17,6 +19,52 @@
         throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(status)); \
     } \
 }
+DebugOptions gDebugOptions;
+
+static bool GetEnvFlag(const char* name){
+        const char* value = std::getenv(name);
+        if(!value) return false;
+        if(value[0] == '\0') return false;
+        switch(value[0]){
+        case '1':
+        case 't':
+        case 'T':
+        case 'y':
+        case 'Y':
+                return true;
+        default:
+                break;
+        }
+        return false;
+}
+
+static int GetEnvInt(const char* name, int defaultValue){
+        const char* value = std::getenv(name);
+        if(!value) return defaultValue;
+        return std::max(0, std::atoi(value));
+}
+
+static float GetEnvFloat(const char* name, float defaultValue){
+        const char* value = std::getenv(name);
+        if(!value) return defaultValue;
+        return std::max(0.0f, static_cast<float>(atof(value)));
+}
+
+void InitializeDebugOptionsFromEnv(){
+        gDebugOptions.logAdamUpdateStats = GetEnvFlag("AI_DEBUG_LOG_ADAM");
+        gDebugOptions.gradientStripeTest = GetEnvFlag("AI_DEBUG_GRAD_STRIPE");
+        gDebugOptions.gradientStripeLogitIndex = GetEnvInt("AI_DEBUG_GRAD_LOGIT", gDebugOptions.gradientStripeLogitIndex);
+        gDebugOptions.gradientStripeSampleIndex = GetEnvInt("AI_DEBUG_GRAD_SAMPLE", gDebugOptions.gradientStripeSampleIndex);
+        gDebugOptions.useReferenceAttention = GetEnvFlag("AI_DEBUG_REF_ATTENTION");
+        gDebugOptions.syncAfterOptimizerStep = GetEnvFlag("AI_DEBUG_SYNC_AFTER_OPT");
+        gDebugOptions.logPatchNorms = GetEnvFlag("AI_DEBUG_PATCH_NORM");
+        gDebugOptions.useBceWithLogits = GetEnvFlag("AI_DEBUG_BCE_WITH_LOGITS");
+        if(const char* lossScale = std::getenv("AI_DEBUG_LOSS_SCALE")){
+                gDebugOptions.staticLossScale = std::max(0.0f, static_cast<float>(atof(lossScale)));
+                gDebugOptions.applyStaticLossScale = gDebugOptions.staticLossScale > 0.0f;
+        }
+}
+
 unsigned char keyMap[] = {
 	0x11, // W
 	0x1E, // A

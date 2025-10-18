@@ -70,8 +70,12 @@ __half* SpatialActionHead::Forward(__half* data){
 	auto spatialData = spatialInput_;
 	for(auto* layer : sharedLayers_){ spatialData = layer->Forward(spatialData); }
 	sharedOutput_ = spatialData;
-	auto buttonData = sharedOutput_;
-	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
+        auto buttonData = sharedOutput_;
+        const bool skipSigmoid = gDebugOptions.useBceWithLogits;
+        for(size_t i = 0; i < buttonLayers_.size(); ++i){
+                if(skipSigmoid && i == buttonLayers_.size() - 1){ break; }
+                buttonData = buttonLayers_[i]->Forward(buttonData);
+        }
 	auto axisData = sharedOutput_;
 	for(auto* layer : axisLayers_){ axisData = layer->Forward(axisData); }
 	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_ * effectiveBatch);
@@ -81,7 +85,10 @@ __half* SpatialActionHead::Backward(__half* grad){
 	const int effectiveBatch = batchSize_;
 	auto buttonGrad = grad;
 	auto axisGrad = grad + NUM_BUTS_ * effectiveBatch;
-	for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){ buttonGrad = buttonLayers_[i]->Backward(buttonGrad); }
+        for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){
+                if(gDebugOptions.useBceWithLogits && i == static_cast<int>(buttonLayers_.size()) - 1){ continue; }
+                buttonGrad = buttonLayers_[i]->Backward(buttonGrad);
+        }
 	for(int i = static_cast<int>(axisLayers_.size()); --i >= 0;){ axisGrad = axisLayers_[i]->Backward(axisGrad); }
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, sharedDesc_, axisGrad, &alpha_, sharedDesc_, buttonGrad));
 	auto sharedGrad = buttonGrad;

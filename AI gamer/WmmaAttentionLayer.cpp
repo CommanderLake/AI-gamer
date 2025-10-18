@@ -1,6 +1,11 @@
 #include "WmmaAttentionLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
+#include <array>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <vector>
 WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod, int maxTokens) : cudnnHandle_(cudnnHandle),
 cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
@@ -20,29 +25,37 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 	CUDAMallocZero(&kPacked_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&attnOutPacked_, outNCHW_*sizeof(__half));
-	if(train_){
-		WeightInit(qWeights_, projSize, embedDim_, weightInitMethod);
-		WeightInit(kWeights_, projSize, embedDim_, weightInitMethod);
-		WeightInit(vWeights_, projSize, embedDim_, weightInitMethod);
-		WeightInit(oWeights_, projSize, embedDim_, weightInitMethod);
-		const size_t gradWorkspaceElems = static_cast<size_t>(batchSize_)*gradWorkspaceTokens_*gradWorkspaceTokens_*numHeads_;
-		attnGradWorkspaceSize_ = gradWorkspaceElems;
-		if(gradWorkspaceElems > 0){ CUDAMallocZero(&attnGradWorkspace_, gradWorkspaceElems*sizeof(float)); }
-		CUDAMallocZero(&gradQ_, projSize*sizeof(__half));
-		CUDAMallocZero(&gradK_, projSize*sizeof(__half));
-		CUDAMallocZero(&gradV_, projSize*sizeof(__half));
-		CUDAMallocZero(&gradOut_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_Q_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_Q_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_K_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_K_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_V_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_V_, projSize*sizeof(__half));
-		CUDAMallocZero(&m_O_, projSize*sizeof(__half));
-		CUDAMallocZero(&v_O_, projSize*sizeof(__half));
-		CUDAMallocZero(&dQ, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dK, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dV, outNCHW_*sizeof(__half));
+        if(train_){
+                WeightInit(qWeights_, projSize, embedDim_, weightInitMethod);
+                WeightInit(kWeights_, projSize, embedDim_, weightInitMethod);
+                WeightInit(vWeights_, projSize, embedDim_, weightInitMethod);
+                WeightInit(oWeights_, projSize, embedDim_, weightInitMethod);
+                CUDAMallocZero(&qMaster_, projSize*sizeof(float));
+                CUDAMallocZero(&kMaster_, projSize*sizeof(float));
+                CUDAMallocZero(&vMaster_, projSize*sizeof(float));
+                CUDAMallocZero(&oMaster_, projSize*sizeof(float));
+                ConvertHalfToFloat(qWeights_, qMaster_, projSize);
+                ConvertHalfToFloat(kWeights_, kMaster_, projSize);
+                ConvertHalfToFloat(vWeights_, vMaster_, projSize);
+                ConvertHalfToFloat(oWeights_, oMaster_, projSize);
+                const size_t gradWorkspaceElems = static_cast<size_t>(batchSize_)*gradWorkspaceTokens_*gradWorkspaceTokens_*numHeads_;
+                attnGradWorkspaceSize_ = gradWorkspaceElems;
+                if(gradWorkspaceElems > 0){ CUDAMallocZero(&attnGradWorkspace_, gradWorkspaceElems*sizeof(float)); }
+                CUDAMallocZero(&gradQ_, projSize*sizeof(__half));
+                CUDAMallocZero(&gradK_, projSize*sizeof(__half));
+                CUDAMallocZero(&gradV_, projSize*sizeof(__half));
+                CUDAMallocZero(&gradOut_, projSize*sizeof(__half));
+                CUDAMallocZero(&m_Q_, projSize*sizeof(float));
+                CUDAMallocZero(&v_Q_, projSize*sizeof(float));
+                CUDAMallocZero(&m_K_, projSize*sizeof(float));
+                CUDAMallocZero(&v_K_, projSize*sizeof(float));
+                CUDAMallocZero(&m_V_, projSize*sizeof(float));
+                CUDAMallocZero(&v_V_, projSize*sizeof(float));
+                CUDAMallocZero(&m_O_, projSize*sizeof(float));
+                CUDAMallocZero(&v_O_, projSize*sizeof(float));
+                CUDAMallocZero(&dQ, outNCHW_*sizeof(__half));
+                CUDAMallocZero(&dK, outNCHW_*sizeof(__half));
+                CUDAMallocZero(&dV, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&dQPacked_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&dKPacked_, outNCHW_*sizeof(__half));
@@ -58,14 +71,18 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	cudaFree(workspace_);
 	cudaFree(qPacked_);
 	cudaFree(kPacked_);
-	cudaFree(vPacked_);
-	cudaFree(attnOutPacked_);
-	if(train_){
-		cudaFree(attnGradWorkspace_);
-		cudaFree(gradQ_);
-		cudaFree(gradK_);
-		cudaFree(gradV_);
-		cudaFree(gradOut_);
+        cudaFree(vPacked_);
+        cudaFree(attnOutPacked_);
+        if(train_){
+                cudaFree(qMaster_);
+                cudaFree(kMaster_);
+                cudaFree(vMaster_);
+                cudaFree(oMaster_);
+                cudaFree(attnGradWorkspace_);
+                cudaFree(gradQ_);
+                cudaFree(gradK_);
+                cudaFree(gradV_);
+                cudaFree(gradOut_);
 		cudaFree(m_Q_);
 		cudaFree(v_Q_);
 		cudaFree(m_K_);
@@ -93,13 +110,81 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, qWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, Q, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, kWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, K, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, vWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, V, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	PackColumnsToHeads(Q, qPacked_, batchSize_, tokens_, embedDim_, numHeads_);
-	PackColumnsToHeads(K, kPacked_, batchSize_, tokens_, embedDim_, numHeads_);
-	PackColumnsToHeads(V, vPacked_, batchSize_, tokens_, embedDim_, numHeads_);
-	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, batchSize_, tokens_, headDim_, numHeads_);
-	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	return outData_;
+        PackColumnsToHeads(Q, qPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+        PackColumnsToHeads(K, kPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+        PackColumnsToHeads(V, vPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+        if(gDebugOptions.useReferenceAttention && !gDebugOptions.referenceAttentionTriggered){
+                std::cout << "\n[Attention] Reference path enabled for this step" << std::endl;
+                const size_t packedSize = static_cast<size_t>(batchSize_)*tokens_*numHeads_*headDim_;
+                std::vector<__half> qHost(packedSize);
+                std::vector<__half> kHost(packedSize);
+                std::vector<__half> vHost(packedSize);
+                checkCUDA(cudaMemcpy(qHost.data(), qPacked_, packedSize*sizeof(__half), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(kHost.data(), kPacked_, packedSize*sizeof(__half), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(vHost.data(), vPacked_, packedSize*sizeof(__half), cudaMemcpyDeviceToHost));
+                std::vector<float> qFloat(packedSize);
+                std::vector<float> kFloat(packedSize);
+                std::vector<float> vFloat(packedSize);
+                for(size_t i = 0; i < packedSize; ++i){
+                        qFloat[i] = __half2float(qHost[i]);
+                        kFloat[i] = __half2float(kHost[i]);
+                        vFloat[i] = __half2float(vHost[i]);
+                }
+                std::vector<float> outFloat(packedSize, 0.0f);
+                std::vector<float> attHost(static_cast<size_t>(batchSize_)*numHeads_*tokens_*tokens_, 0.0f);
+                const double scale = 1.0 / std::sqrt(static_cast<double>(headDim_));
+                std::vector<float> scores(tokens_);
+                std::vector<float> weights(tokens_);
+                for(int b = 0; b < batchSize_; ++b){
+                        for(int h = 0; h < numHeads_; ++h){
+                                const size_t baseHead = (static_cast<size_t>(b)*tokens_)*numHeads_ + h;
+                                const size_t headOffset = baseHead*headDim_;
+                                const size_t attOffset = (static_cast<size_t>(b)*numHeads_ + h)*tokens_*tokens_;
+                                for(int t = 0; t < tokens_; ++t){
+                                        for(int j = 0; j < tokens_; ++j){
+                                                double dot = 0.0;
+                                                const size_t qIdx = headOffset + static_cast<size_t>(t)*numHeads_*headDim_;
+                                                const size_t kIdx = headOffset + static_cast<size_t>(j)*numHeads_*headDim_;
+                                                for(int d = 0; d < headDim_; ++d){
+                                                        const size_t qPos = qIdx + d;
+                                                        const size_t kPos = kIdx + d;
+                                                        dot += static_cast<double>(qFloat[qPos]) * static_cast<double>(kFloat[kPos]);
+                                                }
+                                                scores[j] = static_cast<float>(dot * scale);
+                                        }
+                                        float maxScore = scores[0];
+                                        for(int j = 1; j < tokens_; ++j){ maxScore = std::max(maxScore, scores[j]); }
+                                        float sum = 0.0f;
+                                        for(int j = 0; j < tokens_; ++j){
+                                                const float e = expf(scores[j] - maxScore);
+                                                weights[j] = e;
+                                                sum += e;
+                                        }
+                                        const float invSum = sum > 0.0f ? 1.0f / sum : 0.0f;
+                                        for(int j = 0; j < tokens_; ++j){ attHost[attOffset + t*tokens_ + j] = weights[j] * invSum; }
+                                        for(int d = 0; d < headDim_; ++d){
+                                                double sumVal = 0.0;
+                                                for(int j = 0; j < tokens_; ++j){
+                                                        const float weight = attHost[attOffset + t*tokens_ + j];
+                                                        const size_t vIdx = headOffset + static_cast<size_t>(j)*numHeads_*headDim_ + d;
+                                                        sumVal += static_cast<double>(weight) * static_cast<double>(vFloat[vIdx]);
+                                                }
+                                                outFloat[headOffset + static_cast<size_t>(t)*numHeads_*headDim_ + d] = static_cast<float>(sumVal);
+                                        }
+                                }
+                        }
+                }
+                std::vector<__half> outHost(packedSize);
+                for(size_t i = 0; i < packedSize; ++i){ outHost[i] = __float2half(outFloat[i]); }
+                checkCUDA(cudaMemcpy(attnOutPacked_, outHost.data(), packedSize*sizeof(__half), cudaMemcpyHostToDevice));
+                if(train_){ checkCUDA(cudaMemcpy(attentionWeights, attHost.data(), attHost.size()*sizeof(float), cudaMemcpyHostToDevice)); }
+                gDebugOptions.referenceAttentionTriggered = true;
+        } else{
+                WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, batchSize_, tokens_, headDim_, numHeads_);
+        }
+        PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
+        checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+        return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
 	__half* attnOut = workspace_ + 3*outNCHW_;
@@ -131,22 +216,109 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dV, CUDA_R_16F, embedDim_, inData_, CUDA_R_16F, embedDim_, betaWeights, gradV_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, qWeights_, CUDA_R_16F, embedDim_, dQ, CUDA_R_16F, embedDim_, &beta0_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, kWeights_, CUDA_R_16F, embedDim_, dK, CUDA_R_16F, embedDim_, &beta1_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, vWeights_, CUDA_R_16F, embedDim_, dV, CUDA_R_16F, embedDim_, &beta1_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	return outGrad_;
+        checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, vWeights_, CUDA_R_16F, embedDim_, dV, CUDA_R_16F, embedDim_, &beta1_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+        if(gDebugOptions.gradientStripeTest && gDebugOptions.gradientStripePending){
+                const int sample = std::min(gDebugOptions.gradientStripeSampleIndex, batchSize_-1);
+                const int tokenCount = tokens_;
+                const int embed = embedDim_;
+                const size_t total = static_cast<size_t>(batchSize_)*tokenCount*embed;
+                std::vector<__half> gradTokens(total);
+                checkCUDA(cudaMemcpy(gradTokens.data(), outGrad_, total*sizeof(__half), cudaMemcpyDeviceToHost));
+                std::vector<double> norms(tokenCount, 0.0);
+                for(int t = 0; t < tokenCount; ++t){
+                        double sum = 0.0;
+                        const size_t base = (static_cast<size_t>(sample)*tokenCount + t)*embed;
+                        for(int c = 0; c < embed; ++c){
+                                const double val = __half2float(gradTokens[base + c]);
+                                sum += val*val;
+                        }
+                        norms[t] = std::sqrt(sum);
+                }
+                const int printLimit = std::min(tokenCount, 128);
+                std::cout << "\n[GradStripe] sample=" << sample << " token_norms(" << printLimit << "/" << tokenCount << "):";
+                for(int t = 0; t < printLimit; ++t){ std::cout << ' ' << norms[t]; }
+                if(tokenCount > printLimit){ std::cout << " ..."; }
+                std::cout << std::endl;
+                double maxNorm = 0.0;
+                int maxIndex = 0;
+                for(int t = 0; t < tokenCount; ++t){
+                        if(norms[t] > maxNorm){
+                                maxNorm = norms[t];
+                                maxIndex = t;
+                        }
+                }
+                std::cout << "[GradStripe] max_norm=" << maxNorm << " at token=" << maxIndex << std::endl;
+                gDebugOptions.gradientStripePending = false;
+        }
+        return outGrad_;
 }
 void WmmaAttentionLayer::UpdateParameters(float lr){
-	if(accumCount_ % gradAccumLength_ > 0) return;
-	AdamWHalf(qWeights_, gradQ_, m_Q_, v_Q_, lr, t_, weightDecay_, embedDim_*embedDim_);
-	AdamWHalf(kWeights_, gradK_, m_K_, v_K_, lr, t_, weightDecay_, embedDim_*embedDim_);
-	AdamWHalf(vWeights_, gradV_, m_V_, v_V_, lr, t_, weightDecay_, embedDim_*embedDim_);
-	AdamWHalf(oWeights_, gradOut_, m_O_, v_O_, lr, t_, weightDecay_, embedDim_*embedDim_);
-	++t_;
+        if(accumCount_ % gradAccumLength_ > 0) return;
+        const int projSize = embedDim_*embedDim_;
+        static bool loggedOnce = false;
+        std::vector<float> preQ, preK, preV, preO;
+        if(gDebugOptions.logAdamUpdateStats && !loggedOnce){
+                preQ.resize(projSize);
+                preK.resize(projSize);
+                preV.resize(projSize);
+                preO.resize(projSize);
+                checkCUDA(cudaMemcpy(preQ.data(), qMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(preK.data(), kMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(preV.data(), vMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(preO.data(), oMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+        }
+        AdamWMixed(qWeights_, gradQ_, qMaster_, m_Q_, v_Q_, lr, t_, weightDecay_, projSize);
+        AdamWMixed(kWeights_, gradK_, kMaster_, m_K_, v_K_, lr, t_, weightDecay_, projSize);
+        AdamWMixed(vWeights_, gradV_, vMaster_, m_V_, v_V_, lr, t_, weightDecay_, projSize);
+        AdamWMixed(oWeights_, gradOut_, oMaster_, m_O_, v_O_, lr, t_, weightDecay_, projSize);
+        if(gDebugOptions.logAdamUpdateStats && !loggedOnce){
+                std::vector<float> postQ(projSize), postK(projSize), postV(projSize), postO(projSize);
+                checkCUDA(cudaMemcpy(postQ.data(), qMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(postK.data(), kMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(postV.data(), vMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+                checkCUDA(cudaMemcpy(postO.data(), oMaster_, projSize*sizeof(float), cudaMemcpyDeviceToHost));
+                auto logStats = [](const char* label, const std::vector<float>& before, const std::vector<float>& after, const __half* gradDevice, int count){
+                        std::vector<__half> gradHalf(count);
+                        checkCUDA(cudaMemcpy(gradHalf.data(), gradDevice, count*sizeof(__half), cudaMemcpyDeviceToHost));
+                        const std::array<double, 5> binEdges = {1e-12, 1e-10, 1e-8, 1e-6, 1e-4};
+                        std::array<size_t, 6> gradHist{};
+                        double minUpdate = std::numeric_limits<double>::infinity();
+                        double maxUpdate = 0.0;
+                        size_t zeroUpdates = 0;
+                        for(int i = 0; i < count; ++i){
+                                const double updateMag = std::fabs(static_cast<double>(after[i]) - static_cast<double>(before[i]));
+                                if(updateMag == 0.0){ ++zeroUpdates; }
+                                else{ minUpdate = std::min(minUpdate, updateMag); }
+                                maxUpdate = std::max(maxUpdate, updateMag);
+                                const double g = std::fabs(__half2float(gradHalf[i]));
+                                size_t bin = 0;
+                                while(bin < binEdges.size() && g >= binEdges[bin]){ ++bin; }
+                                ++gradHist[bin];
+                        }
+                        const double zeroPct = before.empty() ? 0.0 : (static_cast<double>(zeroUpdates) / static_cast<double>(before.size())) * 100.0;
+                        if(std::isinf(minUpdate)){ minUpdate = 0.0; }
+                        std::cout << "\n[AdamStats] " << label
+                                  << " min|update|=" << minUpdate
+                                  << " max|update|=" << maxUpdate
+                                  << " zero_updates=" << zeroUpdates << " (" << zeroPct << "%)";
+                        std::cout << " grad_hist bins:";
+                        std::array<const char*, 6> labels = {"[0,1e-12)", "[1e-12,1e-10)", "[1e-10,1e-8)", "[1e-8,1e-6)", "[1e-6,1e-4)", "[>=1e-4]"};
+                        for(size_t i = 0; i < gradHist.size(); ++i){ std::cout << ' ' << labels[i] << '=' << gradHist[i]; }
+                        std::cout << std::endl;
+                };
+                logStats("Attention/Q", preQ, postQ, gradQ_, projSize);
+                logStats("Attention/K", preK, postK, gradK_, projSize);
+                logStats("Attention/V", preV, postV, gradV_, projSize);
+                logStats("Attention/O", preO, postO, gradOut_, projSize);
+                loggedOnce = true;
+        }
+        ++t_;
 }
 void WmmaAttentionLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
-	const size_t paramSize = embedDim_*embedDim_*sizeof(__half);
-	cudaMemcpy(buffer, qWeights_, paramSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), paramSize);
-	cudaMemcpy(buffer, kWeights_, paramSize, cudaMemcpyDeviceToHost);
+        const size_t paramSize = embedDim_*embedDim_*sizeof(__half);
+        cudaMemcpy(buffer, qWeights_, paramSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), paramSize);
+        cudaMemcpy(buffer, kWeights_, paramSize, cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<char*>(buffer), paramSize);
 	cudaMemcpy(buffer, vWeights_, paramSize, cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<char*>(buffer), paramSize);
@@ -154,61 +326,67 @@ void WmmaAttentionLayer::SaveParameters(std::ofstream& file, unsigned char* buff
 	file.write(reinterpret_cast<char*>(buffer), paramSize);
 }
 void WmmaAttentionLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
-	const size_t paramSize = embedDim_*embedDim_*sizeof(__half);
-	file.read(reinterpret_cast<char*>(buffer), paramSize);
-	cudaMemcpy(qWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), paramSize);
-	cudaMemcpy(kWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), paramSize);
-	cudaMemcpy(vWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), paramSize);
-	cudaMemcpy(oWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
+        const size_t paramSize = embedDim_*embedDim_*sizeof(__half);
+        file.read(reinterpret_cast<char*>(buffer), paramSize);
+        cudaMemcpy(qWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), paramSize);
+        cudaMemcpy(kWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), paramSize);
+        cudaMemcpy(vWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), paramSize);
+        cudaMemcpy(oWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
+        if(train_){
+                ConvertHalfToFloat(qWeights_, qMaster_, embedDim_*embedDim_);
+                ConvertHalfToFloat(kWeights_, kMaster_, embedDim_*embedDim_);
+                ConvertHalfToFloat(vWeights_, vMaster_, embedDim_*embedDim_);
+                ConvertHalfToFloat(oWeights_, oMaster_, embedDim_*embedDim_);
+        }
 }
 void WmmaAttentionLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
-	if(!train_) return;
-	const size_t stateSize = embedDim_*embedDim_*sizeof(__half);
-	cudaMemcpy(buffer, m_Q_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(buffer, m_K_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(buffer, m_V_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(buffer, m_O_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(buffer, v_Q_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(buffer, v_K_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(buffer, v_V_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(buffer, v_O_, stateSize, cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<char*>(buffer), stateSize);
-	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
+        if(!train_) return;
+        const size_t stateSize = embedDim_*embedDim_*sizeof(float);
+        cudaMemcpy(buffer, m_Q_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(buffer, m_K_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(buffer, m_V_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(buffer, m_O_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(buffer, v_Q_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(buffer, v_K_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(buffer, v_V_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(buffer, v_O_, stateSize, cudaMemcpyDeviceToHost);
+        file.write(reinterpret_cast<char*>(buffer), stateSize);
+        file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void WmmaAttentionLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
-	if(!train_) return;
-	const size_t stateSize = embedDim_*embedDim_*sizeof(__half);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(m_Q_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(m_K_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(m_V_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(m_O_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(v_Q_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(v_K_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(v_V_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), stateSize);
-	cudaMemcpy(v_O_, buffer, stateSize, cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
+        if(!train_) return;
+        const size_t stateSize = embedDim_*embedDim_*sizeof(float);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(m_Q_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(m_K_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(m_V_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(m_O_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(v_Q_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(v_K_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(v_V_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(buffer), stateSize);
+        cudaMemcpy(v_O_, buffer, stateSize, cudaMemcpyHostToDevice);
+        file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 size_t WmmaAttentionLayer::GetParameterSize(){ return 4*embedDim_*embedDim_*sizeof(__half); }
 size_t WmmaAttentionLayer::GetOptimizerStateSize(){
-	if(!train_) return 0;
-	return 8*embedDim_*embedDim_*sizeof(__half) + sizeof(int);
+        if(!train_) return 0;
+        return 8*embedDim_*embedDim_*sizeof(float) + sizeof(int);
 }
 void WmmaAttentionLayer::SetTrain(bool enable){ train_ = enable; }

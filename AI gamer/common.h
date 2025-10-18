@@ -80,3 +80,22 @@ void PrintDataFloatDevice(const float* data, size_t size, const char* label);
 void PrintDataFloatHost(const float* data, size_t size, const char* label);
 void PrintDataCharHost(const unsigned char* data, size_t size, const char* label);
 void SummarizeHalfDevice(const __half* data, size_t size, const char* label);
+
+struct DebugOptions{
+        bool logAdamUpdateStats = false;
+        bool gradientStripeTest = false;
+        bool gradientStripePending = false;
+        int gradientStripeSampleIndex = 0;
+        int gradientStripeLogitIndex = 0;
+        bool useReferenceAttention = false;
+        bool referenceAttentionTriggered = false;
+        bool syncAfterOptimizerStep = false;
+        bool logPatchNorms = false;
+        bool patchNormLogged = false;
+        bool useBceWithLogits = false;
+        bool applyStaticLossScale = false;
+        float staticLossScale = 1.0f;
+};
+
+extern DebugOptions gDebugOptions;
+void InitializeDebugOptionsFromEnv();
