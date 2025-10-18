@@ -73,10 +73,10 @@ void PatchEmbedLayer::UpdateParameters(float lr){
 	if(accumCount_ % gradAccumLength_ > 0) return;
 	if(useAdamW_){
 		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, lr, t_, weightDecay_, weightCount_);
-		AdamWHalf(posEmbed_, gradPosEmbed_, m_PosEmbed_, v_PosEmbed_, lr, t_, weightDecay_, posCount_);
+		AdamWHalf(posEmbed_, gradPosEmbed_, m_PosEmbed_, v_PosEmbed_, lr, t_, 0.0f, posCount_);
 	} else{
 		SGDHalf(weights_, gradWeights_, weightCount_, lr, weightDecay_);
-		SGDHalf(posEmbed_, gradPosEmbed_, posCount_, lr, weightDecay_);
+		SGDHalf(posEmbed_, gradPosEmbed_, posCount_, lr, 0.0f);
 	}
 	++t_;
 }

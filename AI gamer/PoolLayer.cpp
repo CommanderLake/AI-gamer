@@ -1,7 +1,7 @@
 #include "PoolLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
-PoolLayer::PoolLayer(const cudnnHandle_t cudnnHandle, const cudnnPoolingMode_t mode, const int batchSize, const int channels, int* height, int* width, const int poolSize, const int stride, const char* layerName, const bool train):
+PoolLayer::PoolLayer(const cudnnHandle_t cudnnHandle, const cudnnPoolingMode_t mode, const int batchSize, const int channels, int* height, int* width, const int poolH, const int poolW, const int strideH, const int strideW, const char* layerName, const bool train):
 	cudnnHandle_(cudnnHandle), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(channels){
 	layerName_ = layerName;
 	train_ = train;
@@ -9,7 +9,7 @@ PoolLayer::PoolLayer(const cudnnHandle_t cudnnHandle, const cudnnPoolingMode_t m
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnCreatePoolingDescriptor(&poolDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, inHeight_, inWidth_));
-	checkCUDNN(cudnnSetPooling2dDescriptor(poolDesc_, mode, CUDNN_NOT_PROPAGATE_NAN, poolSize, poolSize, 0, 0, stride, stride));
+	checkCUDNN(cudnnSetPooling2dDescriptor(poolDesc_, mode, CUDNN_NOT_PROPAGATE_NAN, poolH, poolW, 0, 0, strideH, strideW));
 	int n, c;
 	checkCUDNN(cudnnGetPooling2dForwardOutputDim(poolDesc_, inDesc_, &n, &c, &outHeight_, &outWidth_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, outHeight_, outWidth_));

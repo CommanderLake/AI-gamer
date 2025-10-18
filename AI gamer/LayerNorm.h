@@ -2,7 +2,7 @@
 #include "Layer.h"
 class LayerNorm final : public Layer{
 public:
-	LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, bool train);
+	LayerNorm(int batchSize, int channels, int height, int width, int tokensPerSample, const char* layerName, bool train);
 	~LayerNorm() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -16,6 +16,7 @@ public:
 	void SetTrain(bool enable) override;
 	int ogbs_;
 	int batchSize_;
+	int tokenBatchSize_;
 	int outC_;
 	int outHW_, height_, width_;
 	__half* inData_ = nullptr;

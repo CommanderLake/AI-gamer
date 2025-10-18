@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <vector>
-LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train) : ogbs_(batchSize), batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width){
+LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const int tokensPerSample, const char* layerName, const bool train) : ogbs_(batchSize), batchSize_(batchSize), tokenBatchSize_(tokensPerSample), outC_(channels), outHW_(height*width), height_(height), width_(width){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHW_;
@@ -99,11 +99,7 @@ size_t LayerNorm::GetOptimizerStateSize(){
 	return 4*outC_*sizeof(float);
 }
 void LayerNorm::SetTrain(const bool enable){
-	if(enable){
-		batchSize_ = ogbs_;
-	} else{
-		batchSize_ = 1;
-	}
+	batchSize_ = enable ? ogbs_ : tokenBatchSize_;
 	outNCHW_ = batchSize_*outC_*outHW_;
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height_, width_));
 }
