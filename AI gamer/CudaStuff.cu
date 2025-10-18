@@ -248,8 +248,7 @@ void AccumulateBiasGrad(const __half* grad, __half* gradBias, const int channels
 	AccumulateBiasGradKernel<<<blocks, bs>>>(grad, gradBias, channels, batch, scale, reset);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void TokensToSpatialKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
-	const size_t total = static_cast<size_t>(batch) * tokens * embedDim;
+__global__ void TokensToSpatialKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, size_t total){
 	const size_t stride = static_cast<size_t>(blockDim.x) * gridDim.x;
 	for(size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
 		const int feature = idx % embedDim;
@@ -270,11 +269,10 @@ void TokensToSpatial(const __half* input, __half* output, int batch, int tokens,
 		bs = BS;
 	}
 	blocks = DivCeil(static_cast<int>(total), bs);
-	TokensToSpatialKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
+	TokensToSpatialKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols, total);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void SpatialToTokensKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
-	const size_t total = static_cast<size_t>(batch) * embedDim * patchRows * patchCols;
+__global__ void SpatialToTokensKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, size_t total){
 	const size_t stride = static_cast<size_t>(blockDim.x) * gridDim.x;
 	for(size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
 		const int col = idx % patchCols;
@@ -295,6 +293,6 @@ void SpatialToTokens(const __half* input, __half* output, int batch, int tokens,
 		bs = BS;
 	}
 	blocks = DivCeil(static_cast<int>(total), bs);
-	SpatialToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
+	SpatialToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols, total);
 	checkCUDA(cudaGetLastError());
 }
