@@ -1,5 +1,6 @@
 #include "CuCommon.cuh"
 #include "WeightInitMethod.h"
+#include <algorithm>
 #include <ctime>
 curandGenerator_t generator_;
 int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
@@ -67,10 +68,9 @@ int ConvertSmVer2Cores(int major, int minor){
 	printf("MapSMtoCores for SM %d.%d is undefined. Default to use %d Cores/SM\n", major, minor, nGpuArchCoresPerSM[index - 1].Cores);
 	return nGpuArchCoresPerSM[index - 1].Cores;
 }
-int DivCeil(const int a, const int b){ return a%b != 0 ? a/b + 1 : a/b; }
 void GetLaunchConfigGridStride(int n, int& blocks, int& tpb){
 	if(tpb <= 0 || tpb > 1024) tpb = BS;
-	blocks = min(DivCeil(n, tpb*8), GS);
+	blocks = std::min(DivCeil(n, tpb*8), GS);
 }
 static bool inited = false;
 void InitCUDA(){

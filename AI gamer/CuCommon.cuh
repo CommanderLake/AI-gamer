@@ -84,7 +84,8 @@ void PackHeadsToColumns(const __half* input, __half* output, int batch, int toke
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 int ConvertSmVer2Cores(int major, int minor);
-int DivCeil(int a, int b);
+template<typename Ta, typename Tb>
+int DivCeil(const Ta a, const Tb b){ return a%b != 0 ? a/b + 1 : a/b; }
 void GetLaunchConfigGridStride(int n, int& blocks, int& tpb);
 void InitCUDA();
 void WeightInit(__half* weights, int elementCount, int fanIn, WeightInitMethod method, float scale = 1.0f);

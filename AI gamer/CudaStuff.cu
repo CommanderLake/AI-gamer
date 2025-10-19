@@ -117,7 +117,7 @@ __global__ void ScaleHalfKernel(__half* data, const size_t count, const float sc
 void ScaleArrayHalf(__half* data, const size_t count, const float scale){
 	if(!data || scale == 1.0f || count == 0) return;
 	constexpr int bs = 256;
-	const int blocks = DivCeil(count, bs);
+	const auto blocks = DivCeil(count, bs);
 	ScaleHalfKernel<<<blocks, bs>>>(data, count, scale);
 	checkCUDA(cudaGetLastError());
 }
@@ -130,7 +130,7 @@ __global__ void AddBiasKernel(__half* output, const __half* bias, const int chan
 }
 void AddBias(__half* output, const __half* bias, const int channels, const int batch){
 	constexpr int bs = 256;
-	const int blocks = DivCeil(channels * batch, bs);
+	const auto blocks = DivCeil(channels * batch, bs);
 	AddBiasKernel<<<blocks, bs>>>(output, bias, channels, batch);
 	checkCUDA(cudaGetLastError());
 }
@@ -144,7 +144,7 @@ __global__ void AccumulateBiasGradKernel(const __half* grad, __half* gradBias, c
 }
 void AccumulateBiasGrad(const __half* grad, __half* gradBias, const int channels, const int batch, const float scale, const bool reset){
 	constexpr int bs = 256;
-	const int blocks = DivCeil(channels, bs);
+	const auto blocks = DivCeil(channels, bs);
 	AccumulateBiasGradKernel<<<blocks, bs>>>(grad, gradBias, channels, batch, scale, reset);
 	checkCUDA(cudaGetLastError());
 }
@@ -153,7 +153,7 @@ __global__ void TokensToSpatialKernel(const __half* input, __half* output, int b
 	const size_t total = static_cast<size_t>(batch) * tokens * embedDim;
 	if(idx >= total) return;
 	const int feature = idx % embedDim;
-	const int tokenIndex = (idx / embedDim) % tokens;
+	const int tokenIndex = idx / embedDim % tokens;
 	const int batchIndex = idx / (embedDim * tokens);
 	const int row = tokenIndex / patchCols;
 	const int col = tokenIndex % patchCols;
@@ -163,7 +163,7 @@ __global__ void TokensToSpatialKernel(const __half* input, __half* output, int b
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
 	const size_t total = static_cast<size_t>(batch) * tokens * embedDim;
 	int bs = 256;
-	const int blocks = DivCeil(static_cast<int>(total), bs);
+	const auto blocks = DivCeil(total, bs);
 	TokensToSpatialKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
 	checkCUDA(cudaGetLastError());
 }
@@ -172,17 +172,17 @@ __global__ void SpatialToTokensKernel(const __half* input, __half* output, int b
 	const size_t total = static_cast<size_t>(batch) * embedDim * patchRows * patchCols;
 	if(idx >= total) return;
 	const int col = idx % patchCols;
-	const int row = (idx / patchCols) % patchRows;
-	const int feature = (idx / (patchCols * patchRows)) % embedDim;
+	const int row = idx / patchCols % patchRows;
+	const int feature = idx / (patchCols * patchRows) % embedDim;
 	const int batchIndex = idx / (static_cast<size_t>(embedDim) * patchRows * patchCols);
 	const int tokenIndex = row * patchCols + col;
-	const size_t outIdx = ((static_cast<size_t>(batchIndex) * tokens + tokenIndex) * embedDim) + feature;
+	const size_t outIdx = (static_cast<size_t>(batchIndex) * tokens + tokenIndex) * embedDim + feature;
 	output[outIdx] = input[idx];
 }
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){
 	const size_t total = static_cast<size_t>(batch) * embedDim * patchRows * patchCols;
 	int bs = 256;
-	const int blocks = DivCeil(static_cast<int>(total), bs);
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
 	SpatialToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
 	checkCUDA(cudaGetLastError());
 }

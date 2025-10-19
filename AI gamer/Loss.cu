@@ -1,4 +1,5 @@
 #include "CuCommon.cuh"
+#include <device_launch_parameters.h>
 __device__ float d_loss;
 __global__ void mseLossKernel(const __half* predictions, const float* targets, int size){
 	extern __shared__ float sdata[];
@@ -20,7 +21,7 @@ __global__ void mseLossKernel(const __half* predictions, const float* targets, i
 float MseLoss(const __half* dPredictions, const float* dTargets, int size){
 	constexpr auto zero = 0.0f;
 	cudaMemcpyToSymbol(d_loss, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
-	int gridSize = DivCeil(size, BS);
+	auto gridSize = DivCeil(size, BS);
 	mseLossKernel<<<gridSize, BS, BS*sizeof(float)>>>(dPredictions, dTargets, size);
 	float h_loss;
 	cudaMemcpyFromSymbol(&h_loss, d_loss, sizeof(float));
@@ -63,7 +64,7 @@ void MseLoss2(const __half* dPredictions, const float* dTargets, const int numBu
 	const auto size = numCtrls*batchSize;
 	cudaMemcpyToSymbol(dLossKeys, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	cudaMemcpyToSymbol(dLossMouse, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
-	int gridSize = DivCeil(size, BS);
+	auto gridSize = DivCeil(size, BS);
 	mseLoss2Kernel<<<gridSize, BS, 2*BS*sizeof(float)>>>(dPredictions, dTargets, size, numButs, numCtrls);
 	cudaMemcpyFromSymbol(butLoss, dLossKeys, sizeof(float));
 	cudaMemcpyFromSymbol(axesLoss, dLossMouse, sizeof(float));

@@ -701,7 +701,7 @@ void PackColumnsToHeads(const __half* input, __half* output, int batch, int toke
 	const int headDim = embedDim / numHeads;
 	const int total = batch * tokens * embedDim;
 	constexpr int bs = 256;
-	const int blocks = DivCeil(total, bs);
+	const auto blocks = DivCeil(total, bs);
 	PackColumnsToHeadsKernel<<<blocks, bs>>>(input, output, batch, tokens, numHeads, headDim);
 	const auto err = cudaGetLastError();
 	if(err != cudaSuccess){ printf("PackColumnsToHeads error: %s\n", cudaGetErrorString(err)); }
@@ -730,7 +730,7 @@ void PackHeadsToColumns(const __half* input, __half* output, int batch, int toke
 	const int headDim = embedDim / numHeads;
 	const int total = batch * tokens * embedDim;
 	constexpr int bs = 256;
-	const int blocks = DivCeil(total, bs);
+	const auto blocks = DivCeil(total, bs);
 	PackHeadsToColumnsKernel<<<blocks, bs>>>(input, output, batch, tokens, numHeads, headDim);
 	const auto err = cudaGetLastError();
 	if(err != cudaSuccess){ printf("PackHeadsToColumns error: %s\n", cudaGetErrorString(err)); }
