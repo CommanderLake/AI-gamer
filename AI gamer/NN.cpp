@@ -31,7 +31,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.01f;
 	constexpr auto patchSize = 20;
-	constexpr auto embedSqrt = 16;
+	constexpr auto embedSqrt = 32;
 	constexpr auto embedDim = embedSqrt*embedSqrt;
 	constexpr auto ffDim = embedDim*4;
 	constexpr int numHeads = 8;

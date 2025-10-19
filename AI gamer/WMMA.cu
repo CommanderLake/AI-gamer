@@ -45,7 +45,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	const int batchHeadOffset = (batch*H + head)*T*D;
 	extern __shared__ char sharedMemBytes[];
 	// Optimized strides with better padding
-	const int qStride = D + kSharedMemPad;
+	const int qStride = (D + 15) / 16 * 16 + kSharedMemPad;
 	const int tileStride = 16 + kSharedMemPad;
 	auto qShared = reinterpret_cast<__half*>(sharedMemBytes);
 	__half* warpTiles = qShared + 16*qStride;
@@ -80,7 +80,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 		const __half* qRow = Q + batchHeadOffset + globalRow*D;
 		int sharedOffset = 0;
 		int remaining = D;
-		if(remaining > 0 && (reinterpret_cast<uintptr_t>(qRow) & 0x3)){ // handle leading misalignment
+		if(remaining > 0 && reinterpret_cast<uintptr_t>(qRow) & 0x3){ // handle leading misalignment
 			if(threadIdx.x == 0){ sharedRow[0] = __hmul(qRow[0], scaleHalf); }
 			qRow += 1;
 			sharedOffset = 1;
@@ -107,7 +107,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	// Process K tiles with improved memory access pattern
 	for(int tileStart = 0; tileStart < T; tileStart += tileCols){
 		const int remaining = T - tileStart;
-		const int tileWidth = (remaining > tileCols) ? tileCols : remaining;
+		const int tileWidth = remaining > tileCols ? tileCols : remaining;
 		if(tileWidth <= 0) break;
 		// Compute QK^T scores
 		for(int colBlock = 0; colBlock < tileWidth; colBlock += 16*numWarps){
@@ -165,14 +165,14 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			localMax = WarpReduceMax(localMax);
 			const float newMax = fmaxf(prevMax, localMax);
 			// Compute exp sum with numerical stability
-			const float scalePrev = (prevSum > 0.0f) ? expf(prevMax - newMax) : 0.0f;
+			const float scalePrev = prevSum > 0.0f ? expf(prevMax - newMax) : 0.0f;
 			float localSum = 0.0f;
 #pragma unroll 4
 			for(int col = laneId; col < tileWidth; col += 32){
 				const float val = scoresTile[row*tileCols + col];
 				const float exp_val = expf(val - newMax);
 				// Apply FTZ for very small values
-				localSum += (val - newMax > SOFTMAX_FTZ_THRESHOLD) ? exp_val : 0.0f;
+				localSum += val - newMax > SOFTMAX_FTZ_THRESHOLD ? exp_val : 0.0f;
 			}
 			localSum = WarpReduceSum(localSum);
 			if(laneId == 0){
@@ -191,7 +191,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	// Process V tiles
 	for(int tileStart = 0; tileStart < T; tileStart += tileCols){
 		const int remaining = T - tileStart;
-		const int tileWidth = (remaining > tileCols) ? tileCols : remaining;
+		const int tileWidth = remaining > tileCols ? tileCols : remaining;
 		if(tileWidth <= 0) break;
 		// Apply softmax normalization
 #pragma unroll 4
@@ -200,7 +200,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			if(globalRow >= T) continue;
 			const float maxVal = rowMax[row];
 			const float denom = rowSum[row];
-			const float invDenom = (denom > 0.0f) ? (1.0f / denom) : 0.0f;
+			const float invDenom = denom > 0.0f ? 1.0f / denom : 0.0f;
 #pragma unroll 4
 			for(int col = laneId; col < tileWidth; col += 32){
 				const int globalCol = tileStart + col;
@@ -209,7 +209,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 				if(globalCol < T){
 					const float exp_val = expf(logits - maxVal);
 					// Apply FTZ
-					normalized = (logits - maxVal > SOFTMAX_FTZ_THRESHOLD) ? exp_val*invDenom : 0.0f;
+					normalized = logits - maxVal > SOFTMAX_FTZ_THRESHOLD ? exp_val*invDenom : 0.0f;
 				}
 				scoresTile[row*tileCols + col] = normalized;
 				if(AttentionWeights){ AttentionWeights[attentionOffset + globalRow*T + globalCol] = normalized; }
@@ -233,9 +233,9 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> att_frag;
 			load_matrix_sync(att_frag, attTile, tileStride);
 			// Process V blocks
-			const int valueWarps = (numWarps < valueBlocks) ? numWarps : valueBlocks;
+			const int valueWarps = numWarps < valueBlocks ? numWarps : valueBlocks;
 			for(int vbBase = 0; vbBase < valueBlocks; vbBase += valueWarps){
-				const int activeValueWarps = ((valueBlocks - vbBase) > valueWarps) ? valueWarps : (valueBlocks - vbBase);
+				const int activeValueWarps = valueBlocks - vbBase > valueWarps ? valueWarps : valueBlocks - vbBase;
 				// Load V tiles with vectorization
 				const int elementsPerTile = 16*16;
 				const int totalElements = elementsPerTile*activeValueWarps;
@@ -278,10 +278,10 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, float* AttentionWeights, int B, int T, int D, int H){
 	// Use 256 threads for better occupancy
 	dim3 block(256);
-	dim3 grid((T + 15) / 16, B, H);
+	dim3 grid((T + 15)/16, B, H);
 	const int tileCols = GetAttentionTileCols(T);
-	const int warpCount = block.x / 32;
-	const int qStride = D + kSharedMemPad;
+	const int warpCount = block.x/32;
+	const int qStride = (D + 15)/16*16 + kSharedMemPad;
 	const int tileStride = 16 + kSharedMemPad;
 	size_t sharedSize = sizeof(__half)*(16*qStride + warpCount*tileStride*16 + tileStride*16) + sizeof(float)*(16*tileCols + 16 + 16);
 	cudaFuncSetAttribute(WmmaAttentionKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
