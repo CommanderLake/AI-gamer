@@ -53,7 +53,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	}
 	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedDim, 1, 1, nTokens, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", 0.5f, false));
-	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchStateTotal_, seqLength_, nTokens, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
+	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchStateTotal_, seqLength_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());

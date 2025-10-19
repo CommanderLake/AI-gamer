@@ -4,7 +4,7 @@
 #include <vector>
 class SpatialActionHead : public Layer{
 public:
-	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int tokens, int patchRows, int patchCols, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int patchRows, int patchCols, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~SpatialActionHead() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -25,7 +25,7 @@ private:
 	int ogbs_;
 	int batchSize_;
 	int seqLength_;
-	int tokens_;
+	int nTokens_;
 	int patchRows_;
 	int patchCols_;
 	int embedDim_;

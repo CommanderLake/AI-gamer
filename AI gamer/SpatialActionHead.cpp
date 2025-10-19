@@ -14,14 +14,14 @@ namespace{
 	constexpr int kSharedChannels2 = 64;
 	constexpr int kAxisHiddenDim = 128;
 }
-SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int tokens, const int patchRows, const int patchCols, const int embedDim, const char* layerName, const bool train, const float weightDecay,
-									const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), tokens_(tokens), patchRows_(patchRows), patchCols_(patchCols), embedDim_(embedDim), sharedChannels_(kSharedChannels2),
+SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int patchRows, const int patchCols, const int embedDim, const char* layerName, const bool train, const float weightDecay,
+									const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), nTokens_(patchRows*patchCols), patchRows_(patchRows), patchCols_(patchCols), embedDim_(embedDim), sharedChannels_(kSharedChannels2),
 																sharedHeight_(patchRows), sharedWidth_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_ * NUM_CTRLS_;
-	const auto spatialElems = static_cast<size_t>(batchSize_) * embedDim_ * patchRows_ * patchCols_;
-	const auto tokenElems = static_cast<size_t>(batchSize_) * tokens_ * embedDim_;
+	const auto spatialElems = static_cast<size_t>(batchSize_) * embedDim_ * nTokens_;
+	const auto tokenElems = static_cast<size_t>(batchSize_) * nTokens_ * embedDim_;
 	CUDAMallocZero(&spatialInput_, spatialElems * sizeof(__half));
 	CUDAMallocZero(&tokenGrad_, tokenElems * sizeof(__half));
 	CUDAMallocZero(&predictions_, batchSize_ * NUM_CTRLS_ * sizeof(__half));
@@ -67,7 +67,7 @@ void SpatialActionHead::UpdateSharedDescriptor(){
 }
 __half* SpatialActionHead::Forward(__half* data){
 	const int effectiveBatch = batchSize_;
-	TokensToSpatial(data, spatialInput_, effectiveBatch, tokens_, embedDim_, patchRows_, patchCols_);
+	TokensToSpatial(data, spatialInput_, effectiveBatch, nTokens_, embedDim_, patchRows_, patchCols_);
 	auto spatialData = spatialInput_;
 	for(auto* layer : sharedLayers_){ spatialData = layer->Forward(spatialData); }
 	sharedOutput_ = spatialData;
@@ -87,7 +87,7 @@ __half* SpatialActionHead::Backward(__half* grad){
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, sharedDesc_, axisGrad, &alpha_, sharedDesc_, buttonGrad));
 	auto sharedGrad = buttonGrad;
 	for(int i = static_cast<int>(sharedLayers_.size()); --i >= 0;){ sharedGrad = sharedLayers_[i]->Backward(sharedGrad); }
-	SpatialToTokens(sharedGrad, tokenGrad_, effectiveBatch, tokens_, embedDim_, patchRows_, patchCols_);
+	SpatialToTokens(sharedGrad, tokenGrad_, effectiveBatch, nTokens_, embedDim_, patchRows_, patchCols_);
 	return tokenGrad_;
 }
 void SpatialActionHead::UpdateParameters(const float learningRate){
