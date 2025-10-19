@@ -9,7 +9,7 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
@@ -31,7 +31,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.01f;
 	constexpr auto patchSize = 20;
-	constexpr auto embedSqrt = 32;
+	constexpr auto embedSqrt = 24;
 	constexpr auto embedDim = embedSqrt*embedSqrt;
 	constexpr auto ffDim = embedDim*4;
 	constexpr int numHeads = 8;
@@ -40,9 +40,9 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	const int patchCols = DivCeil(netWidth, patchSize);
 	const auto nTokens = patchRows*patchCols;
 	constexpr bool enableViewerLayers = true;
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(3, netHeight, netWidth, 3, "Input Viewer", 1.0f, false));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, 3, netHeight, netWidth, 3, "Input Viewer", 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, "Patch Embedding Viewer", 1.0f, false));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, nTokens, embedSqrt, embedSqrt, patchCols, "Patch Embedding Viewer", 1.0f, false));
 	for(int i = 0; i < numEncoders; ++i){
 		auto name = "Encoder" + std::to_string(i);
 		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, nTokens, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_, nTokens));
@@ -52,7 +52,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 		//}
 	}
 	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedDim, 1, 1, nTokens, "Post-encoder norm", train));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", 0.5f, false));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", 0.5f, false));
 	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchStateTotal_, seqLength_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
@@ -83,18 +83,18 @@ NN::~NN(){
 }
 __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
-		//std::cout << "\n" << layer->layerName_ << " ";
+		std::cout << "\n" << layer->layerName_ << " ";
 		data = layer->Forward(data);
-		//SummarizeHalfDevice(data, layer->outNCHW_, "data");
+		SummarizeHalfDevice(data, layer->outNCHW_, "data");
 	}
 	return data;
 }
 __half* NN::Backward(__half* grad){
 	auto outGrad = grad;
 	for(int i = layers_.size(); --i >= 0; ){
-		//std::cout << "\n" << layers_[i]->layerName_ << " ";
+		std::cout << "\n" << layers_[i]->layerName_ << " ";
 		outGrad = layers_[i]->Backward(outGrad);
-		//SummarizeHalfDevice(outGrad, layers_[i]->outNCHW_, "gradient");
+		SummarizeHalfDevice(outGrad, layers_[i]->outNCHW_, "gradient");
 	}
 	return outGrad;
 }

@@ -9,7 +9,7 @@
 using namespace nvcuda;
 namespace{
 	constexpr int kMaxTileCols = 128;
-	constexpr int kMaxValueBlocks = 8;
+	constexpr int kMaxValueBlocks = 32;
 	// Increased padding to better avoid bank conflicts
 	constexpr int kSharedMemPad = 8;
 	// FTZ threshold for numerical stability

@@ -88,7 +88,7 @@ template<typename Ta, typename Tb>
 int DivCeil(const Ta a, const Tb b){ return a%b != 0 ? a/b + 1 : a/b; }
 void GetLaunchConfigGridStride(int n, int& blocks, int& tpb);
 void InitCUDA();
-void WeightInit(__half* weights, int elementCount, int fanIn, WeightInitMethod method, float scale = 1.0f);
+void WeightInit(__half* weights, int elementCount, int fanIn, int fanOut, WeightInitMethod method, float scale = 1.0f);
 template <typename T>
 void CUDAMallocZero(T** ptr, size_t size){
 	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
