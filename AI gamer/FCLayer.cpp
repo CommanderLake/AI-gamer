@@ -15,7 +15,7 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	if(useBias_){ CUDAMallocZero(&biases_, outC_*sizeof(__half)); }
 	if(train_){
-		WeightInit(weights_, weightCount_, inC_, weightInitMethod, weightScale);
+		WeightInit(weights_, weightCount_, inC_, outC_, weightInitMethod, weightScale);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, batchSize_*inC_*sizeof(__half));
 		if(useBias_){ CUDAMallocZero(&gradBiases_, outC_*sizeof(__half)); }

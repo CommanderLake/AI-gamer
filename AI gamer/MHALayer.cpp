@@ -35,9 +35,13 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 		auto ndims = 3;
 		int d[3], s[3];
 		checkCUDNN(cudnnGetTensorNdDescriptor(wDesc, ndims, &dt, &ndims, d, s));
-		const size_t elems = static_cast<size_t>(d[0])*d[1]*d[2];
-		const int fanIn = d[2];
-		WeightInit(static_cast<__half*>(addr), static_cast<int>(elems), fanIn, Xavier);
+		size_t elems = 1;
+		for(int i = 0; i < ndims; ++i){
+			elems *= static_cast<size_t>(d[i]);
+		}
+		const int fanIn = d[ndims - 1];
+		const int fanOut = ndims > 1 ? static_cast<int>(elems / static_cast<size_t>(fanIn)) : fanIn;
+		WeightInit(static_cast<__half*>(addr), static_cast<int>(elems), fanIn, fanOut, Xavier);
 	};
 	initWeight(CUDNN_MH_ATTN_Q_WEIGHTS);
 	initWeight(CUDNN_MH_ATTN_K_WEIGHTS);

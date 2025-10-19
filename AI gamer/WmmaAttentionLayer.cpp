@@ -21,10 +21,10 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 	CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&attnOutPacked_, outNCHW_*sizeof(__half));
 	if(train_){
-		WeightInit(qWeights_, projSize, embedDim_, weightInitMethod);
-		WeightInit(kWeights_, projSize, embedDim_, weightInitMethod);
-		WeightInit(vWeights_, projSize, embedDim_, weightInitMethod);
-		WeightInit(oWeights_, projSize, embedDim_, weightInitMethod);
+		WeightInit(qWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
+		WeightInit(kWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
+		WeightInit(vWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
+		WeightInit(oWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		const size_t gradWorkspaceElems = static_cast<size_t>(batchSize_)*gradWorkspaceTokens_*gradWorkspaceTokens_*numHeads_;
 		attnGradWorkspaceSize_ = gradWorkspaceElems;
 		if(gradWorkspaceElems > 0){ CUDAMallocZero(&attnGradWorkspace_, gradWorkspaceElems*sizeof(float)); }

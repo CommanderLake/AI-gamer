@@ -1,4 +1,5 @@
 #include "CuCommon.cuh"
+#include <device_launch_parameters.h>
 __global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, int n){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += stride){

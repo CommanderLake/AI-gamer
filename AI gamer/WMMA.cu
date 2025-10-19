@@ -672,10 +672,7 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	err = cudaGetLastError();
 	if(err != cudaSuccess){
 		printf("WmmaAttention Backward dK error: %s\n", cudaGetErrorString(err));
-		return;
 	}
-	err = cudaDeviceSynchronize();
-	if(err != cudaSuccess) printf("WmmaAttention Backward sync error: %s\n", cudaGetErrorString(err));
 }
 __global__ void PackColumnsToHeadsKernel(const __half* __restrict__ input, __half* __restrict__ output, int B, int T, int H, int D){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;

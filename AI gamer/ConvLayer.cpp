@@ -21,11 +21,12 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
 	inNCHW_ = batchSize_*inC_*inHeight_*inWidth_;
 	const auto fanIn = inC_*filterSize*filterSize;
+	const auto fanOut = outC_*filterSize*filterSize;
 	weightCount_ = outC_*fanIn;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	if(train_){
-		WeightInit(weights_, weightCount_, fanIn, weightInitMethod);
+		WeightInit(weights_, weightCount_, fanIn, fanOut, weightInitMethod);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, inNCHW_*sizeof(__half));
 		if(useAdamW_){

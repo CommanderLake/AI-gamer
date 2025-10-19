@@ -115,8 +115,6 @@ void WeightInit(__half* weights, const int elementCount, const int fanIn, const 
 	checkCUDA(cudaMalloc(&weightFloat, elementCount*sizeof(float)));
 	const float factor = method == Xavier ? 1.0f : 2.0f;
 	curandGenerateNormal(generator_, weightFloat, elementCount, 0.0f, 1.0f);
-	SummarizeFloatDevice(weightFloat, elementCount, "weights pre-scale");
 	ConvertFloatToHalfScale(weights, weightFloat, elementCount, sqrtf(factor / (fanIn + fanOut))*scale);
-	SummarizeHalfDevice(weights, elementCount, "weights pre-scale");
 	cudaFree(weightFloat);
 }

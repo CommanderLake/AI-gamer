@@ -27,12 +27,12 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
-	sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "Spatial_Trunk_In_Viewer"));
+	sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "Spatial_Trunk_In_Viewer", 1.0f, true));
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, kSharedChannels1, 1, 1, &sharedH, &sharedW, "Spatial_Trunk_Conv1", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new GELULayer(batchSize_, kSharedChannels1, sharedH, sharedW, "Spatial_Trunk_GELU1"));
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, kSharedChannels1, kSharedChannels2, 1, 1, &sharedH, &sharedW, "Spatial_Trunk_Conv2", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new GELULayer(batchSize_, kSharedChannels2, sharedH, sharedW, "Spatial_Trunk_GELU2"));
-	sharedLayers_.push_back(new ViewerLayer(tokenElems, kSharedChannels2, patchRows_, patchCols_, 8, "Spatial_Trunk_Out_Viewer"));
+	sharedLayers_.push_back(new ViewerLayer(tokenElems, kSharedChannels2, patchRows_, patchCols_, 8, "Spatial_Trunk_Out_Viewer", 1.0f, true));
 	sharedChannels_ = kSharedChannels2;
 	sharedHeight_ = sharedH;
 	sharedWidth_ = sharedW;

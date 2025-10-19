@@ -22,7 +22,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	checkCUDNN(cudnnCreateTensorDescriptor(&posDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
 	if(train_){
-		WeightInit(weights_, weightCount_, patchDim_, weightInitMethod);
+		WeightInit(weights_, weightCount_, patchDim_, embedDim_, weightInitMethod);
 		//std::vector<__half> hostWeights(weightCount_, __float2half(1.0f/patchDim_));
 		//cudaMemcpy(weights_, hostWeights.data(), weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
@@ -57,7 +57,6 @@ __half* PatchEmbedLayer::Forward(__half* data){
 	inData_ = data;
 	ExtractPatches(data, patchBuffer_, batchSize_, inC_, inH_, inW_, patchSize_);
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, batchSize_*numPatches_, patchDim_, &alpha_, weights_, CUDA_R_16F, embedDim_, patchBuffer_, CUDA_R_16F, patchDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	SummarizeHalfDevice(outData_, outNCHW_, "    post-cublasGemmEx");
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, posDesc_, posEmbed_, &alpha_, outDesc_, outData_));
 	return outData_;
 }

@@ -91,7 +91,7 @@ __global__ void FeatureMapMosaicKernel(const __half* __restrict__ input, unsigne
 	const int outY = tileY*tileH + y;
 	const __half value = input[c*H*W + y*W + x];
 	const float fVal = __half2float(value);
-	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*255.0f*scale)));
+	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*128.0f*scale + 128)));
 	output[outY*mosaicW + outX] = pixel;
 }
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW, const float scale, cudaStream_t stream){
@@ -109,7 +109,6 @@ void GetPrediction(const __half* predBatch, float* prediction, const int numCtrl
 	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize*numCtrls);
 	cudaDeviceSynchronize();
 }
-
 __global__ void ScaleHalfKernel(__half* data, const size_t count, const float scale){
 	const size_t stride = static_cast<size_t>(blockDim.x)*gridDim.x;
 	for(size_t idx = blockIdx.x*blockDim.x + threadIdx.x; idx < count; idx += stride){ data[idx] = __float2half(__half2float(data[idx])*scale); }
