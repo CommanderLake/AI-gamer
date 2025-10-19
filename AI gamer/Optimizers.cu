@@ -15,7 +15,7 @@ __global__ void SGDHalfKernel(__half* params, const __half* grads, const int siz
 }
 void SGDHalf(__half* params, const __half* grads, const int size, const float learningRate, const float weightDecay){
 	int blocks, tpb = 128;
-	GetLaunchConfig(size, blocks, tpb);
+	GetLaunchConfigGridStride(size, blocks, tpb);
 	SGDHalfKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
 }
 __global__ void SGDFloatKernel(float* params, const float* grads, const int size, const float learningRate, const float weightDecay){
@@ -28,7 +28,7 @@ __global__ void SGDFloatKernel(float* params, const float* grads, const int size
 }
 void SGDFloat(float* params, const float* grads, const int size, const float learningRate, const float weightDecay){
 	int blocks, tpb = 128;
-	GetLaunchConfig(size, blocks, tpb);
+	GetLaunchConfigGridStride(size, blocks, tpb);
 	SGDFloatKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
 }
 __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __restrict__ grads, float* __restrict__ m, float* __restrict__ v, const float lr, const int t, const float wd, const int n){
@@ -106,7 +106,7 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 }
 void AdamWFloat(float* params, const float* grads, float* m, float* v, const float learningRate, const int t, const float weightDecay, const int size){
 	int blocks, tpb = 16;
-	GetLaunchConfig(size, blocks, tpb);
+	GetLaunchConfigGridStride(size, blocks, tpb);
 	AdamwKernelFloat<<<blocks, tpb>>>(params, grads, m, v, learningRate, t, weightDecay, size);
 }
 __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __restrict__ grads, __half* __restrict__ m, __half* __restrict__ v, const float lr, const int t, const float wd, const int n){
@@ -207,6 +207,6 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 }
 void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, const float lr, const int t, const float weightDecay, const int size){
 	int blocks, tpb = 16;
-	GetLaunchConfig(size, blocks, tpb);
+	GetLaunchConfigGridStride(size, blocks, tpb);
 	AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
 }

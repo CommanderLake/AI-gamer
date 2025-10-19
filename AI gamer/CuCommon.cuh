@@ -85,7 +85,7 @@ void TokensToSpatial(const __half* input, __half* output, int batch, int tokens,
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 int ConvertSmVer2Cores(int major, int minor);
 int DivCeil(int a, int b);
-void GetLaunchConfig(int n, int& blocks, int& tpb);
+void GetLaunchConfigGridStride(int n, int& blocks, int& tpb);
 void InitCUDA();
 void WeightInit(__half* weights, int elementCount, int fanIn, WeightInitMethod method, float scale = 1.0f);
 template <typename T>

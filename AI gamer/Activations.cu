@@ -16,7 +16,7 @@ __global__ void LeakyReluKernel(const half* __restrict__ dataIn, half* __restric
 }
 void LeakyReluForward(const half* dataIn, half* dataOut, const int size, const float negativeSlope, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	const half negSlopeHalf = __float2half(negativeSlope);
 	LeakyReluKernel<<<blocks, threads, 0, stream>>>(dataIn, dataOut, size, negSlopeHalf);
 }
@@ -31,7 +31,7 @@ __global__ void LeakyReluBackwardKernel(half* __restrict__ grad, const half* __r
 }
 void LeakyReluBackward(half* grad, const half* dataIn, const int size, const float negativeSlope, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	const half negSlopeHalf = __float2half(negativeSlope);
 	LeakyReluBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size, negSlopeHalf);
 }
@@ -46,7 +46,7 @@ __global__ void SwishKernel(const half* __restrict__ dataIn, half* __restrict__ 
 }
 void SwishForward(const half* dataIn, half* outData, const int size, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	SwishKernel<<<blocks, threads, 0, stream>>>(dataIn, outData, size);
 }
 __global__ void SwishBackwardKernel(half* __restrict__ grad, const half* __restrict__ dataIn, const int size){
@@ -60,7 +60,7 @@ __global__ void SwishBackwardKernel(half* __restrict__ grad, const half* __restr
 }
 void SwishBackward(half* grad, const half* dataIn, const int size, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	SwishBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size);
 }
 // ==================== Sigmoid ====================
@@ -75,7 +75,7 @@ __global__ void SigmoidKernel(const half* __restrict__ dataIn, half* __restrict_
 }
 void SigmoidForward(const half* dataIn, half* dataOut, const int numCtrls, const int numButs, const int size, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	SigmoidKernel<<<blocks, threads, 0, stream>>>(dataIn, dataOut, numCtrls, numButs, size);
 }
 __global__ void SigmoidBackwardKernel(half* __restrict__ grad, const half* __restrict__ dataIn, const int numCtrls, const int numButs, const int size){
@@ -90,7 +90,7 @@ __global__ void SigmoidBackwardKernel(half* __restrict__ grad, const half* __res
 }
 void SigmoidBackward(half* grad, const half* dataIn, const int numCtrls, const int numButs, const int size, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	SigmoidBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, numCtrls, numButs, size);
 }
 // ==================== GELU ====================
@@ -106,7 +106,7 @@ __global__ void GELUForwardKernel(const half* __restrict__ dataIn, half* __restr
 }
 void GELUForward(const half* dataIn, half* dataOut, const int size, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	GELUForwardKernel<<<blocks, threads, 0, stream>>>(dataIn, dataOut, size);
 }
 __global__ void GELUBackwardKernel(half* __restrict__ grad, const half* __restrict__ dataIn, const int size){
@@ -126,6 +126,6 @@ __global__ void GELUBackwardKernel(half* __restrict__ grad, const half* __restri
 }
 void GELUBackward(half* grad, const half* dataIn, const int size, cudaStream_t stream){
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
-	GetLaunchConfig(size, blocks, threads);
+	GetLaunchConfigGridStride(size, blocks, threads);
 	GELUBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size);
 }

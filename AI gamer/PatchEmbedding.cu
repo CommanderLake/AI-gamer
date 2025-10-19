@@ -72,12 +72,12 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 	if(total == 0) return;
 	if(total % 2 == 0){
 		int blocks = 0, tpb = 0;
-		GetLaunchConfig(total/2, blocks, tpb);
+		GetLaunchConfigGridStride(total/2, blocks, tpb);
 		if(blocks > 0 && tpb > 0)
 			ExtractPatchesKernelVec2<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	} else{
 		int blocks = 0, tpb = 0;
-		GetLaunchConfig(total, blocks, tpb);
+		GetLaunchConfigGridStride(total, blocks, tpb);
 		if(blocks > 0 && tpb > 0)
 			ExtractPatchesKernel<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	}
@@ -118,7 +118,7 @@ void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W,
 	const int PW = (W + P - 1)/P;
 	const size_t total = static_cast<size_t>(B)*PH*PW*C*P*P;
 	int blocks = 0, tpb = 0;
-	GetLaunchConfig(total, blocks, tpb);
+	GetLaunchConfigGridStride(total, blocks, tpb);
 	CombinePatchGradsKernel<<<blocks, tpb>>>(dy, dx, B, C, H, W, P);
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("CombinePatchGrads error: %s\n", cudaGetErrorString(e));
@@ -146,7 +146,7 @@ __global__ void SumPositionalGradKernel(const __half* grad, __half* out, int B, 
 
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale){
 	int blocks = 0, tpb = 0;
-	GetLaunchConfig(C*P, blocks, tpb);
+	GetLaunchConfigGridStride(C*P, blocks, tpb);
 	SumPositionalGradKernel<<<blocks, tpb>>>(grad, out, B, C, P, first, scale);
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("SumPositionalGrad error: %s\n", cudaGetErrorString(e));
