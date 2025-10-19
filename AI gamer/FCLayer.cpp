@@ -6,25 +6,25 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	outNCHW_ = batchSize_ * outC_;
-	alphaWeights_ = 1.0f / (batchSize_ * gradAccumLength_);
+	outNCHW_ = batchSize_*outC_;
+	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
-	weightCount_ = inC_ * outC_;
-	CUDAMallocZero(&weights_, weightCount_ * sizeof(__half));
-	CUDAMallocZero(&outData_, outNCHW_ * sizeof(__half));
-	if(useBias_){ CUDAMallocZero(&biases_, outC_ * sizeof(__half)); }
+	weightCount_ = inC_*outC_;
+	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
+	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
+	if(useBias_){ CUDAMallocZero(&biases_, outC_*sizeof(__half)); }
 	if(train_){
 		WeightInit(weights_, weightCount_, inC_, weightInitMethod, weightScale);
-		CUDAMallocZero(&gradWeights_, weightCount_ * sizeof(__half));
-		CUDAMallocZero(&outGrad_, batchSize_ * inC_ * sizeof(__half));
-		if(useBias_){ CUDAMallocZero(&gradBiases_, outC_ * sizeof(__half)); }
+		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
+		CUDAMallocZero(&outGrad_, batchSize_*inC_*sizeof(__half));
+		if(useBias_){ CUDAMallocZero(&gradBiases_, outC_*sizeof(__half)); }
 		if(useAdamW_){
-			CUDAMallocZero(&m_Weights_, weightCount_ * sizeof(__half));
-			CUDAMallocZero(&v_Weights_, weightCount_ * sizeof(__half));
+			CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
+			CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
 			if(useBias_){
-				CUDAMallocZero(&m_Biases_, outC_ * sizeof(__half));
-				CUDAMallocZero(&v_Biases_, outC_ * sizeof(__half));
+				CUDAMallocZero(&m_Biases_, outC_*sizeof(__half));
+				CUDAMallocZero(&v_Biases_, outC_*sizeof(__half));
 			}
 		}
 	}
@@ -135,5 +135,5 @@ void FCLayer::SetTrain(const bool enable){
 	}
 	outNCHW_ = batchSize_*outC_;
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
-	alphaWeights_ = 1.0f / (batchSize_ * gradAccumLength_);
+	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 }

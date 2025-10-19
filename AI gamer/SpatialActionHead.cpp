@@ -19,12 +19,12 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 																sharedHeight_(patchRows), sharedWidth_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	outNCHW_ = batchSize_ * NUM_CTRLS_;
-	const auto spatialElems = static_cast<size_t>(batchSize_) * embedDim_ * nTokens_;
-	const auto tokenElems = static_cast<size_t>(batchSize_) * nTokens_ * embedDim_;
-	CUDAMallocZero(&spatialInput_, spatialElems * sizeof(__half));
-	CUDAMallocZero(&tokenGrad_, tokenElems * sizeof(__half));
-	CUDAMallocZero(&predictions_, batchSize_ * NUM_CTRLS_ * sizeof(__half));
+	outNCHW_ = batchSize_*NUM_CTRLS_;
+	const auto spatialElems = static_cast<size_t>(batchSize_)*embedDim_*nTokens_;
+	const auto tokenElems = static_cast<size_t>(batchSize_)*nTokens_*embedDim_;
+	CUDAMallocZero(&spatialInput_, spatialElems*sizeof(__half));
+	CUDAMallocZero(&tokenGrad_, tokenElems*sizeof(__half));
+	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
 	sharedLayers_.push_back(new ViewerLayer(embedDim_, patchRows_, patchCols_, 16, "Spatial_Trunk_In_Viewer"));
@@ -75,13 +75,13 @@ __half* SpatialActionHead::Forward(__half* data){
 	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
 	auto axisData = sharedOutput_;
 	for(auto* layer : axisLayers_){ axisData = layer->Forward(axisData); }
-	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_ * effectiveBatch);
+	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*effectiveBatch);
 	return predictions_;
 }
 __half* SpatialActionHead::Backward(__half* grad){
 	const int effectiveBatch = batchSize_;
 	auto buttonGrad = grad;
-	auto axisGrad = grad + NUM_BUTS_ * effectiveBatch;
+	auto axisGrad = grad + NUM_BUTS_*effectiveBatch;
 	for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){ buttonGrad = buttonLayers_[i]->Backward(buttonGrad); }
 	for(int i = static_cast<int>(axisLayers_.size()); --i >= 0;){ axisGrad = axisLayers_[i]->Backward(axisGrad); }
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, sharedDesc_, axisGrad, &alpha_, sharedDesc_, buttonGrad));
@@ -132,7 +132,7 @@ size_t SpatialActionHead::GetOptimizerStateSize(){
 void SpatialActionHead::SetTrain(const bool enable){
 	train_ = enable;
 	batchSize_ = enable ? ogbs_ : 1;
-	outNCHW_ = batchSize_ * NUM_CTRLS_;
+	outNCHW_ = batchSize_*NUM_CTRLS_;
 	UpdateSharedDescriptor();
 	for(auto* layer : sharedLayers_){ layer->SetTrain(enable); }
 	for(auto* layer : buttonLayers_){ layer->SetTrain(enable); }

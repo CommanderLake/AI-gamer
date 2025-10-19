@@ -3,11 +3,11 @@
 ViewerLayer::ViewerLayer(const int channels, const int patchHeight, const int patchWidth, const int gridWidth, const std::string windowTitle, const float scale, bool backwardPass, __half* displayData) : displayData_(displayData), windowTitle_(windowTitle), backwardPass_(backwardPass), inC_(channels), inH_(patchHeight), inW_(patchWidth), gridW_(gridWidth), scale_(scale){
 	viewer_ = new Viewer();
 	gridH_ = (inC_ + gridW_ - 1) / gridW_;
-	mosaicDimW_ = inW_ * gridW_;
-	mosaicDimH_ = inH_ * gridH_;
+	mosaicDimW_ = inW_*gridW_;
+	mosaicDimH_ = inH_*gridH_;
 	viewer_->InitializeWindow(mosaicDimW_, mosaicDimH_, windowTitle_.c_str());
 	mosaicH_ = static_cast<unsigned char*>(_mm_malloc(mosaicDimW_*mosaicDimH_, 64));
-	CUDAMallocZero(&mosaicD_, mosaicDimW_ * mosaicDimH_);
+	CUDAMallocZero(&mosaicD_, mosaicDimW_*mosaicDimH_);
 }
 ViewerLayer::~ViewerLayer(){
 	cudaFree(mosaicD_);

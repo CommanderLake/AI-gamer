@@ -6,11 +6,11 @@
 Train::Train(){}
 Train::~Train(){}
 void Train::Allocate(const int batchSize, const int seqLength, const int stateSize){
-	CUDAMallocZero(&dStateBatchBytes, batchSize * seqLength * stateSize * sizeof(unsigned char));
-	CUDAMallocZero(&dStateBatchHalf, batchSize * seqLength * stateSize * sizeof(__half));
+	CUDAMallocZero(&dStateBatchBytes, batchSize*seqLength*stateSize*sizeof(unsigned char));
+	CUDAMallocZero(&dStateBatchHalf, batchSize*seqLength*stateSize*sizeof(__half));
 	checkCUDA(cudaMallocHost(&hTargetBatchFloat, batchSize*seqLength*NUM_CTRLS_*sizeof(float)));
-	CUDAMallocZero(&dTargetBatchFloat, batchSize * seqLength * NUM_CTRLS_ * sizeof(float));
-	CUDAMallocZero(&dy_, batchSize * seqLength * NUM_CTRLS_ * sizeof(__half));
+	CUDAMallocZero(&dTargetBatchFloat, batchSize*seqLength*NUM_CTRLS_*sizeof(float));
+	CUDAMallocZero(&dy_, batchSize*seqLength*NUM_CTRLS_*sizeof(__half));
 }
 void Train::Free(){
 	cudaFree(dy_);
@@ -22,41 +22,41 @@ void Train::Free(){
 float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
 	constexpr float baseLr = 0.0001f;
 	const float minLr = 0.000001f;
-	const size_t warmupSteps = epochBatchCount * 1;
-	const size_t totalSteps = epochBatchCount * 10;
-	const size_t currentStep = epoch * epochBatchCount + batch;
-	if(currentStep < warmupSteps){ return baseLr * static_cast<float>(currentStep) / static_cast<float>(warmupSteps); }
+	const size_t warmupSteps = epochBatchCount*1;
+	const size_t totalSteps = epochBatchCount*10;
+	const size_t currentStep = epoch*epochBatchCount + batch;
+	if(currentStep < warmupSteps){ return baseLr*static_cast<float>(currentStep) / static_cast<float>(warmupSteps); }
 	const float progress = static_cast<float>(currentStep - warmupSteps) / static_cast<float>(totalSteps - warmupSteps);
-	const float cosineDecay = 0.5f * (1.0f + cosf(3.14159f * progress));
-	return minLr + (baseLr - minLr) * cosineDecay;
+	const float cosineDecay = 0.5f*(1.0f + cosf(3.14159f*progress));
+	return minLr + (baseLr - minLr)*cosineDecay;
 }
 int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const float lr, const std::size_t batchIndex, const std::size_t epochBatchCount){
 	for(size_t i = 0; i < nn->batchStateTotal_; ++i){
-		for(int j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i * NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1); }
-		hTargetBatchFloat[i * NUM_CTRLS_ + 14] = static_cast<float>(sb->inputStates[i].deltaX) / 1024.0f;
-		hTargetBatchFloat[i * NUM_CTRLS_ + 15] = static_cast<float>(sb->inputStates[i].deltaY) / 1024.0f;
+		for(int j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1); }
+		hTargetBatchFloat[i*NUM_CTRLS_ + 14] = static_cast<float>(sb->inputStates[i].deltaX) / 1024.0f;
+		hTargetBatchFloat[i*NUM_CTRLS_ + 15] = static_cast<float>(sb->inputStates[i].deltaY) / 1024.0f;
 	}
 	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, nn->stateSize_*nn->batchStateTotal_, cudaMemcpyHostToDevice));
-	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, nn->stateSize_ * nn->batchStateTotal_, true);
+	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, nn->stateSize_*nn->batchStateTotal_, true);
 	checkCUDA(cudaMemcpy(dTargetBatchFloat, hTargetBatchFloat, NUM_CTRLS_*nn->batchStateTotal_*sizeof(float), cudaMemcpyHostToDevice));
 	const auto dPredictions = nn->Forward(dStateBatchHalf);
-	if(IsnanHalf(dPredictions, NUM_CTRLS_ * nn->batchStateTotal_)){
+	if(IsnanHalf(dPredictions, NUM_CTRLS_*nn->batchStateTotal_)){
 		std::cout << " NaN in predictions\n";
 		return -1;
 	}
 	MseLoss2(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchStateTotal_, &lossButs_, &lossAxes_);
 	if(smoothLoss){
 		constexpr float smoothing = 0.95f;
-		emaLossButs_ = smoothing * emaLossButs_ + (1.0f - smoothing) * lossButs_;
-		emaLossAxes_ = smoothing * emaLossAxes_ + (1.0f - smoothing) * lossAxes_;
+		emaLossButs_ = smoothing*emaLossButs_ + (1.0f - smoothing)*lossButs_;
+		emaLossAxes_ = smoothing*emaLossAxes_ + (1.0f - smoothing)*lossAxes_;
 	} else{
 		emaLossButs_ = lossButs_;
 		emaLossAxes_ = lossAxes_;
 	}
 	std::cout << "\rLR: " << lr << " Batch " << (batchIndex + 1) << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_;
 	if(lr == 0.0f) return 0;
-	SplitGradient(dy_, dPredictions, dTargetBatchFloat, 32.0f, NUM_CTRLS_ * nn->batchStateTotal_, NUM_CTRLS_, NUM_BUTS_, nn->batchStateTotal_);
-	if(IsnanHalf(nn->Backward(dy_), nn->stateSize_ * nn->batchStateTotal_)){
+	SplitGradient(dy_, dPredictions, dTargetBatchFloat, 32.0f, NUM_CTRLS_*nn->batchStateTotal_, NUM_CTRLS_, NUM_BUTS_, nn->batchStateTotal_);
+	if(IsnanHalf(nn->Backward(dy_), nn->stateSize_*nn->batchStateTotal_)){
 		std::cout << " NaN in gradient\n";
 		return -1;
 	}
