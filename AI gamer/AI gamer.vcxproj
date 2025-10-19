@@ -180,6 +180,7 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="Activations.cu" />
+    <CudaCompile Include="AttentionPool.cu" />
     <CudaCompile Include="Conversions.cu" />
     <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="CudaStuff.cu" />
