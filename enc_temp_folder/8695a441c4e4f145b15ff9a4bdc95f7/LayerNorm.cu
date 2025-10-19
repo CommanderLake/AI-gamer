@@ -258,7 +258,7 @@ __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restric
 		}
 	}
 }
-void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW){
+void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspace_size, int N, int C, int HW){
 	// Validate inputs
 	if(!dx || !dy || !x || !g || !dG || !dB || !mean || !var || !workspace){
 		fprintf(stderr, "LayerNormBackward: Null pointer input\n");
@@ -270,8 +270,8 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	}
 	// Check workspace size
 	const size_t required_size = 2 * N * sizeof(float);
-	if(workspaceSize < required_size){
-		fprintf(stderr, "LayerNormBackward: Insufficient workspace (need %zu, got %zu)\n", required_size, workspaceSize);
+	if(workspace_size < required_size){
+		fprintf(stderr, "LayerNormBackward: Insufficient workspace (need %zu, got %zu)\n", required_size, workspace_size);
 		return;
 	}
 	// Setup workspace pointers

@@ -31,7 +31,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.01f;
 	constexpr auto patchSize = 20;
-	constexpr auto embedSqrt = 24;
+	constexpr auto embedSqrt = 16;
 	constexpr auto embedDim = embedSqrt*embedSqrt;
 	constexpr auto ffDim = embedDim*4;
 	constexpr int numHeads = 8;
@@ -83,18 +83,18 @@ NN::~NN(){
 }
 __half* NN::Forward(__half* data){
 	for(const auto layer : layers_){
-		std::cout << "\n" << layer->layerName_ << " ";
+		//std::cout << "\n" << layer->layerName_ << " ";
 		data = layer->Forward(data);
-		SummarizeHalfDevice(data, layer->outNCHW_, "data");
+		//SummarizeHalfDevice(data, layer->outNCHW_, "data");
 	}
 	return data;
 }
 __half* NN::Backward(__half* grad){
 	auto outGrad = grad;
 	for(int i = layers_.size(); --i >= 0; ){
-		std::cout << "\n" << layers_[i]->layerName_ << " ";
+		//std::cout << "\n" << layers_[i]->layerName_ << " ";
 		outGrad = layers_[i]->Backward(outGrad);
-		SummarizeHalfDevice(outGrad, layers_[i]->outNCHW_, "gradient");
+		//SummarizeHalfDevice(outGrad, layers_[i]->outNCHW_, "gradient");
 	}
 	return outGrad;
 }

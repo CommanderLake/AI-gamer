@@ -32,32 +32,32 @@ EncoderLayer::~EncoderLayer(){
 }
 __half* EncoderLayer::Forward(__half* data){
 	const auto* residual1 = data;
-	std::cout << "\n" << layers_[0]->layerName_ << " ";
+	//std::cout << "\n" << layers_[0]->layerName_ << " ";
 	data = layers_[0]->Forward(data);
-	SummarizeHalfDevice(data, layers_[0]->outNCHW_, "data");
-	std::cout << "\n" << layers_[1]->layerName_ << " ";
+	//SummarizeHalfDevice(data, layers_[0]->outNCHW_, "data");
+	//std::cout << "\n" << layers_[1]->layerName_ << " ";
 	data = layers_[1]->Forward(data);
-	SummarizeHalfDevice(data, layers_[1]->outNCHW_, "data");
-	std::cout << "\n" << layers_[2]->layerName_ << " ";
+	//SummarizeHalfDevice(data, layers_[1]->outNCHW_, "data");
+	//std::cout << "\n" << layers_[2]->layerName_ << " ";
 	data = layers_[2]->Forward(data);
-	SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
-	std::cout << "\n" << layers_[3]->layerName_ << " ";
+	//SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
+	//std::cout << "\n" << layers_[3]->layerName_ << " ";
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, tensorDesc_, residual1, &mixFwd_, tensorDesc_, data));
 	const auto* residual2 = data;
 	data = layers_[3]->Forward(data);
-	SummarizeHalfDevice(data, layers_[3]->outNCHW_, "data");
-	std::cout << "\n" << layers_[4]->layerName_ << " ";
+	//SummarizeHalfDevice(data, layers_[3]->outNCHW_, "data");
+	//std::cout << "\n" << layers_[4]->layerName_ << " ";
 	data = layers_[4]->Forward(data);
-	SummarizeHalfDevice(data, layers_[4]->outNCHW_, "data");
-	std::cout << "\n" << layers_[5]->layerName_ << " ";
+	//SummarizeHalfDevice(data, layers_[4]->outNCHW_, "data");
+	//std::cout << "\n" << layers_[5]->layerName_ << " ";
 	data = layers_[5]->Forward(data);
-	SummarizeHalfDevice(data, layers_[5]->outNCHW_, "data");
-	std::cout << "\n" << layers_[6]->layerName_ << " ";
+	//SummarizeHalfDevice(data, layers_[5]->outNCHW_, "data");
+	//std::cout << "\n" << layers_[6]->layerName_ << " ";
 	data = layers_[6]->Forward(data);
-	SummarizeHalfDevice(data, layers_[6]->outNCHW_, "data");
-	std::cout << "\n" << layers_[7]->layerName_ << " ";
+	//SummarizeHalfDevice(data, layers_[6]->outNCHW_, "data");
+	//std::cout << "\n" << layers_[7]->layerName_ << " ";
 	data = layers_[7]->Forward(data);
-	SummarizeHalfDevice(data, layers_[7]->outNCHW_, "data");
+	//SummarizeHalfDevice(data, layers_[7]->outNCHW_, "data");
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, tensorDesc_, residual2, &mixFwd_, tensorDesc_, data));
 	return data;
 }

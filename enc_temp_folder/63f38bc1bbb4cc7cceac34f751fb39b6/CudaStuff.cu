@@ -91,7 +91,7 @@ __global__ void FeatureMapMosaicKernel(const __half* __restrict__ input, unsigne
 	const int outY = tileY*tileH + y;
 	const __half value = input[c*H*W + y*W + x];
 	const float fVal = __half2float(value);
-	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*128.0f*scale + 128.0f)));
+	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*128.0f*scale + 128)));
 	output[outY*mosaicW + outX] = pixel;
 }
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, const int H, const int W, const int inC, const int mosaicW, const int tileW, const int tileH, const int gridW, const float scale, cudaStream_t stream){
