@@ -17,7 +17,7 @@ __half* SwishLayer::Backward(__half* grad){
 	SwishBackward(grad, data_, outNCHW_, nullptr);
 	return grad;
 }
-void SwishLayer::SetTrain(const bool enable){
+void SwishLayer::SetFineTune(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

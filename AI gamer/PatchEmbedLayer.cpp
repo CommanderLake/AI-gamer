@@ -118,7 +118,7 @@ void PatchEmbedLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buf
 }
 size_t PatchEmbedLayer::GetParameterSize(){ return (weightCount_ + posCount_)*sizeof(__half); }
 size_t PatchEmbedLayer::GetOptimizerStateSize(){ return useAdamW_ ? (weightCount_ + posCount_)*sizeof(__half)*2 + sizeof(int) : 0; }
-void PatchEmbedLayer::SetTrain(bool enable){
+void PatchEmbedLayer::SetFineTune(bool enable){
 	if(enable){
 		train_ = true;
 		batchSize_ = ogbs_;

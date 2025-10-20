@@ -27,7 +27,7 @@ __half* Dropout::Backward(__half* grad){
 	checkCUDNN(cudnnDropoutBackward(cudnnHandle_, dropoutDesc_, outDesc_, grad, outDesc_, grad, reserveSpace_, reserveSpaceSize_));
 	return grad;
 }
-void Dropout::SetTrain(const bool enable){ train_ = enable; }
+void Dropout::SetFineTune(const bool enable){ train_ = enable; }
 void Dropout::SetDropout(const bool enable){
 	enable_ = enable;
 }

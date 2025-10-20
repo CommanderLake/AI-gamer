@@ -105,7 +105,7 @@ size_t ConvLayer::GetParameterSize(){
 size_t ConvLayer::GetOptimizerStateSize(){
 	return weightCount_*sizeof(__half);
 }
-void ConvLayer::SetTrain(bool enable){
+void ConvLayer::SetFineTune(bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

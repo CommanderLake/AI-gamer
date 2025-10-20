@@ -22,7 +22,7 @@ __half* Activate::Backward(__half* grad){
 	checkCUDNN(cudnnActivationBackward(cudnnHandle_, activDesc_, &alpha, outDesc_, dataOut_, outDesc_, grad, outDesc_, dataIn_, &beta1, outDesc_, grad));
 	return grad;
 }
-void Activate::SetTrain(bool enable){
+void Activate::SetFineTune(bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

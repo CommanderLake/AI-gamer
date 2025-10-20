@@ -27,33 +27,23 @@ void ARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
 	GetLaunchConfigGridStride(n, blocks, tpb);
 	cuARGBtoRGBplanar<<<blocks, tpb>>>(src, dst, n);
 }
-__global__ void ConvertByteToHalfNormKernel(const unsigned char* input, __half* output, const size_t size){
+__global__ void ConvertByteToHalfKernel(const unsigned char* input, __half* output, const size_t size, const float scale){
 	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __float2half(static_cast<float>(input[idx]) / 255.0f); }
-}
-__global__ void ConvertByteToHalfKernel(const unsigned char* input, __half* output, const size_t size){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __float2half(input[idx]); }
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __float2half(input[idx]/scale); }
 }
 void ConvertByteToHalf(const unsigned char* input, __half* output, const size_t size, bool normalize){
 	int blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
-	if(normalize) ConvertByteToHalfNormKernel<<<blocks, tpb>>>(input, output, size);
-	else ConvertByteToHalfKernel<<<blocks, tpb>>>(input, output, size);
+	ConvertByteToHalfKernel<<<blocks, tpb>>>(input, output, size, normalize ? 255.0 : 1.0f);
 }
-__global__ void ConvertHalfToByteNormKernel(const __half* input, unsigned char* output, const size_t size){
+__global__ void ConvertHalfToByteKernel(const __half* input, unsigned char* output, const size_t size, const float scale){
 	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = static_cast<unsigned char>(__half2float(input[idx])*255.0f); }
-}
-__global__ void ConvertHalfToByteKernel(const __half* input, unsigned char* output, const size_t size){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = static_cast<unsigned char>(__half2float(input[idx])); }
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = static_cast<unsigned char>(__half2float(input[idx])*scale); }
 }
 void ConvertHalfToByte(const __half* input, unsigned char* output, const size_t size, const bool normalize){
 	int blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
-	if(normalize) ConvertHalfToByteNormKernel<<<blocks, tpb>>>(input, output, size);
-	else ConvertHalfToByteKernel<<<blocks, tpb>>>(input, output, size);
+	ConvertHalfToByteKernel<<<blocks, tpb>>>(input, output, size, normalize ? 255.0f : 1.0f);
 }
 __global__ void ConvertFloatToHalfKernel(const float* input, __half* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;

@@ -133,7 +133,7 @@ void BatchNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 }
 size_t BatchNorm::GetParameterSize(){ return outC_*sizeof(float); }
 size_t BatchNorm::GetOptimizerStateSize(){ return outC_*sizeof(float); }
-void BatchNorm::SetTrain(bool enable){
+void BatchNorm::SetFineTune(bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

@@ -6,7 +6,7 @@ public:
 	~SwishLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
-	void SetTrain(bool enable) override;
+	void SetFineTune(bool enable) override;
 	int batchSize_, outC_, outHeight_, outWidth_;
 	__half* dataOut_ = nullptr;
 	__half* data_ = nullptr;

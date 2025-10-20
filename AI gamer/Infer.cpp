@@ -24,7 +24,7 @@ Infer::Infer(const bool tune) : tune_(tune){
 	GrabFrameUInt8(&width, &height, true, false);
 	scaleFactor_ = width/TGT_STATE_WIDTH_;
 	if(tune_){
-		nn_->SetTrain(false);
+		nn_->SetFineTune(false);
 		record_ = new Record();
 		train_ = new Train();
 	}
@@ -145,9 +145,9 @@ void Infer::Step(InferMode mode){
 		memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
 		ProcessOutput(predictionsF_);
 		if(mode == InferMode::Tune && states_.size() >= nn_->batchSize_){
-			nn_->SetTrain(true);
+			nn_->SetFineTune(true);
 			train_->TuneModel(nn_, states_, 5, 0.000001);
-			nn_->SetTrain(false);
+			nn_->SetFineTune(false);
 			std::cout << "Tuned with " << states_.size() << " states\n";
 			activeMode_ = InferMode::On;
 		} else if(mode == InferMode::Tune && states_.size() < nn_->batchSize_){

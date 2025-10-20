@@ -13,7 +13,7 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetTrain(bool enable) override;
+	void SetFineTune(bool enable) override;
 	int ogbs_;
 	int batchSize_;
 	int tokenBatchSize_;

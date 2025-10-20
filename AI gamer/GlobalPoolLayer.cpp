@@ -72,7 +72,7 @@ size_t GlobalPoolLayer::GetOptimizerStateSize(){
 	if(!train_ || !mQuery_ || !vQuery_){ return 0; }
 	return 2*weightCount_*sizeof(__half);
 }
-void GlobalPoolLayer::SetTrain(bool enable){
+void GlobalPoolLayer::SetFineTune(bool enable){
 	if(enable && !train_){
 		if(!outGrad_){ CUDAMallocZero(&outGrad_, ogbs_*tokens_*embedDim_*sizeof(__half)); }
 		if(!gradQuery_){ CUDAMallocZero(&gradQuery_, weightCount_*sizeof(__half)); }

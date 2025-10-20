@@ -7,7 +7,7 @@ public:
 	~Activate() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
-	void SetTrain(bool enable) override;
+	void SetFineTune(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnActivationDescriptor_t activDesc_;
 	int batchSize_, outC_, outHeight_, outWidth_;

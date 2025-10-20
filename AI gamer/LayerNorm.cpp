@@ -98,7 +98,7 @@ size_t LayerNorm::GetParameterSize(){
 size_t LayerNorm::GetOptimizerStateSize(){
 	return 4*outC_*sizeof(float);
 }
-void LayerNorm::SetTrain(const bool enable){
+void LayerNorm::SetFineTune(const bool enable){
 	batchSize_ = enable ? ogbs_ : tokenBatchSize_;
 	outNCHW_ = batchSize_*outC_*outHW_;
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height_, width_));

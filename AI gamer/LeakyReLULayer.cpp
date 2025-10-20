@@ -17,7 +17,7 @@ __half* LeakyReLU::Backward(__half* grad){
 	LeakyReluBackward(grad, data_, outNCHW_, slope_, nullptr);
 	return grad;
 }
-void LeakyReLU::SetTrain(const bool enable){
+void LeakyReLU::SetFineTune(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

@@ -89,8 +89,7 @@ __global__ void FeatureMapMosaicKernel(const __half* __restrict__ input, unsigne
 	const int tileY = c / gridW;
 	const int outX = tileX*tileW + x;
 	const int outY = tileY*tileH + y;
-	const __half value = input[c*H*W + y*W + x];
-	const float fVal = __half2float(value);
+	const float fVal = __half2float(input[c*H*W + y*W + x]);
 	const unsigned char pixel = static_cast<unsigned char>(fmaxf(0.0f, fminf(255.0f, fVal*255.0f*scale)));
 	output[outY*mosaicW + outX] = pixel;
 }

@@ -22,7 +22,7 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 		timeSize_, // kvMaxSeqLength
 		batchSize_, // maxBatchSize
 		1)); // maxBeamSize
-	SetTrain(train);
+	SetFineTune(train);
 	checkCUDNN(cudnnGetMultiHeadAttnBuffers(cudnnHandle_, attnDesc_, &weightSize_, &workspaceSize_, &reserveSpaceSize_));
 	CUDAMallocZero(&weights_, weightSize_);
 	cudnnTensorDescriptor_t wDesc;
@@ -147,7 +147,7 @@ size_t MultiHeadAttentionLayer::GetParameterSize(){ return weightSize_; }
 size_t MultiHeadAttentionLayer::GetOptimizerStateSize(){
 	return useAdamW_ ? 2*weightSize_ : 0;
 }
-void MultiHeadAttentionLayer::SetTrain(const bool enable){
+void MultiHeadAttentionLayer::SetFineTune(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

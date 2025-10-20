@@ -3,7 +3,7 @@
 #include "Viewer.h"
 class ViewerLayer final : public Layer{
 public:
-	ViewerLayer(int dataSize, int channels, int patchHeight, int patchWidth, int gridWidth, std::string windowTitle, float scale = 1.0f, bool backwardPass = false, __half* displayData = nullptr);
+	ViewerLayer(int dataSize, int channels, int patchHeight, int patchWidth, int gridWidth, std::string windowTitle, bool mosaic, float scale = 1.0f, bool backwardPass = false, __half* displayData = nullptr);
 	~ViewerLayer() override;
 	void DisplayData(const __half* data);
 	__half* Forward(__half* data) override;
@@ -18,4 +18,5 @@ public:
 	int inC_, inH_, inW_;
 	int gridW_, gridH_;
 	float scale_;
+	bool mosaic_;
 };

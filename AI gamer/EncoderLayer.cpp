@@ -91,11 +91,11 @@ size_t EncoderLayer::GetOptimizerStateSize(){
 	for(const auto layer : layers_){ maxSize = std::max(maxSize, layer->GetOptimizerStateSize()); }
 	return maxSize;
 }
-void EncoderLayer::SetTrain(bool enable){
+void EncoderLayer::SetFineTune(bool enable){
 	train_ = enable;
 	const int bs = enable ? batchSize_ : 1;
 	checkCUDNN(cudnnSetTensor4dDescriptor(tensorDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs*tokens_, embedDim_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs*tokens_, embedDim_, 1, 1));
-	for(const auto layer : layers_){ layer->SetTrain(enable); }
+	for(const auto layer : layers_){ layer->SetFineTune(enable); }
 }
 void EncoderLayer::SetDropout(bool enable){ for(const auto layer : layers_){ layer->SetDropout(enable); } }

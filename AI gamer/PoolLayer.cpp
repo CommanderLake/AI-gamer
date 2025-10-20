@@ -35,7 +35,7 @@ __half* PoolLayer::Backward(__half* grad){
 	checkCUDNN(cudnnPoolingBackward(cudnnHandle_, poolDesc_, &alpha_, outDesc_, outData_, outDesc_, grad, inDesc_, inData_, &beta0_, inDesc_, outGrad_));
 	return outGrad_;
 }
-void PoolLayer::SetTrain(const bool enable){
+void PoolLayer::SetFineTune(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

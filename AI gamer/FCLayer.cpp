@@ -125,7 +125,7 @@ size_t FCLayer::GetOptimizerStateSize(){
 	const size_t biasCount = useBias_ ? outC_ : 0;
 	return std::max(weightCount_, biasCount)*sizeof(__half);
 }
-void FCLayer::SetTrain(const bool enable){
+void FCLayer::SetFineTune(const bool enable){
 	if(enable){
 		train_ = true;
 		batchSize_ = ogbs_;

@@ -27,12 +27,12 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
-	sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "TokensToSpatial Viewer", 1.0f, false));
+	sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "TokensToSpatial Viewer", false, 1.0f, false));
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, kSharedChannels1, 1, 1, &sharedH, &sharedW, "Spatial Trunk Conv1", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new GELULayer(batchSize_, kSharedChannels1, sharedH, sharedW, "Spatial Trunk GELU1"));
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, kSharedChannels1, kSharedChannels2, 1, 1, &sharedH, &sharedW, "Spatial Trunk Conv2", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new GELULayer(batchSize_, kSharedChannels2, sharedH, sharedW, "Spatial Trunk GELU2"));
-	sharedLayers_.push_back(new ViewerLayer(tokenElems, kSharedChannels2, patchRows_, patchCols_, 8, "Spatial Trunk Out Viewer", 1.0f, false));
+	sharedLayers_.push_back(new ViewerLayer(tokenElems, kSharedChannels2, patchRows_, patchCols_, 8, "Spatial Trunk Out Viewer", false, 1.0f, false));
 	sharedChannels_ = kSharedChannels2;
 	sharedHeight_ = sharedH;
 	sharedWidth_ = sharedW;
@@ -129,14 +129,14 @@ size_t SpatialActionHead::GetOptimizerStateSize(){
 	for(auto* layer : axisLayers_){ maxSize = std::max(maxSize, layer->GetOptimizerStateSize()); }
 	return maxSize;
 }
-void SpatialActionHead::SetTrain(const bool enable){
+void SpatialActionHead::SetFineTune(const bool enable){
 	train_ = enable;
 	batchSize_ = enable ? ogbs_ : 1;
 	outNCHW_ = batchSize_*NUM_CTRLS_;
 	UpdateSharedDescriptor();
-	for(auto* layer : sharedLayers_){ layer->SetTrain(enable); }
-	for(auto* layer : buttonLayers_){ layer->SetTrain(enable); }
-	for(auto* layer : axisLayers_){ layer->SetTrain(enable); }
+	for(auto* layer : sharedLayers_){ layer->SetFineTune(enable); }
+	for(auto* layer : buttonLayers_){ layer->SetFineTune(enable); }
+	for(auto* layer : axisLayers_){ layer->SetFineTune(enable); }
 }
 void SpatialActionHead::SetDropout(const bool enable){
 	for(auto* layer : sharedLayers_){ layer->SetDropout(enable); }

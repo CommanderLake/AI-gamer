@@ -17,7 +17,7 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetTrain(bool enable) override;
+	void SetFineTune(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnAttnDescriptor_t attnDesc_;
 	cudnnSeqDataDescriptor_t qkvDesc_, outDesc_;

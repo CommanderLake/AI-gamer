@@ -211,4 +211,4 @@ size_t WmmaAttentionLayer::GetOptimizerStateSize(){
 	if(!train_) return 0;
 	return 8*embedDim_*embedDim_*sizeof(__half) + sizeof(int);
 }
-void WmmaAttentionLayer::SetTrain(bool enable){ train_ = enable; }
+void WmmaAttentionLayer::SetFineTune(bool enable){ train_ = enable; }
