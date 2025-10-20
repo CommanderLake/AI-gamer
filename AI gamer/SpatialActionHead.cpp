@@ -23,7 +23,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
 	//sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "TokensToSpatial Viewer", true, 1.0f, false));
-	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, embedDim_, 3, 1, &sharedH, &sharedW, "Spatial Trunk Conv1", train_, weightDecay_, gradAccumLength_, Xavier));
+	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, embedDim_, 4, 2, &sharedH, &sharedW, "Spatial Trunk Conv1", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new LayerNorm(batchSize_, embedDim_, sharedH, sharedW, 1, "Trunk LN 1", train_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, embedDim_, sharedH, sharedW, "Spatial Trunk GELU1"));
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, embedDim_, 3, 1, &sharedH, &sharedW, "Spatial Trunk Conv2", train_, weightDecay_, gradAccumLength_, Xavier));
@@ -32,10 +32,14 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	//sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 8, "Spatial Trunk Out Viewer", true, 1.0f, false));
 	sharedHeight_ = sharedH;
 	sharedWidth_ = sharedW;
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, NUM_BUTS_, "Buttons FC", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	const int sharedSpatialSize = sharedHeight_*sharedWidth_;
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_*sharedSpatialSize, embedDim_, "Buttons FC1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	buttonLayers_.push_back(new LayerNorm(batchSize_, embedDim_, 1, 1, 1, "Buttons LN 2", train_));
+	buttonLayers_.push_back(new GELULayer(batchSize_, embedDim_, 1, 1, "Buttons GELU"));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, NUM_BUTS_, "Buttons FC2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
 	buttonLayers_.push_back(new SigmoidLayer(batchSize_, NUM_BUTS_, NUM_BUTS_, "Buttons Sigmoid"));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, embedDim_, "Axes FC1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
-	axisLayers_.push_back(new LayerNorm(batchSize_, embedDim_, sharedH, sharedW, 1, "Axes LN 2", train_));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_*sharedSpatialSize, embedDim_, "Axes FC1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	axisLayers_.push_back(new LayerNorm(batchSize_, embedDim_, 1, 1, 1, "Axes LN 2", train_));
 	axisLayers_.push_back(new GELULayer(batchSize_, embedDim_, 1, 1, "Axes GELU"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, NUM_AXES_, "Axes FC2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
 	checkCUDNN(cudnnCreateTensorDescriptor(&sharedDesc_));
