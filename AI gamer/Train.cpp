@@ -98,8 +98,8 @@ void Train::TrainModel(const int width, const int height){
 		for(size_t batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
 			threadPool.WaitAll();
 			fetchBatch(false);
-			const float lr = GetLearningRate(epoch, batch, epochBatchCount);
-			const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
+			//const float lr = GetLearningRate(epoch, batch, epochBatchCount);
+			const auto result = TrainBatch(nn, sbRead, true, 0.00005f, batch, epochBatchCount);
 			if(result == -1){ stopTraining = true; }
 		}
 		if(stopTraining){

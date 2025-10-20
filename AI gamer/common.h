@@ -53,6 +53,10 @@ struct ConvolutionAlgorithms{
 	cudnnConvolutionBwdFilterAlgo_t bwdFilterAlgo;
 	size_t workspaceSize;
 };
+template <typename T>
+T RoundUp(T x, T m){
+	return m ? m*DivCeil(x, m) : x;
+}
 extern std::vector<std::string> trainDataFiles;
 extern std::string valDataFile;
 extern std::string trainDataOutFileName;
