@@ -3,7 +3,6 @@
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
 #include "EncoderLayer.h"
-#include "GELULayer.h"
 #include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
 #include "SpatialActionHead.h"
@@ -40,7 +39,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);
 	const auto nTokens = patchRows*patchCols;
-	constexpr bool enableViewerLayers = true;
+	constexpr bool enableViewerLayers = false;
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, 3, netHeight, netWidth, 3, "Input Viewer", true, 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedDim, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, nTokens, embedSqrt, embedSqrt, patchCols, "Patch Embedding Viewer", true, 1.0f, false));
@@ -52,9 +51,8 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 				//layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, name + " Output Viewer", 1.0f, false));
 		//}
 	}
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", false, 1.0f, false));
 	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedDim, 1, 1, nTokens, "Post-encoder norm", train));
-	layers_.push_back(new GELULayer(batchStateTotal_*nTokens, embedDim, 1, 1, "Post-encoder GELU"));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchStateTotal_, seqLength_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());

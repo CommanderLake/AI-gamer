@@ -877,7 +877,7 @@ __global__ void PackColumnsToHeadsKernel(const __half* __restrict__ input, __hal
 	const int h = tmp % H;
 	const int b = tmp / H;
 	const int embedDim = H * D;
-	const int col = t * B + b;
+	const int col = b * T + t;
 	const int row = h * D + d;
 	// Bounds checking
 	const size_t inIdx = static_cast<size_t>(row) + col * embedDim;
@@ -923,7 +923,7 @@ __global__ void PackHeadsToColumnsKernel(const __half* __restrict__ input, __hal
 	const int h = tmp % H;
 	const int b = tmp / H;
 	const int embedDim = H * D;
-	const int col = t * B + b;
+	const int col = b * T + t;
 	const int row = h * D + d;
 	// Bounds checking
 	const size_t outIdx = static_cast<size_t>(row) + col * embedDim;

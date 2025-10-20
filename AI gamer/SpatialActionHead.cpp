@@ -3,19 +3,14 @@
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
 #include "GELULayer.h"
-#include "PoolLayer.h"
 #include "FCLayer.h"
+#include "LayerNorm.h"
 #include "SigmoidLayer.h"
 #include "ViewerLayer.h"
 #undef min
 #undef max
-namespace{
-	constexpr int kSharedChannels1 = 128;
-	constexpr int kSharedChannels2 = 64;
-	constexpr int kAxisHiddenDim = 128;
-}
 SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int patchRows, const int patchCols, const int embedDim, const char* layerName, const bool train, const float weightDecay,
-									const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), nTokens_(patchRows*patchCols), patchRows_(patchRows), patchCols_(patchCols), embedDim_(embedDim), sharedChannels_(kSharedChannels2),
+									const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), nTokens_(patchRows*patchCols), patchRows_(patchRows), patchCols_(patchCols), embedDim_(embedDim),
 																sharedHeight_(patchRows), sharedWidth_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
@@ -27,26 +22,22 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
-	sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "TokensToSpatial Viewer", false, 1.0f, false));
-	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, kSharedChannels1, 1, 1, &sharedH, &sharedW, "Spatial Trunk Conv1", train_, weightDecay_, gradAccumLength_, Xavier));
-	sharedLayers_.push_back(new GELULayer(batchSize_, kSharedChannels1, sharedH, sharedW, "Spatial Trunk GELU1"));
-	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, kSharedChannels1, kSharedChannels2, 1, 1, &sharedH, &sharedW, "Spatial Trunk Conv2", train_, weightDecay_, gradAccumLength_, Xavier));
-	sharedLayers_.push_back(new GELULayer(batchSize_, kSharedChannels2, sharedH, sharedW, "Spatial Trunk GELU2"));
-	sharedLayers_.push_back(new ViewerLayer(tokenElems, kSharedChannels2, patchRows_, patchCols_, 8, "Spatial Trunk Out Viewer", false, 1.0f, false));
-	sharedChannels_ = kSharedChannels2;
+	//sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "TokensToSpatial Viewer", true, 1.0f, false));
+	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, embedDim_, 3, 1, &sharedH, &sharedW, "Spatial Trunk Conv1", train_, weightDecay_, gradAccumLength_, Xavier));
+	sharedLayers_.push_back(new LayerNorm(batchSize_, embedDim_, sharedH, sharedW, 1, "Trunk LN 1", train_));
+	sharedLayers_.push_back(new GELULayer(batchSize_, embedDim_, sharedH, sharedW, "Spatial Trunk GELU1"));
+	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedDim_, embedDim_, 3, 1, &sharedH, &sharedW, "Spatial Trunk Conv2", train_, weightDecay_, gradAccumLength_, Xavier));
+	sharedLayers_.push_back(new LayerNorm(batchSize_, embedDim_, sharedH, sharedW, 1, "Trunk LN 2", train_));
+	sharedLayers_.push_back(new GELULayer(batchSize_, embedDim_, sharedH, sharedW, "Spatial Trunk GELU2"));
+	//sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 8, "Spatial Trunk Out Viewer", true, 1.0f, false));
 	sharedHeight_ = sharedH;
 	sharedWidth_ = sharedW;
-	int buttonH = sharedHeight_;
-	int buttonW = sharedWidth_;
-	buttonLayers_.push_back(new PoolLayer(cudnn_, CUDNN_POOLING_AVERAGE_COUNT_INCLUDE_PADDING, batchSize_, sharedChannels_, &buttonH, &buttonW, buttonH, buttonW, buttonH, buttonW, "Buttons GlobalPool", train_));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, sharedChannels_, NUM_BUTS_, "Buttons FC", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, NUM_BUTS_, "Buttons FC", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
 	buttonLayers_.push_back(new SigmoidLayer(batchSize_, NUM_BUTS_, NUM_BUTS_, "Buttons Sigmoid"));
-	int axisH = sharedHeight_;
-	int axisW = sharedWidth_;
-	axisLayers_.push_back(new PoolLayer(cudnn_, CUDNN_POOLING_AVERAGE_COUNT_INCLUDE_PADDING, batchSize_, sharedChannels_, &axisH, &axisW, axisH, axisW, axisH, axisW, "Axes GlobalPool", train_));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, sharedChannels_, kAxisHiddenDim, "Axes FC1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
-	axisLayers_.push_back(new GELULayer(batchSize_, kAxisHiddenDim, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, kAxisHiddenDim, NUM_AXES_, "Axes FC2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, embedDim_, "Axes FC1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	axisLayers_.push_back(new LayerNorm(batchSize_, embedDim_, sharedH, sharedW, 1, "Axes LN 2", train_));
+	axisLayers_.push_back(new GELULayer(batchSize_, embedDim_, 1, 1, "Axes GELU"));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, NUM_AXES_, "Axes FC2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
 	checkCUDNN(cudnnCreateTensorDescriptor(&sharedDesc_));
 	UpdateSharedDescriptor();
 }
@@ -63,7 +54,7 @@ SpatialActionHead::~SpatialActionHead(){
 	sharedLayers_.clear();
 }
 void SpatialActionHead::UpdateSharedDescriptor(){
-	checkCUDNN(cudnnSetTensor4dDescriptor(sharedDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, sharedChannels_, sharedHeight_, sharedWidth_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(sharedDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, embedDim_, sharedHeight_, sharedWidth_));
 }
 __half* SpatialActionHead::Forward(__half* data){
 	const int effectiveBatch = batchSize_;

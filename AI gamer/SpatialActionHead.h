@@ -29,7 +29,6 @@ private:
 	int patchRows_;
 	int patchCols_;
 	int embedDim_;
-	int sharedChannels_;
 	int sharedHeight_;
 	int sharedWidth_;
 	float weightDecay_;
