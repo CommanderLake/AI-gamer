@@ -40,9 +40,6 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 		CUDAMallocZero(&v_V_, projSize*sizeof(__half));
 		CUDAMallocZero(&m_O_, projSize*sizeof(__half));
 		CUDAMallocZero(&v_O_, projSize*sizeof(__half));
-		CUDAMallocZero(&dQ, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dK, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dV, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&dQPacked_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&dKPacked_, outNCHW_*sizeof(__half));
@@ -74,9 +71,6 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 		cudaFree(v_V_);
 		cudaFree(m_O_);
 		cudaFree(v_O_);
-		cudaFree(dQ);
-		cudaFree(dK);
-		cudaFree(dV);
 		cudaFree(outGrad_);
 		cudaFree(dQPacked_);
 		cudaFree(dKPacked_);
@@ -96,6 +90,9 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	PackColumnsToHeads(Q, qPacked_, batchSize_, tokens_, embedDim_, numHeads_);
 	PackColumnsToHeads(K, kPacked_, batchSize_, tokens_, embedDim_, numHeads_);
 	PackColumnsToHeads(V, vPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+	dQ = Q;
+	dK = K;
+	dV = V;
 	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, batchSize_, tokens_, headDim_, numHeads_);
 	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
