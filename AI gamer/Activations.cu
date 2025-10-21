@@ -1,4 +1,5 @@
 #include "CuCommon.cuh"
+#include <device_launch_parameters.h>
 // Constants
 constexpr float SQRT_2_PI = 0.7978845608028654f;
 constexpr float GELU_COEF_A = 0.044715f;
@@ -98,9 +99,9 @@ __global__ void GELUForwardKernel(const half* __restrict__ dataIn, half* __restr
 	const int stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		const float x = __half2float(dataIn[idx]);
-		const float x_cubed = x*x*x;
-		const float tanh_arg = SQRT_2_PI*(x + GELU_COEF_A*x_cubed);
-		const float cdf = 0.5f*(1.0f + tanhf(tanh_arg));
+		const float xCubed = x*x*x;
+		const float tanhArg = SQRT_2_PI*(x + GELU_COEF_A*xCubed);
+		const float cdf = 0.5f*(1.0f + tanhf(tanhArg));
 		dataOut[idx] = __float2half(x*cdf);
 	}
 }
@@ -113,13 +114,13 @@ __global__ void GELUBackwardKernel(half* __restrict__ grad, const half* __restri
 	const int stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		const float x = __half2float(dataIn[idx]);
-		const float x_squared = x*x;
-		const float x_cubed = x_squared*x;
-		const float tanh_arg = SQRT_2_PI*(x + GELU_COEF_A*x_cubed);
-		const float tanh_val = tanhf(tanh_arg);
-		const float cdf = 0.5f*(1.0f + tanh_val);
-		const float sech_squared = 1.0f - tanh_val*tanh_val;
-		const float pdf = 0.5f*SQRT_2_PI*(1.0f + 3.0f*GELU_COEF_A*x_squared)*sech_squared;
+		const float xSquared = x*x;
+		const float xCubed = xSquared*x;
+		const float tanhArg = SQRT_2_PI*(x + GELU_COEF_A*xCubed);
+		const float tanhVal = tanhf(tanhArg);
+		const float cdf = 0.5f*(1.0f + tanhVal);
+		const float sechSquared = 1.0f - tanhVal*tanhVal;
+		const float pdf = 0.5f*SQRT_2_PI*(1.0f + 3.0f*GELU_COEF_A*xSquared)*sechSquared;
 		const float derivative = cdf + x*pdf;
 		grad[idx] = __float2half(__half2float(grad[idx])*derivative);
 	}
@@ -128,4 +129,29 @@ void GELUBackward(half* grad, const half* dataIn, const int size, cudaStream_t s
 	int blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	GELUBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size);
+}
+// ==================== Asinh ====================
+__global__ void AsinhForwardKernel(const half* __restrict__ x, half* __restrict__ y, int size, float alpha){
+	const int stride = blockDim.x*gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
+		y[idx] = __float2half(asinhf(__half2float(x[idx]) / alpha));
+	}
+}
+void AsinhForward(const half* x, half* y, int size, float alpha, cudaStream_t stream){
+	int blocks, threads = DEFAULT_BLOCK_SIZE;
+	GetLaunchConfigGridStride(size, blocks, threads);
+	AsinhForwardKernel<<<blocks, threads, 0, stream>>>(x, y, size, alpha);
+}
+__global__ void AsinhBackwardKernel(half* __restrict__ grad, const half* __restrict__ y, int size, float alpha){
+	const int stride = blockDim.x * gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
+		float deriv = 1.0f/coshf(__half2float(y[idx]));
+		deriv *= 1.0f/alpha;
+		grad[idx] = __float2half(__half2float(grad[idx])*deriv);
+	}
+}
+void AsinhBackward(half* grad, const half* activated, int size, float alpha, cudaStream_t stream){
+	int blocks, threads = DEFAULT_BLOCK_SIZE;
+	GetLaunchConfigGridStride(size, blocks, threads);
+	AsinhBackwardKernel<<<blocks, threads, 0, stream>>>(grad, activated, size, alpha);
 }

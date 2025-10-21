@@ -20,8 +20,8 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
-	constexpr float baseLr = 0.0001f;
-	const float minLr = 0.000001f;
+	constexpr float baseLr = 0.00005f;
+	constexpr float minLr = 0.000001f;
 	const size_t warmupSteps = epochBatchCount*1;
 	const size_t totalSteps = epochBatchCount*10;
 	const size_t currentStep = epoch*epochBatchCount + batch;
@@ -33,8 +33,8 @@ float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
 int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const float lr, const std::size_t batchIndex, const std::size_t epochBatchCount){
 	for(size_t i = 0; i < nn->batchStateTotal_; ++i){
 		for(int j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1); }
-		hTargetBatchFloat[i*NUM_CTRLS_ + 14] = static_cast<float>(sb->inputStates[i].deltaX) / 1024.0f;
-		hTargetBatchFloat[i*NUM_CTRLS_ + 15] = static_cast<float>(sb->inputStates[i].deltaY) / 1024.0f;
+		hTargetBatchFloat[i*NUM_CTRLS_ + 14] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX)/AXIS_SCALE_);
+		hTargetBatchFloat[i*NUM_CTRLS_ + 15] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY)/AXIS_SCALE_);
 	}
 	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, nn->stateSize_*nn->batchStateTotal_, cudaMemcpyHostToDevice));
 	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, nn->stateSize_*nn->batchStateTotal_, true);
@@ -98,8 +98,8 @@ void Train::TrainModel(const int width, const int height){
 		for(size_t batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
 			threadPool.WaitAll();
 			fetchBatch(false);
-			//const float lr = GetLearningRate(epoch, batch, epochBatchCount);
-			const auto result = TrainBatch(nn, sbRead, true, 0.00005f, batch, epochBatchCount);
+			const float lr = GetLearningRate(epoch, batch, epochBatchCount);
+			const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
 			if(result == -1){ stopTraining = true; }
 		}
 		if(stopTraining){

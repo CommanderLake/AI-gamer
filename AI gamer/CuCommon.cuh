@@ -64,6 +64,8 @@ void SigmoidForward(const __half* dataIn, __half* dataOut, int numCtrls, int num
 void SigmoidBackward(__half* grad, const __half* dataIn, int numCtrls, int numButs, int size, cudaStream_t cudaStream = nullptr);
 void GELUForward(const __half* dataIn, __half* dataOut, int size, cudaStream_t stream = nullptr);
 void GELUBackward(__half* grad, const __half* dataIn, int size, cudaStream_t stream = nullptr);
+void AsinhForward(const __half* dataIn, __half* dataOut, int size, float alpha, cudaStream_t stream = nullptr);
+void AsinhBackward(__half* grad, const __half* activated, int size, float alpha, cudaStream_t stream = nullptr);
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW);
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW);
 bool IsnanHalf(const __half* data, int size);

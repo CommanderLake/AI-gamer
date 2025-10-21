@@ -7,6 +7,7 @@
 #include "Dropout.h"
 #include "FCLayer.h"
 #include "SigmoidLayer.h"
+#include "AsinhLayer.h"
 #include "ViewerLayer.h"
 #undef min
 #undef max
@@ -39,6 +40,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, embedDim_, 1, 1, "Axes LN 2", train_, gradAccumLength_));
 	axisLayers_.push_back(new GELULayer(batchSize_, embedDim_, 1, 1, "Axes GELU"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, NUM_AXES_, "Axes FC2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, 1024, "Axes Asinh"));
 	checkCUDNN(cudnnCreateTensorDescriptor(&sharedDesc_));
 	UpdateSharedDescriptor();
 }

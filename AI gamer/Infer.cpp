@@ -117,8 +117,8 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
 		inputIndex++;
 	}
-	const int mouseX = static_cast<int>(predictions[14]*1024.0f);
-	const int mouseY = static_cast<int>(predictions[15]*1024.0f);
+	const int mouseX = static_cast<int>(predictions[14]*AXIS_SCALE_);
+	const int mouseY = static_cast<int>(predictions[15]*AXIS_SCALE_);
 	if(mouseX != 0 || mouseY != 0){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dx = mouseX;
@@ -171,6 +171,9 @@ void Infer::Step(InferMode mode){
 		ConvertByteToHalf(frame, sequenceHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(sequenceHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchStateTotal_);
+		for(int axis = NUM_BUTS_; axis < NUM_CTRLS_; ++axis){
+			predictionsF_[axis] = std::sinh(predictionsF_[axis]);
+		}
 		ProcessOutput(predictionsF_);
 	}
 }
