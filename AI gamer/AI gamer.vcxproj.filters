@@ -117,6 +117,9 @@
     <ClCompile Include="AsinhLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TokensToSpatialLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="NvDisplayCap.h">
@@ -226,6 +229,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="AsinhLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TokensToSpatialLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -9,8 +9,8 @@ ResFCLayer::ResFCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cub
 	layerName_ = layerName;
 	train_ = train;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
+	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 	layers_.push_back(new FCLayer(cudnnHandle, cublasHandle, batchSize_, inC_, hiddenC_, "FC0", train, weightDecay, gradAccumLength_, He));
 	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, hiddenC_, 1, 1, "FC0 BatchNorm", train_, gradAccumLength_));
@@ -95,14 +95,8 @@ size_t ResFCLayer::GetOptimizerStateSize(){
 	return maxSize;
 }
 void ResFCLayer::SetFineTune(bool enable){
-	int bs;
-	if(enable){
-		train_ = true;
-		bs = batchSize_;
-	} else{
-		train_ = false;
-		bs = 1;
-	}
+	train_ = enable;
+	const auto bs = enable ? batchSize_ : 1;
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, inC_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, 1, 1));
 	for(int i = 0; i<layers_.size(); ++i){

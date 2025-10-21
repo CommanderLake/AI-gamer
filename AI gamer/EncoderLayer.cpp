@@ -11,9 +11,7 @@ EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*tokens_*embedDim_;
-	checkCUDNN(cudnnCreateTensorDescriptor(&tensorDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(tensorDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*tokens_, embedDim_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*tokens_, embedDim_, 1, 1));
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, tokens_, "Norm1", train));
 	layers_.push_back(new WmmaAttentionLayer(cudnnHandle_, cublasHandle_, batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay, gradAccumLength_, Xavier, maxTokens));
@@ -27,7 +25,6 @@ EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t
 EncoderLayer::~EncoderLayer(){
 	for(const auto layer : layers_){ delete layer; }
 	layers_.clear();
-	checkCUDNN(cudnnDestroyTensorDescriptor(tensorDesc_));
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 }
 __half* EncoderLayer::Forward(__half* data){
@@ -42,7 +39,7 @@ __half* EncoderLayer::Forward(__half* data){
 	data = layers_[2]->Forward(data);
 	//SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
 	//std::cout << "\n" << layers_[3]->layerName_ << " ";
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, tensorDesc_, residual1, &mixFwd_, tensorDesc_, data));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual1, &mixFwd_, outDesc_, data));
 	const auto* residual2 = data;
 	data = layers_[3]->Forward(data);
 	//SummarizeHalfDevice(data, layers_[3]->outNCHW_, "data");
@@ -58,7 +55,7 @@ __half* EncoderLayer::Forward(__half* data){
 	//std::cout << "\n" << layers_[7]->layerName_ << " ";
 	data = layers_[7]->Forward(data);
 	//SummarizeHalfDevice(data, layers_[7]->outNCHW_, "data");
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, tensorDesc_, residual2, &mixFwd_, tensorDesc_, data));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual2, &mixFwd_, outDesc_, data));
 	return data;
 }
 __half* EncoderLayer::Backward(__half* grad){
@@ -68,12 +65,12 @@ __half* EncoderLayer::Backward(__half* grad){
 	grad = layers_[5]->Backward(grad);
 	grad = layers_[4]->Backward(grad);
 	grad = layers_[3]->Backward(grad);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, tensorDesc_, residual2, &mixBwd_, tensorDesc_, grad));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual2, &mixBwd_, outDesc_, grad));
 	const auto* residual1 = grad;
 	grad = layers_[2]->Backward(grad);
 	grad = layers_[1]->Backward(grad);
 	grad = layers_[0]->Backward(grad);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, tensorDesc_, residual1, &mixBwd_, tensorDesc_, grad));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual1, &mixBwd_, outDesc_, grad));
 	return grad;
 }
 void EncoderLayer::UpdateParameters(const float learningRate){ for(const auto layer : layers_){ layer->UpdateParameters(learningRate); } }
@@ -94,7 +91,6 @@ size_t EncoderLayer::GetOptimizerStateSize(){
 void EncoderLayer::SetFineTune(bool enable){
 	train_ = enable;
 	const int bs = enable ? batchSize_ : 1;
-	checkCUDNN(cudnnSetTensor4dDescriptor(tensorDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs*tokens_, embedDim_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs*tokens_, embedDim_, 1, 1));
 	for(const auto layer : layers_){ layer->SetFineTune(enable); }
 }

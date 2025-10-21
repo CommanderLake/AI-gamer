@@ -8,8 +8,6 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
 	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
-	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 	weightCount_ = inC_*outC_;
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
@@ -33,7 +31,6 @@ FCLayer::~FCLayer(){
 	cudaFree(weights_);
 	cudaFree(outData_);
 	if(useBias_){ cudaFree(biases_); }
-	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 	if(train_){
 		cudaFree(outGrad_);
 		cudaFree(gradWeights_);
@@ -126,14 +123,8 @@ size_t FCLayer::GetOptimizerStateSize(){
 	return std::max(weightCount_, biasCount)*sizeof(__half);
 }
 void FCLayer::SetFineTune(const bool enable){
-	if(enable){
-		train_ = true;
-		batchSize_ = ogbs_;
-	} else{
-		train_ = false;
-		batchSize_ = 1;
-	}
+	train_ = enable;
+	batchSize_ = enable ? ogbs_ : 1;
 	outNCHW_ = batchSize_*outC_;
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
 	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 }

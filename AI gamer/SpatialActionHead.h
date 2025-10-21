@@ -4,7 +4,7 @@
 #include <vector>
 class SpatialActionHead : public Layer{
 public:
-	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int patchRows, int patchCols, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int patchRows, int patchCols, int embedSize, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~SpatialActionHead() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -22,23 +22,17 @@ private:
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t sharedDesc_;
-	int ogbs_;
-	int batchSize_;
-	int seqLength_;
-	int nTokens_;
-	int patchRows_;
-	int patchCols_;
-	int embedDim_;
-	int sharedHeight_;
-	int sharedWidth_;
+	int ogbs_, batchSize_, seqLength_, nTokens_, embedSize_;
+	int patchRows_, patchCols_;
+	int sharedHeight_, sharedWidth_;
 	float weightDecay_;
 	int gradAccumLength_;
 	const float alpha_ = 1.0f;
+	int trunkC1_, trunkC2_;
 	std::vector<Layer*> sharedLayers_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
-	__half* spatialInput_ = nullptr;
-	__half* sharedOutput_ = nullptr;
+	__half* spatialData_ = nullptr;
 	__half* tokenGrad_ = nullptr;
 	__half* predictions_ = nullptr;
 };

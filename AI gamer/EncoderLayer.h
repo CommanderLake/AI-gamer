@@ -19,7 +19,6 @@ public:
 private:
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
-	cudnnTensorDescriptor_t tensorDesc_;
 	int batchSize_, tokens_, embedDim_, ffDim_;
 	int gradAccumLength_;
 	std::vector<Layer*> layers_;

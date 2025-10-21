@@ -6,8 +6,6 @@ LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, 
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHW_;
-	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height_, width_));
 	const auto paramSizeBytes = outC_*sizeof(float);
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&gamma_, paramSizeBytes);
@@ -44,7 +42,6 @@ LayerNorm::~LayerNorm(){
 		cudaFree(mBeta_);
 		cudaFree(vBeta_);
 	}
-	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 }
 __half* LayerNorm::Forward(__half* data){
 	inData_ = data;
@@ -101,5 +98,4 @@ size_t LayerNorm::GetOptimizerStateSize(){
 void LayerNorm::SetFineTune(const bool enable){
 	batchSize_ = enable ? ogbs_ : tokenBatchSize_;
 	outNCHW_ = batchSize_*outC_*outHW_;
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, height_, width_));
 }

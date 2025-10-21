@@ -1,9 +1,8 @@
 #pragma once
 #include "Layer.h"
-
 class GlobalPoolLayer final : public Layer{
 public:
-	GlobalPoolLayer(int batchSize, int tokens, int embedDim, const char* layerName, bool train);
+	GlobalPoolLayer(int batchSize, int nTokens, int embedSize, const char* layerName, bool train);
 	~GlobalPoolLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -15,9 +14,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetFineTune(bool enable) override;
-
-private:
-	int ogbs_, batchSize_, tokens_, embedDim_;
+	int ogbs_, batchSize_, nTokens_, embedSize_;
 	float invSqrtDim_;
 	float weightDecay_ = 0.0f;
 	int t_ = 1;
