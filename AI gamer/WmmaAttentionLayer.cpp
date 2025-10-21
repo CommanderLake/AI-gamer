@@ -15,7 +15,8 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 	CUDAMallocZero(&vWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&oWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + batchSize_*tokens_*tokens_*numHeads_*sizeof(float));
+	const auto attentionElems = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
+	CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + attentionElems*sizeof(__half));
 	CUDAMallocZero(&qPacked_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&kPacked_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
@@ -25,7 +26,7 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 		WeightInit(kWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(vWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(oWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
-		const size_t gradWorkspaceElems = static_cast<size_t>(batchSize_)*gradWorkspaceTokens_*gradWorkspaceTokens_*numHeads_;
+		const auto gradWorkspaceElems = static_cast<size_t>(batchSize_)*gradWorkspaceTokens_*gradWorkspaceTokens_*numHeads_;
 		attnGradWorkspaceSize_ = gradWorkspaceElems;
 		if(gradWorkspaceElems > 0){ CUDAMallocZero(&attnGradWorkspace_, gradWorkspaceElems*sizeof(float)); }
 		CUDAMallocZero(&gradQ_, projSize*sizeof(__half));
@@ -78,11 +79,11 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	}
 }
 __half* WmmaAttentionLayer::Forward(__half* data){
-	__half* Q = workspace_;
-	__half* K = workspace_ + outNCHW_;
-	__half* V = workspace_ + 2*outNCHW_;
-	__half* attnOut = workspace_ + 3*outNCHW_;
-	const auto attentionWeights = reinterpret_cast<float*>(workspace_ + 4*outNCHW_);
+	const auto Q = workspace_;
+	const auto K = workspace_ + outNCHW_;
+	const auto V = workspace_ + 2*outNCHW_;
+	const auto attnOut = workspace_ + 3*outNCHW_;
+	const auto attentionWeights = workspace_ + 4*outNCHW_;
 	inData_ = data;
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, qWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, Q, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, kWeights_, CUDA_R_16F, embedDim_, data, CUDA_R_16F, embedDim_, &beta0_, K, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
@@ -99,8 +100,8 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
-	__half* attnOut = workspace_ + 3*outNCHW_;
-	const auto attentionWeights = reinterpret_cast<float*>(workspace_ + 4*outNCHW_);
+	const auto attnOut = workspace_ + 3*outNCHW_;
+	const __half* attentionWeights = workspace_ + 4*outNCHW_;
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &beta0_ : &beta1_;
 	if(train_ && tokens_ > gradWorkspaceTokens_){
 		printf("WmmaAttentionLayer Backward tokens %d exceed workspace capacity %d\n", tokens_, gradWorkspaceTokens_);

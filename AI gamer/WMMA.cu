@@ -92,7 +92,7 @@ namespace{
 // ============================================================================
 // FORWARD KERNEL
 // ============================================================================
-__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, float* __restrict__ AttentionWeights, int batchSize, int tokens, int headDim, int heads, int tileCols){
+__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -278,7 +278,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 					// Store attention weights if requested
 					if(AttentionWeights != nullptr){
 						const size_t attIdx = attentionOffset + globalRow * tokens + globalCol;
-						if(attIdx < maxAttentionIdx){ AttentionWeights[attIdx] = normalized; }
+						if(attIdx < maxAttentionIdx){ AttentionWeights[attIdx] = __float2half(normalized); }
 					}
 				}
 			}
@@ -344,8 +344,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 // ============================================================================
 // BACKWARD KERNELS
 // ============================================================================
-__global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const float* __restrict__ attention, float* __restrict__ dAtt, __half* __restrict__ dQ, int batchSize, int tokens, int headDim, int heads,
-									int tileCols){
+__global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const __half* __restrict__ attention, float* __restrict__ dAtt, __half* __restrict__ dQ, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -472,7 +471,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 							const size_t attIdx = attOffset + globalRow * tokens + globalCol;
 							if(attIdx < totalAttElements){
 								const float rawVal = tile[c];
-								const float attVal = attention[attIdx];
+								const float attVal = __half2float(attention[attIdx]);
 								accum += rawVal * attVal;
 							}
 						}
@@ -505,7 +504,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 					const size_t attIdx = attOffset + globalRow * tokens + globalCol;
 					if(attIdx < totalAttElements){
 						const float rawVal = dAtt[attIdx];
-						const float attVal = attention[attIdx];
+						const float attVal = __half2float(attention[attIdx]);
 						const float gradVal = attVal * (rawVal - rowSums[r]);
 						dAtt[attIdx] = gradVal;
 					}
@@ -581,7 +580,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 		__syncthreads();
 	}
 }
-__global__ void ComputeDVKernel(const float* __restrict__ attention, const __half* __restrict__ dOut, __half* __restrict__ dV, int batchSize, int tokens, int headDim, int heads){
+__global__ void ComputeDVKernel(const __half* __restrict__ attention, const __half* __restrict__ dOut, __half* __restrict__ dV, int batchSize, int tokens, int headDim, int heads){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int keyBlock = blockIdx.x;
@@ -620,12 +619,12 @@ __global__ void ComputeDVKernel(const float* __restrict__ attention, const __hal
 				const int c = idx % 16;
 				const int globalQuery = queryBase + r;
 				const int globalKey = keyStart + c;
-				float val = 0.0f;
+				__half val = 0.0f;
 				if(globalQuery < tokens && globalKey < tokens){
 					const size_t attIdx = attOffset + globalQuery * tokens + globalKey;
 					if(attIdx < totalAttElements){ val = attention[attIdx]; }
 				}
-				attTile[c * tileStride + r] = __float2half(val);
+				attTile[c * tileStride + r] = val;
 			}
 			__syncwarp();
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> attFrag;
@@ -765,7 +764,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 // ============================================================================
 // WRAPPER FUNCTIONS
 // ============================================================================
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, float* AttentionWeights, int batchSize, int tokens, int headDim, int heads){
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, int batchSize, int tokens, int headDim, int heads){
 	// Validate dimensions
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
@@ -802,7 +801,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 	err = cudaGetLastError();
 	if(err != cudaSuccess){ printf("WmmaAttention Forward error: %s\n", cudaGetErrorString(err)); }
 }
-void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const float* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){
+void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){
 	// Validate pointers
 	if(!Q || !K || !V || !dOut || !Att || !dQ || !dK || !dV || !dAttWorkspace){
 		printf("WmmaAttentionBackward: Null pointer(s) provided\n");
