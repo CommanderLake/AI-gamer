@@ -27,7 +27,6 @@ public:
 	int patchDim_;
 	int numPatches_;
 	__half* patchBuffer_ = nullptr;
-	__half* gradPatchBuffer_ = nullptr;
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;
 	__half* gradWeights_ = nullptr;
