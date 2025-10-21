@@ -35,7 +35,6 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, embedDim_, 1, 1, "Buttons LN 2", train_, gradAccumLength_));
 	buttonLayers_.push_back(new GELULayer(batchSize_, embedDim_, 1, 1, "Buttons GELU"));
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_, NUM_BUTS_, "Buttons FC2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
-	buttonLayers_.push_back(new SigmoidLayer(batchSize_, NUM_BUTS_, NUM_BUTS_, "Buttons Sigmoid"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, embedDim_*sharedSpatialSize, embedDim_, "Axes FC1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
 	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, embedDim_, 1, 1, "Axes LN 2", train_, gradAccumLength_));
 	axisLayers_.push_back(new GELULayer(batchSize_, embedDim_, 1, 1, "Axes GELU"));

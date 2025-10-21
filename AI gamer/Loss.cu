@@ -1,5 +1,7 @@
+#define __CUDACC__
 #include "CuCommon.cuh"
 #include <device_launch_parameters.h>
+#include <device_functions.h>
 __device__ float d_loss;
 __global__ void mseLossKernel(const __half* predictions, const float* targets, int size){
 	extern __shared__ float sdata[];
@@ -29,6 +31,11 @@ float MseLoss(const __half* dPredictions, const float* dTargets, int size){
 }
 __device__ float dLossKeys;
 __device__ float dLossMouse;
+__device__ inline float SigmoidLossComponent(const float logit, const float target){
+	const float absLogit = fabsf(logit);
+	const float maxPart = fmaxf(logit, 0.0f);
+	return maxPart - logit*target + logf(1.0f + expf(-absLogit));
+}
 __global__ void mseLoss2Kernel(const __half* predictions, const float* targets, const int size, const int numKeys, const int numCtrls){
 	extern __shared__ float sdata[];
 	const int tid = threadIdx.x;
@@ -39,9 +46,12 @@ __global__ void mseLoss2Kernel(const __half* predictions, const float* targets, 
 		const float pred = __half2float(predictions[idx]);
 		const float target = targets[idx];
 		const bool isKey = idx % numCtrls < numKeys;
-		const float diff = isKey ? pred >= 0.5f != target >= 0.5f : (pred - target)*(pred - target);
-		sumKeys += diff*isKey;
-		sumMouse += diff*!isKey;
+		if(isKey){
+			sumKeys += SigmoidLossComponent(pred, target);
+		} else{
+			const float diff = pred - target;
+			sumMouse += diff*diff;
+		}
 		idx += gridDim.x*blockDim.x;
 	}
 	sdata[tid] = sumKeys;

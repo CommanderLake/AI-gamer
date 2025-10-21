@@ -1,6 +1,8 @@
+#define __CUDACC__
 #include "CuCommon.cuh"
 #include <cuda.h>
 #include <curand.h>
+#include <device_functions.h>
 #include <device_launch_parameters.h>
 void BlockShiftHalf(__half* hPtr, const int shiftBy, const int blocksToShift){
 	auto blockSize = shiftBy;
@@ -17,18 +19,27 @@ void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTarg
 	auto gridSize = DivCeil(size, BS);
 	GradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size);
 }
+__device__ inline float Sigmoidf(const float x){
+	if(x >= 0.0f){
+		const float z = __expf(-x);
+		return 1.0f / (1.0f + z);
+	}
+	const float z = __expf(x);
+	return z / (1.0f + z);
+}
 __global__ void SplitGradKernel(__half* gradients, const __half* predictions, const float* targets, const float clip, const int numCtrls, const int numButs, const int batchSize, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const int batchId = idx / numCtrls;
 		const int ctrlId = idx % numCtrls;
-		const auto diff = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx]) - targets[idx])));
+		const float target = targets[idx];
 		if(ctrlId < numButs){
-			const auto gradIdx = batchId*numButs + ctrlId;
-			gradients[gradIdx] = diff;
+			const float logit = __half2float(predictions[idx]);
+			const float prob = Sigmoidf(logit);
+			gradients[batchId*numButs + ctrlId] = __float2half(fmaxf(-clip, fminf(clip, prob - target)));
 		} else{
-			const auto gradIdx = numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs);
-			gradients[gradIdx] = diff;
+			const float pred = __half2float(predictions[idx]);
+			gradients[numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs)] = __float2half(fmaxf(-clip, fminf(clip, pred - target)));
 		}
 	}
 }
@@ -50,18 +61,7 @@ void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisD
 }
 __global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const float scale){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx < size){
-		const float y = __half2float(targets[idx]);
-		const float pClamped = fminf(fmaxf(__half2float(predictions[idx]), EPSILON_F), 1.0f - EPSILON_F);
-		float gradient = 0.0f;
-		if(y == 1.0f){
-			gradient = (pClamped - 1.0f) / pClamped;
-			gradients[idx] = __float2half(gradient*scale);
-		} else{
-			gradient = pClamped / (1.0f - pClamped);
-			gradients[idx] = __float2half(gradient*scale);
-		}
-	}
+	if(idx < size) gradients[idx] = __float2half((Sigmoidf(__half2float(predictions[idx])) - __half2float(targets[idx]))*scale);
 }
 void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size, const float scale){
 	auto gridSize = DivCeil(size, BS);
