@@ -1,14 +1,13 @@
 #include "WmmaAttentionLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
-WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod, int maxTokens) : cudnnHandle_(cudnnHandle),
+WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
 cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	headDim_ = embedDim_ / numHeads_;
 	outNCHW_ = batchSize_*tokens_*embedDim_;
 	alphaWeights_ = 1.0f / (batchSize_*tokens_*gradAccumLength_);
-	gradWorkspaceTokens_ = maxTokens < tokens_ ? tokens_ : maxTokens;
 	const size_t projSize = embedDim_*embedDim_;
 	CUDAMallocZero(&qWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&kWeights_, projSize*sizeof(__half));
@@ -26,7 +25,7 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 		WeightInit(kWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(vWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(oWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
-		const auto gradWorkspaceElems = static_cast<size_t>(batchSize_)*gradWorkspaceTokens_*gradWorkspaceTokens_*numHeads_;
+		const auto gradWorkspaceElems = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
 		attnGradWorkspaceSize_ = gradWorkspaceElems;
 		if(gradWorkspaceElems > 0){ CUDAMallocZero(&attnGradWorkspace_, gradWorkspaceElems*sizeof(float)); }
 		CUDAMallocZero(&gradQ_, projSize*sizeof(__half));
@@ -103,17 +102,6 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	const auto attnOut = workspace_ + 3*outNCHW_;
 	const __half* attentionWeights = workspace_ + 4*outNCHW_;
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &beta0_ : &beta1_;
-	if(train_ && tokens_ > gradWorkspaceTokens_){
-		printf("WmmaAttentionLayer Backward tokens %d exceed workspace capacity %d\n", tokens_, gradWorkspaceTokens_);
-		return outGrad_;
-	}
-	if(train_){
-		const size_t requiredWorkspace = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
-		if(attnGradWorkspace_ == nullptr || attnGradWorkspaceSize_ < requiredWorkspace){
-			printf("WmmaAttentionLayer Backward workspace too small: have %zu need %zu\n", attnGradWorkspaceSize_, requiredWorkspace);
-			return outGrad_;
-		}
-	}
 	if(!train_ || attnGradWorkspace_ == nullptr){
 		return outGrad_;
 	}

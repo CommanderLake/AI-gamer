@@ -45,7 +45,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, nTokens, embedSqrt, embedSqrt, patchCols, "Patch Embedding Viewer", true, 1.0f, false));
 	for(int i = 0; i < numEncoders; ++i){
 		auto name = "Encoder" + std::to_string(i);
-		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, nTokens, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_, nTokens));
+		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, nTokens, embedDim, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_));
 		//if(enableViewerLayers){
 			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
 				//layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, name + " Output Viewer", 1.0f, false));

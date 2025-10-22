@@ -415,10 +415,6 @@ void WmmaAttentionBackwardv2(const __half* Q, const __half* K, const __half* V, 
 		return;
 	}
 	const int numBlocks = DivCeil(tokens, 16);
-	// Clear outputs
-	cudaMemset(dQ, 0, batchSize * heads * tokens * headDim * sizeof(__half));
-	cudaMemset(dK, 0, batchSize * heads * tokens * headDim * sizeof(__half));
-	cudaMemset(dV, 0, batchSize * heads * tokens * headDim * sizeof(__half));
 	dim3 block(kOptimalThreadsVolta);
 	dim3 grid(numBlocks, batchSize, heads);
 	const int tileStride = AlignUp(16 + kSharedMemPad, kSharedMemAlignment);
