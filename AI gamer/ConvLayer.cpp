@@ -107,9 +107,6 @@ size_t ConvLayer::GetOptimizerStateSize(){
 }
 void ConvLayer::SetTrain(bool enable){
 	train_ = enable;
-	const auto bs = enable ? batchSize_ : 1;
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, inC_, inHeight_, inWidth_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, outHeight_, outWidth_));
 }
 std::pair<int, int> ConvLayer::Padding(const int imageHeight, const int imageWidth, const int kernelSize, const int stride){
 	return {std::max(0, (imageHeight - kernelSize)/stride*stride + (kernelSize - 1) - (imageHeight - 1)), std::max(0, (imageWidth - kernelSize)/stride*stride + (kernelSize - 1) - (imageWidth - 1))};

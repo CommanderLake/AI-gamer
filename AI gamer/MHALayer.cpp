@@ -22,7 +22,6 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 		timeSize_, // kvMaxSeqLength
 		batchSize_, // maxBatchSize
 		1)); // maxBeamSize
-	SetTrain(train);
 	checkCUDNN(cudnnGetMultiHeadAttnBuffers(cudnnHandle_, attnDesc_, &weightSize_, &workspaceSize_, &reserveSpaceSize_));
 	CUDAMallocZero(&weights_, weightSize_);
 	cudnnTensorDescriptor_t wDesc;
@@ -148,23 +147,5 @@ size_t MultiHeadAttentionLayer::GetOptimizerStateSize(){
 	return useAdamW_ ? 2*weightSize_ : 0;
 }
 void MultiHeadAttentionLayer::SetTrain(const bool enable){
-	int bs;
-	if(enable){
-		train_ = true;
-		bs = batchSize_;
-	} else{
-		train_ = false;
-		bs = 1;
-	}
-	outNCHW_ = bs*timeSize_*vectorSize_;
-	alphaWeights_ = gradAccumLength_ > 0 ? 1.0f/(static_cast<float>(bs)*timeSize_*gradAccumLength_) : 1.0f;
-	int dimA[CUDNN_SEQDATA_DIM_COUNT];
-	dimA[CUDNN_SEQDATA_TIME_DIM] = timeSize_;
-	dimA[CUDNN_SEQDATA_BATCH_DIM] = bs;
-	dimA[CUDNN_SEQDATA_BEAM_DIM] = 1;
-	dimA[CUDNN_SEQDATA_VECT_DIM] = vectorSize_;
-	const cudnnSeqDataAxis_t axes[4] = {CUDNN_SEQDATA_BATCH_DIM, CUDNN_SEQDATA_TIME_DIM, CUDNN_SEQDATA_BEAM_DIM, CUDNN_SEQDATA_VECT_DIM};
-	const std::vector<int> seqLengthArray(bs, timeSize_);
-	checkCUDNN(cudnnSetSeqDataDescriptor(qkvDesc_, CUDNN_DATA_HALF, 4, dimA, axes, seqLengthArray.size(), seqLengthArray.data(), nullptr));
-	checkCUDNN(cudnnSetSeqDataDescriptor(outDesc_, CUDNN_DATA_HALF, 4, dimA, axes, seqLengthArray.size(), seqLengthArray.data(), nullptr));
+	train_ = enable;
 }

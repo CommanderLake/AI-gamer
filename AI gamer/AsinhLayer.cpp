@@ -15,6 +15,4 @@ __half* AsinhLayer::Backward(__half* grad){
 }
 void AsinhLayer::SetTrain(const bool enable){
 	train_ = enable;
-	const int bs = enable ? batchSize_ : 1;
-	outNCHW_ = bs*outC_*outHeight_*outWidth_;
 }

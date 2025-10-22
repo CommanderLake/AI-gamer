@@ -18,13 +18,5 @@ __half* GELULayer::Backward(__half* grad){
 	return grad;
 }
 void GELULayer::SetTrain(const bool enable){
-	int bs;
-	if(enable){
-		train_ = true;
-		bs = batchSize_;
-	} else{
-		train_ = false;
-		bs = 1;
-	}
-	outNCHW_ = bs*outC_*outHeight_*outWidth_;
+	train_ = enable;
 }

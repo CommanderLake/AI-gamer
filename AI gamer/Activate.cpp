@@ -23,13 +23,5 @@ __half* Activate::Backward(__half* grad){
 	return grad;
 }
 void Activate::SetTrain(bool enable){
-	int bs;
-	if(enable){
-		train_ = true;
-		bs = batchSize_;
-	} else{
-		train_ = false;
-		bs = 1;
-	}
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, outHeight_, outWidth_));
+	train_ = enable;
 }

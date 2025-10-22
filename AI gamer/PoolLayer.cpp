@@ -36,14 +36,5 @@ __half* PoolLayer::Backward(__half* grad){
 	return outGrad_;
 }
 void PoolLayer::SetTrain(const bool enable){
-	int bs;
-	if(enable){
-		train_ = true;
-		bs = batchSize_;
-	} else{
-		train_ = false;
-		bs = 1;
-	}
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, inHeight_, inWidth_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, outHeight_, outWidth_));
+	train_ = enable;
 }
