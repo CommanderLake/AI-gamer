@@ -5,6 +5,8 @@
 #include <vector>
 #include <windows.h>
 #include <sstream>
+#undef min
+#undef max
 #define checkCUDNN(status) { \
     if (status != CUDNN_STATUS_SUCCESS) { \
         std::cerr << "\ncuDNN error: " << cudnnGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
@@ -446,24 +448,25 @@ ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, const 
 	int returnedAlgoCount;
 	checkCUDNN(cudnnGetConvolutionForwardAlgorithm_v7( cudnnHandle, xDesc, wDesc, convDesc, yDesc, 10, &returnedAlgoCount, fwdAlgoPerf ));
 	algorithms.fwdAlgo = fwdAlgoPerf[0].algo;
-	algorithms.workspaceSize = max(algorithms.workspaceSize, fwdAlgoPerf[0].memory);
+	algorithms.workspaceSize = std::max(algorithms.workspaceSize, fwdAlgoPerf[0].memory);
 	if(isTraining){
 		// Backward data algorithm
 		cudnnConvolutionBwdDataAlgoPerf_t bwdDataAlgoPerf[10];
 		checkCUDNN(cudnnGetConvolutionBackwardDataAlgorithm_v7( cudnnHandle, wDesc, yDesc, convDesc, xDesc, 10, &returnedAlgoCount, bwdDataAlgoPerf ));
 		algorithms.bwdDataAlgo = bwdDataAlgoPerf[0].algo;
-		algorithms.workspaceSize = max(algorithms.workspaceSize, bwdDataAlgoPerf[0].memory);
+		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdDataAlgoPerf[0].memory);
 		// Backward filter algorithm
 		cudnnConvolutionBwdFilterAlgoPerf_t bwdFilterAlgoPerf[10];
 		checkCUDNN(cudnnGetConvolutionBackwardFilterAlgorithm_v7( cudnnHandle, xDesc, yDesc, convDesc, wDesc, 10, &returnedAlgoCount, bwdFilterAlgoPerf ));
 		algorithms.bwdFilterAlgo = bwdFilterAlgoPerf[0].algo;
-		algorithms.workspaceSize = max(algorithms.workspaceSize, bwdFilterAlgoPerf[0].memory);
+		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdFilterAlgoPerf[0].memory);
 	} else{
 		algorithms.bwdDataAlgo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
 		algorithms.bwdFilterAlgo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
 	}
 	return algorithms;
 }
+#include <mkl.h>
 #include <mkl_lapacke.h>
 #include <mkl_vsl.h>
 __half* matrixH_ = nullptr;
@@ -476,92 +479,111 @@ size_t workSize_ = 0;
 float* matrixT_ = nullptr;
 size_t matrixTSize_ = 0;
 VSLStreamStatePtr stream_ = nullptr;
-void InitializeStream(){ if(stream_ == nullptr){ vslNewStream(&stream_, VSL_BRNG_SFMT19937, time(nullptr)); } }
-void OrthogonalInit(__half* output, const int rows, const int cols, WeightInitMethod method){
-	bool transpose = false;
-	int m = rows;
-	int n = cols;
-	int fan_in = cols;
-	int fan_out = rows;
+void OrthogonalInit(__half* dWeights, const int rows, const int cols, WeightInitMethod method){
+	if(rows <= 0 || cols <= 0){
+		std::cout << "Error: rows and cols must be positive. Got rows=" << rows << " cols=" << cols << '\n';
+		return;
+	}
+	bool transpose_output = false; 
+	lapack_int m = rows, n = cols;
 	if(rows < cols){
-		transpose = true;
+		transpose_output = true;
 		m = cols;
 		n = rows;
-		fan_in = rows;
-		fan_out = cols;
 	}
-	const size_t matrixSize = static_cast<size_t>(m)*n;
+	const size_t matrixSize = static_cast<size_t>(m) * static_cast<size_t>(n); // equals rows*cols
 	if(matrixSize_ < matrixSize){
 		if(matrixSize_ > 0){
 			_mm_free(matrixF_);
 			_mm_free(matrixH_);
 		}
-		matrixF_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
-		matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize*sizeof(__half), 64));
+		matrixF_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
+		matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize * sizeof(__half), 64));
+		if(!matrixF_ || !matrixH_){
+			std::cout << "Allocation error: matrixF_/matrixH_ null (size=" << matrixSize << ")\n";
+			return;
+		}
 		matrixSize_ = matrixSize;
 	}
-	if(transpose && matrixTSize_ < matrixSize){
+	if(transpose_output && matrixTSize_ < matrixSize){
 		if(matrixTSize_ > 0){ _mm_free(matrixT_); }
-		matrixT_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
+		matrixT_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
+		if(!matrixT_){
+			std::cout << "Allocation error: matrixT_ null (size=" << matrixSize << ")\n";
+			return;
+		}
 		matrixTSize_ = matrixSize;
 	}
-	const size_t tauSize = min(m, n);
-	if(tauSize_ < tauSize){
+	const lapack_int k = std::min(m, n);
+	if(tauSize_ < static_cast<size_t>(k)){
 		if(tauSize_ > 0){ _mm_free(tau_); }
-		tau_ = static_cast<float*>(_mm_malloc(tauSize*sizeof(float), 64));
-		tauSize_ = tauSize;
-	}
-	InitializeStream();
-	vsRngGaussian(VSL_RNG_METHOD_GAUSSIAN_ICDF, stream_, matrixSize, matrixF_, 0.0f, 1.0f);
-	float workQueryQRF, workQueryORGQR;
-	lapack_int info = LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, &workQueryQRF, -1);
-	if(info != 0){
-		return;
-	}
-	const auto tempMatrix = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
-	const auto tempTau = static_cast<float*>(_mm_malloc(tauSize*sizeof(float), 64));
-	memcpy(tempMatrix, matrixF_, matrixSize*sizeof(float));
-	const auto tempWork = static_cast<float*>(_mm_malloc(static_cast<size_t>(workQueryQRF)*sizeof(float), 64));
-	LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, tempMatrix, m, tempTau, tempWork, static_cast<lapack_int>(workQueryQRF));
-	info = LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, tauSize, tempMatrix, m, tempTau, &workQueryORGQR, -1);
-	if(info != 0){
-		_mm_free(tempMatrix);
-		_mm_free(tempTau);
-		_mm_free(tempWork);
-		return;
-	}
-	_mm_free(tempMatrix);
-	_mm_free(tempTau);
-	_mm_free(tempWork);
-	const size_t optimalWorkSize = max(static_cast<size_t>(workQueryQRF), static_cast<size_t>(workQueryORGQR));
-	if(workSize_ < optimalWorkSize){
-		if(workSize_ > 0){ _mm_free(work_); }
-		work_ = static_cast<float*>(_mm_malloc(optimalWorkSize*sizeof(float), 64));
-		workSize_ = optimalWorkSize;
-	}
-	info = LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, work_, workSize_);
-	if(info != 0){
-		return;
-	}
-	info = LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, tauSize, matrixF_, m, tau_, work_, workSize_);
-	if(info != 0){
-		return;
-	}
-	float* outF = matrixF_;
-	if(transpose){
-		for(int r = 0; r < rows; ++r){
-			for(int c = 0; c < cols; ++c){
-				matrixT_[r*cols + c] = matrixF_[c*rows + r];
-			}
+		tau_ = static_cast<float*>(_mm_malloc(static_cast<size_t>(k) * sizeof(float), 64));
+		if(!tau_){
+			std::cout << "Allocation error: tau_ null (k=" << k << ")\n";
+			return;
 		}
+		tauSize_ = static_cast<size_t>(k);
+	}
+	if(!stream_){
+		const int st = vslNewStream(&stream_, VSL_BRNG_SFMT19937, static_cast<unsigned int>(time(nullptr)));
+		if(st != VSL_STATUS_OK){
+			std::cout << "VSL error: vslNewStream failed, status=" << st << '\n';
+			return;
+		}
+	}
+	const int st = vsRngGaussian(VSL_RNG_METHOD_GAUSSIAN_BOXMULLER2, stream_, static_cast<int>(matrixSize), matrixF_, 0.0f, 1.0f);
+	if(st != VSL_STATUS_OK){
+		std::cout << "VSL error: vsRngGaussian failed, status=" << st << '\n';
+		return;
+	}
+	float workq = 0.0f;
+	lapack_int info = LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, &workq, -1);
+	if(info != 0){
+		std::cout << "LAPACK error: sgeqrf(lwork=-1) info=" << info << '\n';
+		return;
+	}
+	const lapack_int lworkGeqrf = std::max<lapack_int>(1, static_cast<lapack_int>(workq));
+	workq = 0.0f;
+	info = LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, k, matrixF_, m, tau_, &workq, -1);
+	if(info != 0){
+		std::cout << "LAPACK error: sorgqr(lwork=-1) info=" << info << '\n';
+		return;
+	}
+	const lapack_int lworkOrgqr = std::max<lapack_int>(1, static_cast<lapack_int>(workq));
+	const size_t needWork = static_cast<size_t>(std::max(lworkGeqrf, lworkOrgqr));
+	if(workSize_ < needWork){
+		if(workSize_ > 0){ _mm_free(work_); }
+		work_ = static_cast<float*>(_mm_malloc(needWork * sizeof(float), 64));
+		if(!work_){
+			std::cout << "Allocation error: work_ null (needWork=" << needWork << ")\n";
+			return;
+		}
+		workSize_ = needWork;
+	}
+	info = LAPACKE_sgeqrf_work(LAPACK_COL_MAJOR, m, n, matrixF_, m, tau_, work_, static_cast<lapack_int>(workSize_));
+	if(info != 0){
+		std::cout << "LAPACK error: sgeqrf info=" << info << '\n';
+		return;
+	}
+	info = LAPACKE_sorgqr_work(LAPACK_COL_MAJOR, m, n, k, matrixF_, m, tau_, work_, static_cast<lapack_int>(workSize_));
+	if(info != 0){
+		std::cout << "LAPACK error: sorgqr info=" << info << '\n';
+		return;
+	}
+	const int fanIn = cols;
+	float scale = 1.0f;
+	if(method == He) scale = std::sqrt(2.0f / static_cast<float>(fanIn));
+	if(method == Xavier) scale = std::sqrt(1.0f / static_cast<float>(fanIn));
+	float* outF = matrixF_;
+	if(transpose_output){
+		mkl_somatcopy('C', 'T', m, n, 1.0f, matrixF_, m, matrixT_, n);
 		outF = matrixT_;
 	}
-	auto scale = 1.0f;
-	if(method == He) scale = sqrtf(2.0f / fan_in);
-	if(method == Xavier) scale = sqrtf(1.0f / fan_in);
-	for(int i = 0; i < rows*cols; ++i){
-		outF[i] *= scale;
+	const size_t elems = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+	for(size_t i = 0; i < elems; ++i) outF[i] *= scale;
+	FloatToHalfAsm(outF, matrixH_, static_cast<int>(elems));
+	const cudaError_t cerr = cudaMemcpy(dWeights, matrixH_, elems * sizeof(__half), cudaMemcpyHostToDevice);
+	if(cerr != cudaSuccess){
+		std::cout << "CUDA error: cudaMemcpy H2D failed: " << cudaGetErrorString(cerr) << '\n';
 	}
-	FloatToHalfAsm(outF, matrixH_, rows*cols);
-	checkCUDA(cudaMemcpy(output, matrixH_, rows*cols*sizeof(__half), cudaMemcpyHostToDevice));
 }

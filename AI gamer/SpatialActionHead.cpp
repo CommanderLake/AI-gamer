@@ -41,14 +41,14 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedWidth_ = sharedW;
 	const int sharedSpatialSize = sharedHeight_*sharedWidth_;
 	constexpr auto outC = 512;
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Buttons BN", train_, gradAccumLength_));
 	buttonLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Buttons GELU"));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_PER_ACTIVATION, batchSize_, outC, 1, 1, "Axes BN", train_, gradAccumLength_));
 	axisLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, 1.0f, true));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 SpatialActionHead::~SpatialActionHead(){

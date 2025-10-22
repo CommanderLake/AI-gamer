@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <iostream>
-FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const float weightScale, const bool useBias) :
+FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :
 	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
@@ -13,7 +13,7 @@ FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHan
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	if(useBias_){ CUDAMallocZero(&biases_, outC_*sizeof(__half)); }
 	if(train_){
-		WeightInit(weights_, weightCount_, inC_, outC_, weightInitMethod, weightScale);
+		WeightInit(weights_, weightCount_, inC_, outC_, weightInitMethod);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&outGrad_, batchSize_*inC_*sizeof(__half));
 		if(useBias_){ CUDAMallocZero(&gradBiases_, outC_*sizeof(__half)); }

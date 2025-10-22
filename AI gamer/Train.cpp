@@ -107,6 +107,8 @@ void Train::TrainModel(const int width, const int height){
 			break;
 		}
 		threadPool.WaitAll();
+		nn->SaveModel(ckptFileName);
+		nn->SaveOptimizerState(optFileName);
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
 		nn->SetDropout(false);
@@ -123,8 +125,6 @@ void Train::TrainModel(const int width, const int height){
 			std::cout << "\nNaN encountered during validation. Stopping.\n";
 			break;
 		}
-		nn->SaveModel(ckptFileName);
-		nn->SaveOptimizerState(optFileName);
 	}
 	threadPool.WaitAll();
 	Free();

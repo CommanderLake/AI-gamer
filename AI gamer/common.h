@@ -63,7 +63,7 @@ void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation)
 void LoadBatchLSTM(StateBatch* batch, int batchSize, int seqLength, int stateSize, bool validation);
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
 ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t xDesc, cudnnFilterDescriptor_t wDesc, cudnnConvolutionDescriptor_t convDesc, cudnnTensorDescriptor_t yDesc, bool isTraining);
-void OrthogonalInit(__half* output, int rows, int cols, WeightInitMethod method);
+void OrthogonalInit(__half* weights, int rows, int cols, WeightInitMethod method);
 constexpr int NUM_BUTS_ = 14;
 constexpr int NUM_AXES_ = 2;
 constexpr int NUM_CTRLS_ = NUM_BUTS_ + NUM_AXES_;

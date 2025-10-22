@@ -107,14 +107,12 @@ void InitCUDA(){
 	curandCreateGenerator(&generator_, CURAND_RNG_PSEUDO_DEFAULT);
 	curandSetPseudoRandomGeneratorSeed(generator_, static_cast<unsigned long long>(time(nullptr)));
 }
-void WeightInit(__half* weights, const int elementCount, const int fanIn, const int fanOut, const WeightInitMethod method, const float scale){
-	if(fanIn <= 0){
-		throw std::invalid_argument("WeightInit fanIn must be positive");
-	}
-	float* weightFloat;
-	checkCUDA(cudaMalloc(&weightFloat, elementCount*sizeof(float)));
-	const float factor = method == Xavier ? 1.0f : 2.0f;
-	curandGenerateNormal(generator_, weightFloat, elementCount, 0.0f, 1.0f);
-	ConvertFloatToHalfScale(weights, weightFloat, elementCount, sqrtf(factor / (fanIn + fanOut))*scale);
-	cudaFree(weightFloat);
+void WeightInit(__half* weights, const int elementCount, const int fanIn, const int fanOut, const WeightInitMethod method){
+	OrthogonalInit(weights, fanIn, fanOut, method);
+	//float* weightFloat;
+	//checkCUDA(cudaMalloc(&weightFloat, elementCount*sizeof(float)));
+	//const float factor = method == Xavier ? 1.0f : 2.0f;
+	//curandGenerateNormal(generator_, weightFloat, elementCount, 0.0f, 1.0f);
+	//ConvertFloatToHalfScale(weights, weightFloat, elementCount, sqrtf(factor / (fanIn + fanOut)));
+	//cudaFree(weightFloat);
 }
