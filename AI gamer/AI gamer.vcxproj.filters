@@ -246,6 +246,5 @@
     <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="AttentionPool.cu" />
-    <CudaCompile Include="WMMA_optimized.cu" />
   </ItemGroup>
 </Project>
