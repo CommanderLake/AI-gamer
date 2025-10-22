@@ -13,11 +13,12 @@ namespace{
 	constexpr int kMaxValueBlocks = 32;
 	constexpr int kSharedMemPad = 4;
 	constexpr int kOptimalThreadsVolta = 128;
-	__host__ __device__ inline int DivCeil(int a, int b){ return (a + b - 1) / b; }
-	// Helper function to convert float fragment to half fragment
-	template <typename FragmentType> __device__ inline void ConvertFloatFragmentToHalf(FragmentType& float_frag, wmma::fragment<wmma::accumulator, 16, 16, 16, __half>& half_frag){
-#pragma unroll
-		for(int i = 0; i < float_frag.num_elements; ++i){ half_frag.x[i] = __float2half(float_frag.x[i]); }
+	constexpr int kSharedMemAlignment = 16;
+	template <typename T> __host__ __device__ inline T AlignUp(T value, T alignment){ return ((value + alignment - 1) / alignment) * alignment; }
+	__device__ inline unsigned char* AlignSharedPtr(unsigned char* ptr, size_t alignment){
+		auto addr = reinterpret_cast<uintptr_t>(ptr);
+		addr = AlignUp(addr, alignment);
+		return reinterpret_cast<unsigned char*>(addr);
 	}
 }
 // ============================================================================
@@ -29,19 +30,27 @@ __global__ void __launch_bounds__(128, 2) FusedBackwardKernel(const __half* __re
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
 	if(batch >= batchSize || head >= heads || rowBlock * 16 >= tokens) return;
-	const int warpId = threadIdx.x / 32;
-	const int laneId = threadIdx.x % 32;
 	const int numWarps = blockDim.x / 32;
-	extern __shared__ char sharedMemBytes[];
-	const int qStride = ((headDim + 15) / 16 * 16) + kSharedMemPad;
-	const int tileStride = 16 + kSharedMemPad;
+	extern __shared__ __align__(16) unsigned char sharedStorage[];
+	unsigned char* sharedMemBytes = sharedStorage;
+	const int qStride = AlignUp(headDim + kSharedMemPad, kSharedMemAlignment);
+	const int tileStride = AlignUp(16 + kSharedMemPad, kSharedMemAlignment);
 	const int vBlocks = (headDim + 15) / 16;
 	// Shared memory layout with proper float workspace
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
 	auto dOutShared = reinterpret_cast<__half*>(sharedMemBytes);
-	auto vShared = dOutShared + 16 * qStride;
-	auto kShared = vShared + 16 * qStride;
-	auto attShared = kShared + 16 * qStride;
-	auto floatWorkspace = reinterpret_cast<float*>(attShared + tileStride * 16);
+	sharedMemBytes += sizeof(__half) * 16 * qStride;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto vShared = reinterpret_cast<__half*>(sharedMemBytes);
+	sharedMemBytes += sizeof(__half) * 16 * qStride;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto kShared = reinterpret_cast<__half*>(sharedMemBytes);
+	sharedMemBytes += sizeof(__half) * 16 * qStride;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto attShared = reinterpret_cast<__half*>(sharedMemBytes);
+	sharedMemBytes += sizeof(__half) * tileStride * 16;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto floatWorkspace = reinterpret_cast<float*>(sharedMemBytes);
 	auto dAttTile = floatWorkspace;
 	auto dQFloat = dAttTile + 16 * 16;
 	const size_t batchHeadOffset = (static_cast<size_t>(batch) * heads + head) * tokens * headDim;
@@ -60,8 +69,12 @@ __global__ void __launch_bounds__(128, 2) FusedBackwardKernel(const __half* __re
 		if(globalRow < tokens){
 			const size_t dOutRowOffset = batchHeadOffset + globalRow * headDim;
 #pragma unroll 4
-			for(int col = threadIdx.x; col < headDim; col += blockDim.x){ sharedRow[col] = dOut[dOutRowOffset + col]; }
-		} else{ for(int col = threadIdx.x; col < qStride; col += blockDim.x){ sharedRow[col] = __float2half(0.0f); } }
+			for(int col = threadIdx.x; col < qStride; col += blockDim.x){
+				if(col < headDim){ sharedRow[col] = dOut[dOutRowOffset + col]; } else{ sharedRow[col] = __float2half(0.0f); }
+			}
+		} else{
+			for(int col = threadIdx.x; col < qStride; col += blockDim.x){ sharedRow[col] = __float2half(0.0f); }
+		}
 	}
 	__syncthreads();
 	// Load dOut fragments
@@ -77,12 +90,17 @@ __global__ void __launch_bounds__(128, 2) FusedBackwardKernel(const __half* __re
 		fill_fragment(dAtt_acc, 0.0f);
 		// Load V tile
 		for(int row = threadIdx.x / 16; row < 16; row += numWarps * 2){
-			const int col = (threadIdx.x % 16);
+			const int col = threadIdx.x % 16;
 			const int globalCol = tileCol + row;
+			__half* sharedRow = vShared + row * qStride;
 			if(globalCol < tokens){
 				const size_t vOffset = batchHeadOffset + globalCol * headDim;
 #pragma unroll 4
-				for(int d = col; d < headDim; d += 16){ vShared[row * qStride + d] = V[vOffset + d]; }
+				for(int d = col; d < qStride; d += 16){
+					if(d < headDim){ sharedRow[d] = V[vOffset + d]; } else{ sharedRow[d] = __float2half(0.0f); }
+				}
+			} else{
+				for(int d = col; d < qStride; d += 16){ sharedRow[d] = __float2half(0.0f); }
 			}
 		}
 		__syncthreads();
@@ -128,12 +146,17 @@ __global__ void __launch_bounds__(128, 2) FusedBackwardKernel(const __half* __re
 		__syncthreads();
 		// Load K tile for dQ computation
 		for(int row = threadIdx.x / 16; row < 16; row += numWarps * 2){
-			const int col = (threadIdx.x % 16);
+			const int col = threadIdx.x % 16;
 			const int globalCol = tileCol + row;
+			__half* sharedRow = kShared + row * qStride;
 			if(globalCol < tokens){
 				const size_t kOffset = batchHeadOffset + globalCol * headDim;
 #pragma unroll 4
-				for(int d = col; d < headDim; d += 16){ kShared[row * qStride + d] = __hmul(K[kOffset + d], __float2half(scale)); }
+				for(int d = col; d < qStride; d += 16){
+					if(d < headDim){ sharedRow[d] = __hmul(K[kOffset + d], __float2half(scale)); } else{ sharedRow[d] = __float2half(0.0f); }
+				}
+			} else{
+				for(int d = col; d < qStride; d += 16){ sharedRow[d] = __float2half(0.0f); }
 			}
 		}
 		__syncthreads();
@@ -189,13 +212,19 @@ __global__ void __launch_bounds__(128, 2) ComputeDV(const __half* __restrict__ A
 	const int batch = blockIdx.y;
 	const int colBlock = blockIdx.x;
 	if(batch >= batchSize || head >= heads || colBlock * 16 >= tokens) return;
-	extern __shared__ char sharedMemBytes[];
+	extern __shared__ __align__(16) unsigned char sharedStorage[];
+	unsigned char* sharedMemBytes = sharedStorage;
 	const int vBlocks = (headDim + 15) / 16;
-	const int tileStride = 16 + kSharedMemPad;
-	const int dOutStride = ((headDim + 15) / 16 * 16) + kSharedMemPad;
+	const int tileStride = AlignUp(16 + kSharedMemPad, kSharedMemAlignment);
+	const int dOutStride = AlignUp(headDim + kSharedMemPad, kSharedMemAlignment);
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
 	auto attTile = reinterpret_cast<__half*>(sharedMemBytes);
-	auto dOutTiles = attTile + tileStride * 16;
-	auto floatWorkspace = reinterpret_cast<float*>(dOutTiles + 16 * dOutStride);
+	sharedMemBytes += sizeof(__half) * tileStride * 16;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto dOutTiles = reinterpret_cast<__half*>(sharedMemBytes);
+	sharedMemBytes += sizeof(__half) * 16 * dOutStride;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto floatWorkspace = reinterpret_cast<float*>(sharedMemBytes);
 	const size_t batchHeadOffset = (static_cast<size_t>(batch) * heads + head) * tokens * headDim;
 	const size_t attentionOffset = (static_cast<size_t>(batch) * heads + head) * tokens * tokens;
 	wmma::fragment<wmma::accumulator, 16, 16, 16, float> dV_acc[kMaxValueBlocks];
@@ -217,11 +246,16 @@ __global__ void __launch_bounds__(128, 2) ComputeDV(const __half* __restrict__ A
 		// Load dOut tiles
 		for(int row = 0; row < 16; ++row){
 			const int globalRow = tileRow + row;
+			__half* sharedRow = dOutTiles + row * dOutStride;
 			if(globalRow < tokens){
 				const size_t dOutOffset = batchHeadOffset + globalRow * headDim;
 #pragma unroll 4
-				for(int col = threadIdx.x; col < headDim; col += blockDim.x){ dOutTiles[row * dOutStride + col] = dOut[dOutOffset + col]; }
-			} else{ for(int col = threadIdx.x; col < dOutStride; col += blockDim.x){ dOutTiles[row * dOutStride + col] = __float2half(0.0f); } }
+				for(int col = threadIdx.x; col < dOutStride; col += blockDim.x){
+					if(col < headDim){ sharedRow[col] = dOut[dOutOffset + col]; } else{ sharedRow[col] = __float2half(0.0f); }
+				}
+			} else{
+				for(int col = threadIdx.x; col < dOutStride; col += blockDim.x){ sharedRow[col] = __float2half(0.0f); }
+			}
 		}
 		__syncthreads();
 		// Compute dV += Att^T @ dOut using tensor cores
@@ -252,16 +286,15 @@ __global__ void __launch_bounds__(128, 2) ComputeDV(const __half* __restrict__ A
 		if(block * 16 + col < headDim){ dOutTiles[row * dOutStride + block * 16 + col] = __float2half(floatWorkspace[i]); }
 	}
 	__syncthreads();
-	// Write to global dV with atomic adds
+	// Write to global dV (unique per block, so no atomics required)
 	for(int row = 0; row < 16; ++row){
 		const int globalRow = globalCol + row;
 		if(globalRow < tokens){
 			const size_t dVOffset = batchHeadOffset + globalRow * headDim;
 #pragma unroll 4
 			for(int col = threadIdx.x; col < headDim; col += blockDim.x){
-				__half val = dOutTiles[row * dOutStride + col];
-				// Use atomic add for accumulation
-				atomicAdd(&dV[dVOffset + col], val);
+				const __half val = dOutTiles[row * dOutStride + col];
+				dV[dVOffset + col] = val;
 			}
 		}
 	}
@@ -274,13 +307,19 @@ __global__ void __launch_bounds__(128, 2) ComputeDK(const float* __restrict__ dA
 	const int batch = blockIdx.y;
 	const int colBlock = blockIdx.x;
 	if(batch >= batchSize || head >= heads || colBlock * 16 >= tokens) return;
-	extern __shared__ char sharedMemBytes[];
+	extern __shared__ __align__(16) unsigned char sharedStorage[];
+	unsigned char* sharedMemBytes = sharedStorage;
 	const int qBlocks = (headDim + 15) / 16;
-	const int tileStride = 16 + kSharedMemPad;
-	const int qStride = ((headDim + 15) / 16 * 16) + kSharedMemPad;
+	const int tileStride = AlignUp(16 + kSharedMemPad, kSharedMemAlignment);
+	const int qStride = AlignUp(headDim + kSharedMemPad, kSharedMemAlignment);
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
 	auto dAttTileHalf = reinterpret_cast<__half*>(sharedMemBytes);
-	auto qTiles = dAttTileHalf + tileStride * 16;
-	auto floatWorkspace = reinterpret_cast<float*>(qTiles + 16 * qStride);
+	sharedMemBytes += sizeof(__half) * tileStride * 16;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto qTiles = reinterpret_cast<__half*>(sharedMemBytes);
+	sharedMemBytes += sizeof(__half) * 16 * qStride;
+	sharedMemBytes = AlignSharedPtr(sharedMemBytes, kSharedMemAlignment);
+	auto floatWorkspace = reinterpret_cast<float*>(sharedMemBytes);
 	const size_t batchHeadOffset = (static_cast<size_t>(batch) * heads + head) * tokens * headDim;
 	const size_t attentionOffset = (static_cast<size_t>(batch) * heads + head) * tokens * tokens;
 	const float scale = rsqrtf(fmaxf(static_cast<float>(headDim), 1.0f));
@@ -307,11 +346,16 @@ __global__ void __launch_bounds__(128, 2) ComputeDK(const float* __restrict__ dA
 		// Load Q tiles
 		for(int row = 0; row < 16; ++row){
 			const int globalRow = tileRow + row;
+			__half* sharedRow = qTiles + row * qStride;
 			if(globalRow < tokens){
 				const size_t qOffset = batchHeadOffset + globalRow * headDim;
 #pragma unroll 4
-				for(int col = threadIdx.x; col < headDim; col += blockDim.x){ qTiles[row * qStride + col] = __hmul(Q[qOffset + col], __float2half(scale)); }
-			} else{ for(int col = threadIdx.x; col < qStride; col += blockDim.x){ qTiles[row * qStride + col] = __float2half(0.0f); } }
+				for(int col = threadIdx.x; col < qStride; col += blockDim.x){
+					if(col < headDim){ sharedRow[col] = __hmul(Q[qOffset + col], __float2half(scale)); } else{ sharedRow[col] = __float2half(0.0f); }
+				}
+			} else{
+				for(int col = threadIdx.x; col < qStride; col += blockDim.x){ sharedRow[col] = __float2half(0.0f); }
+			}
 		}
 		__syncthreads();
 		// Load dAtt fragment
@@ -343,15 +387,15 @@ __global__ void __launch_bounds__(128, 2) ComputeDK(const float* __restrict__ dA
 		if(block * 16 + col < headDim){ qTiles[row * qStride + block * 16 + col] = __float2half(floatWorkspace[i]); }
 	}
 	__syncthreads();
-	// Write to global dK with atomic adds
+	// Write to global dK (unique per block, so no atomics required)
 	for(int row = 0; row < 16; ++row){
 		const int globalRow = globalCol + row;
 		if(globalRow < tokens){
 			const size_t dKOffset = batchHeadOffset + globalRow * headDim;
 #pragma unroll 4
 			for(int col = threadIdx.x; col < headDim; col += blockDim.x){
-				__half val = qTiles[row * qStride + col];
-				atomicAdd(&dK[dKOffset + col], val);
+				const __half val = qTiles[row * qStride + col];
+				dK[dKOffset + col] = val;
 			}
 		}
 	}
@@ -377,13 +421,36 @@ void WmmaAttentionBackwardv2(const __half* Q, const __half* K, const __half* V, 
 	cudaMemset(dV, 0, batchSize * heads * tokens * headDim * sizeof(__half));
 	dim3 block(kOptimalThreadsVolta);
 	dim3 grid(numBlocks, batchSize, heads);
-	const int tileStride = 16 + kSharedMemPad;
-	const int qStride = ((headDim + 15) / 16 * 16) + kSharedMemPad;
+	const int tileStride = AlignUp(16 + kSharedMemPad, kSharedMemAlignment);
+	const int qStride = AlignUp(headDim + kSharedMemPad, kSharedMemAlignment);
 	const int vBlocks = (headDim + 15) / 16;
-	// Calculate shared memory with proper float workspace
-	const size_t smemFused = sizeof(__half) * (4 * 16 * qStride + tileStride * 16) + sizeof(float) * (16 * 16 + vBlocks * 16 * 16);
-	const size_t smemDV = sizeof(__half) * (tileStride * 16 + 16 * qStride) + sizeof(float) * (vBlocks * 16 * 16);
-	const size_t smemDK = sizeof(__half) * (tileStride * 16 + 16 * qStride) + sizeof(float) * (vBlocks * 16 * 16);
+	const auto alignBytes = [](size_t offset){ return AlignUp(offset, static_cast<size_t>(kSharedMemAlignment)); };
+	// Calculate shared memory with proper float workspace and alignment padding
+	size_t smemFused = 0;
+	smemFused = alignBytes(smemFused);
+	smemFused += sizeof(__half) * 16 * qStride;
+	smemFused = alignBytes(smemFused);
+	smemFused += sizeof(__half) * 16 * qStride;
+	smemFused = alignBytes(smemFused);
+	smemFused += sizeof(__half) * 16 * qStride;
+	smemFused = alignBytes(smemFused);
+	smemFused += sizeof(__half) * tileStride * 16;
+	smemFused = alignBytes(smemFused);
+	smemFused += sizeof(float) * (16 * 16 + static_cast<size_t>(vBlocks) * 16 * 16);
+	size_t smemDV = 0;
+	smemDV = alignBytes(smemDV);
+	smemDV += sizeof(__half) * tileStride * 16;
+	smemDV = alignBytes(smemDV);
+	smemDV += sizeof(__half) * 16 * qStride;
+	smemDV = alignBytes(smemDV);
+	smemDV += sizeof(float) * (static_cast<size_t>(vBlocks) * 16 * 16);
+	size_t smemDK = 0;
+	smemDK = alignBytes(smemDK);
+	smemDK += sizeof(__half) * tileStride * 16;
+	smemDK = alignBytes(smemDK);
+	smemDK += sizeof(__half) * 16 * qStride;
+	smemDK = alignBytes(smemDK);
+	smemDK += sizeof(float) * (static_cast<size_t>(vBlocks) * 16 * 16);
 	// Set shared memory configuration
 	cudaFuncSetAttribute(FusedBackwardKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kVoltaSharedMemory);
 	cudaFuncSetAttribute(ComputeDV, cudaFuncAttributeMaxDynamicSharedMemorySize, kVoltaSharedMemory);
