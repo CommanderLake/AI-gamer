@@ -3,7 +3,7 @@
 #include "CuCommon.cuh"
 #include <iostream>
 FCLayer::FCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const float weightScale, const bool useBias) :
-	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+	cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
@@ -122,9 +122,6 @@ size_t FCLayer::GetOptimizerStateSize(){
 	const size_t biasCount = useBias_ ? outC_ : 0;
 	return std::max(weightCount_, biasCount)*sizeof(__half);
 }
-void FCLayer::SetFineTune(const bool enable){
+void FCLayer::SetTrain(const bool enable){
 	train_ = enable;
-	batchSize_ = enable ? ogbs_ : 1;
-	outNCHW_ = batchSize_*outC_;
-	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 }

@@ -777,8 +777,8 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 		return;
 	}
 	// Configure kernel launch
-	const int threadsPerBlock = kDefaultThreads;
-	const int numRowBlocks = (tokens + 15) / 16;
+	constexpr int threadsPerBlock = kDefaultThreads;
+	const int numRowBlocks = DivCeil(tokens, 16);
 	// Validate grid dimensions
 	if(numRowBlocks > 65535 || batchSize > 65535 || heads > 65535){
 		printf("WmmaAttention: Grid dimensions exceed limits (blocks=%d, batch=%d, heads=%d)\n", numRowBlocks, batchSize, heads);
@@ -819,8 +819,8 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 		printf("WmmaAttentionBackward: Invalid dimensions\n");
 		return;
 	}
-	const int numRowBlocks = (tokens + 15) / 16;
-	const int numKeyBlocks = (tokens + 15) / 16;
+	const int numRowBlocks = DivCeil(tokens, 16);
+	const int numKeyBlocks = DivCeil(tokens, 16);
 	const int tileCols = GetAttentionTileCols(tokens);
 	// Validate grid dimensions
 	if(numRowBlocks > 65535 || numKeyBlocks > 65535 || batchSize > 65535 || heads > 65535){

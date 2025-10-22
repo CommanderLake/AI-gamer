@@ -8,7 +8,7 @@ struct cublasContext;
 class NN;
 class Infer{
 public:
-	explicit Infer(bool tune);
+	explicit Infer();
 	~Infer();
 	void Run();
 	void Dispose();
@@ -16,14 +16,11 @@ public:
 	void StartInfer();
 	void PauseInfer();
 	static void ProcessOutput(const float* predictions);
-	void Step(InferMode mode);
+	void Step();
 	Record* record_ = nullptr;
 	Train* train_ = nullptr;
 	HWND hwnd_ = nullptr;
-	bool tune_ = false;
 	std::atomic<bool> stop_ = false;
-	InferMode activeMode_ = InferMode::Off;
-	InferMode lastMode_ = InferMode::Off;
 	std::vector<StateSingle*> states_;
 	cudnnContext* cudnn_ = nullptr;
 	cublasContext* cublas_ = nullptr;
@@ -33,4 +30,5 @@ public:
 	float* predictionsF_ = nullptr;
 	__half* sequenceHalf_ = nullptr;
 	int scaleFactor_ = 2;
+	bool inferEnable_, inferLast_;
 };

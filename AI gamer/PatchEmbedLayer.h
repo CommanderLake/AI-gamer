@@ -17,11 +17,10 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetFineTune(bool enable) override;
+	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
-	int ogbs_, batchSize_;
-	int inC_, inH_, inW_;
+	int batchSize_, inC_, inH_, inW_;
 	int patchSize_, embedDim_;
 	int patchRows_, patchCols_;
 	int patchDim_;

@@ -13,11 +13,8 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetFineTune(bool enable) override;
-	int ogbs_;
-	int batchSize_;
-	int tokenBatchSize_;
-	int outC_;
+	void SetTrain(bool enable) override;
+	int batchSize_, tokenBatchSize_, outC_;
 	int outHW_, height_, width_;
 	__half* inData_ = nullptr;
 	__half* outData_ = nullptr;

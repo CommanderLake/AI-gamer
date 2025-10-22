@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) :
-	cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	patchRows_ = DivCeil(inH_, patchSize_);
@@ -116,10 +116,6 @@ void PatchEmbedLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buf
 }
 size_t PatchEmbedLayer::GetParameterSize(){ return (weightCount_ + posCount_)*sizeof(__half); }
 size_t PatchEmbedLayer::GetOptimizerStateSize(){ return useAdamW_ ? (weightCount_ + posCount_)*sizeof(__half)*2 + sizeof(int) : 0; }
-void PatchEmbedLayer::SetFineTune(const bool enable){
+void PatchEmbedLayer::SetTrain(const bool enable){
 	train_ = enable;
-	batchSize_ = enable ? ogbs_ : 1;
-	outNCHW_ = batchSize_*embedDim_*numPatches_;
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
 }

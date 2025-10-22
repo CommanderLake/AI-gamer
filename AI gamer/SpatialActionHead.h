@@ -15,14 +15,12 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetFineTune(bool enable) override;
+	void SetTrain(bool enable) override;
 	void SetDropout(bool enable) override;
-private:
-	void UpdateSharedDescriptor();
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t sharedDesc_;
-	int ogbs_, batchSize_, seqLength_, nTokens_, embedSize_;
+	int batchSize_, seqLength_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
 	int sharedHeight_, sharedWidth_;
 	float weightDecay_;

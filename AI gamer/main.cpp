@@ -172,7 +172,7 @@ void ReadStateData(int* width, int* height){
 int main(){
 	std::ios::sync_with_stdio(false);
 	std::cout << std::fixed << std::setprecision(6);
-	std::cout << "R for Record mode, T for Train mode, V for View mode, I for Infer mode, F for Fine tune infer mode... ";
+	std::cout << "R for Record mode, T for Train mode, V for View mode, I for Infer mode... ";
 	char mode;
 	std::cin >> mode;
 	std::cout << "\n";
@@ -195,11 +195,7 @@ int main(){
 		viewer->Play(fileName);
 		delete viewer;
 	} else if(mode == 'i' || mode == 'I'){
-		const auto infer = new Infer(false);
-		infer->Run();
-		delete infer;
-	} else if(mode == 'f' || mode == 'F'){
-		const auto infer = new Infer(true);
+		const auto infer = new Infer();
 		infer->Run();
 		delete infer;
 	}

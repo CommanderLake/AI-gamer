@@ -94,14 +94,11 @@ size_t ResFCLayer::GetOptimizerStateSize(){
 	maxSize = std::max(maxSize, residue_->GetOptimizerStateSize());
 	return maxSize;
 }
-void ResFCLayer::SetFineTune(bool enable){
+void ResFCLayer::SetTrain(bool enable){
 	train_ = enable;
-	const auto bs = enable ? batchSize_ : 1;
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, inC_, 1, 1));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, 1, 1));
 	for(int i = 0; i<layers_.size(); ++i){
-		layers_[i]->SetFineTune(enable);
+		layers_[i]->SetTrain(enable);
 	}
-	residue_->SetFineTune(enable);
-	resAct_->SetFineTune(enable);
+	residue_->SetTrain(enable);
+	resAct_->SetTrain(enable);
 }

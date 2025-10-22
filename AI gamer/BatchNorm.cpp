@@ -133,8 +133,6 @@ void BatchNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 }
 size_t BatchNorm::GetParameterSize(){ return outC_*sizeof(float); }
 size_t BatchNorm::GetOptimizerStateSize(){ return outC_*sizeof(float); }
-void BatchNorm::SetFineTune(bool enable){
+void BatchNorm::SetTrain(const bool enable){
 	train_ = enable;
-	const auto bs = enable ? batchSize_ : 1;
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, outHeight_, outWidth_));
 }

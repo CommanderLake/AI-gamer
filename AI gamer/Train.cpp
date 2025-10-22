@@ -108,6 +108,7 @@ void Train::TrainModel(const int width, const int height){
 		}
 		threadPool.WaitAll();
 		std::cout << "\nRunning validation...\n";
+		nn->SetTrain(false);
 		nn->SetDropout(false);
 		fetchBatch(true);
 		for(size_t batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
@@ -116,6 +117,7 @@ void Train::TrainModel(const int width, const int height){
 			const auto result = TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);
 			if(result == -1){ stopTraining = true; }
 		}
+		nn->SetTrain(true);
 		nn->SetDropout(true);
 		if(stopTraining){
 			std::cout << "\nNaN encountered during validation. Stopping.\n";

@@ -1,6 +1,6 @@
 #include "GlobalPoolLayer.h"
 #include "CuCommon.cuh"
-GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, const char* layerName, bool train) : ogbs_(batchSize), batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize){
+GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, const char* layerName, bool train) : batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize){
 	layerName_ = layerName;
 	train_ = train;
 	invSqrtDim_ = 1.0f / std::sqrt(static_cast<float>(embedSize_));
@@ -72,8 +72,6 @@ size_t GlobalPoolLayer::GetOptimizerStateSize(){
 	if(!train_ || !mQuery_ || !vQuery_){ return 0; }
 	return 2*weightCount_*sizeof(__half);
 }
-void GlobalPoolLayer::SetFineTune(bool enable){
+void GlobalPoolLayer::SetTrain(bool enable){
 	train_ = enable;
-	batchSize_ = enable ? ogbs_ : 1;
-	outNCHW_ = batchSize_*embedSize_;
 }

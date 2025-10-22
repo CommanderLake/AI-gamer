@@ -13,7 +13,7 @@ public:
 	void UpdateParams(float lr);
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
-	void SetFineTune(bool enable);
+	void SetTrain(bool enable);
 	void SetDropout(bool enable);
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;

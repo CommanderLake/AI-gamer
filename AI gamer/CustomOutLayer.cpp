@@ -6,7 +6,7 @@
 #include "SigmoidLayer.h"
 //#include "ViewerLayer.h"
 CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int inputSize, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
-	cudnn_(cudnnHandle), cublas_(cublasHandle), ogbs_(batchSize), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
+	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;
@@ -96,17 +96,9 @@ size_t CustomOutLayer::GetOptimizerStateSize(){
 	for(int i = 0; i<axisLayers_.size(); ++i){ maxSize = std::max(maxSize, axisLayers_[i]->GetOptimizerStateSize()); }
 	return maxSize;
 }
-void CustomOutLayer::SetFineTune(const bool enable){
-	if(enable){
-		train_ = true;
-		batchSize_ = ogbs_;
-	} else{
-		train_ = false;
-		batchSize_ = 1;
-	}
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
-	for(int i = 0; i<buttonLayers_.size(); ++i){ buttonLayers_[i]->SetFineTune(enable); }
-	for(int i = 0; i<axisLayers_.size(); ++i){ axisLayers_[i]->SetFineTune(enable); }
+void CustomOutLayer::SetTrain(const bool enable){
+	for(int i = 0; i<buttonLayers_.size(); ++i){ buttonLayers_[i]->SetTrain(enable); }
+	for(int i = 0; i<axisLayers_.size(); ++i){ axisLayers_[i]->SetTrain(enable); }
 }
 void CustomOutLayer::SetDropout(const bool enable){
 	for(int i = 0; i<buttonLayers_.size(); ++i){ buttonLayers_[i]->SetDropout(enable); }

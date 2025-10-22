@@ -15,12 +15,12 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetFineTune(bool enable) override;
+	void SetTrain(bool enable) override;
 	void SetDropout(bool enable) override;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
-	int ogbs_, batchSize_, seqLength_, inC_;
+	int batchSize_, seqLength_, inC_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
 	__half* predictions_;

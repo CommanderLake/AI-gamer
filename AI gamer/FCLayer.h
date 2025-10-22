@@ -17,10 +17,10 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetFineTune(bool enable) override;
+	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
-	int ogbs_, batchSize_, inC_, outC_;
+	int batchSize_, inC_, outC_;
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;
 	__half* gradWeights_ = nullptr;

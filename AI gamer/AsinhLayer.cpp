@@ -13,7 +13,7 @@ __half* AsinhLayer::Backward(__half* grad){
 	AsinhBackward(grad, data_, outNCHW_, alpha_);
 	return grad;
 }
-void AsinhLayer::SetFineTune(const bool enable){
+void AsinhLayer::SetTrain(const bool enable){
 	train_ = enable;
 	const int bs = enable ? batchSize_ : 1;
 	outNCHW_ = bs*outC_*outHeight_*outWidth_;

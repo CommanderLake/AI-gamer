@@ -13,8 +13,8 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetFineTune(bool enable) override;
-	int ogbs_, batchSize_, nTokens_, embedSize_;
+	void SetTrain(bool enable) override;
+	int batchSize_, nTokens_, embedSize_;
 	float invSqrtDim_;
 	float weightDecay_ = 0.0f;
 	int t_ = 1;

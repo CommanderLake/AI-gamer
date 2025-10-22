@@ -97,14 +97,11 @@ size_t ResConvLayer::GetOptimizerStateSize(){
 	maxSize = std::max(maxSize, residue_->GetOptimizerStateSize());
 	return maxSize;
 }
-void ResConvLayer::SetFineTune(bool enable){
+void ResConvLayer::SetTrain(bool enable){
 	train_ = enable;
-	const auto bs = enable ? batchSize_ : 1;
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, inC_, inHeight_, inWidth_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, outC_, outHeight_, outWidth_));
 	for(int i = 0; i<layers_.size(); ++i){
-		layers_[i]->SetFineTune(enable);
+		layers_[i]->SetTrain(enable);
 	}
-	residue_->SetFineTune(enable);
-	resAct_->SetFineTune(enable);
+	residue_->SetTrain(enable);
+	resAct_->SetTrain(enable);
 }

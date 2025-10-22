@@ -16,8 +16,7 @@ public:
 	void LoadOptimizerState(std::ifstream& file, unsigned char* buffer) override;
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
-	void SetFineTune(bool enable) override;
-private:
+	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	int batchSize_, tokens_, embedDim_, numHeads_;

@@ -17,7 +17,7 @@ __half* GELULayer::Backward(__half* grad){
 	GELUBackward(grad, data_, outNCHW_, nullptr);
 	return grad;
 }
-void GELULayer::SetFineTune(const bool enable){
+void GELULayer::SetTrain(const bool enable){
 	int bs;
 	if(enable){
 		train_ = true;

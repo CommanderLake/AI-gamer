@@ -105,7 +105,7 @@ size_t ConvLayer::GetParameterSize(){
 size_t ConvLayer::GetOptimizerStateSize(){
 	return weightCount_*sizeof(__half);
 }
-void ConvLayer::SetFineTune(bool enable){
+void ConvLayer::SetTrain(bool enable){
 	train_ = enable;
 	const auto bs = enable ? batchSize_ : 1;
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, bs, inC_, inHeight_, inWidth_));

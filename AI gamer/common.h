@@ -4,12 +4,6 @@
 #include <cudnn.h>
 #include <string>
 #include <iostream>
-enum class InferMode{
-	Off,
-	On,
-	Correct,
-	Tune
-};
 struct __half;
 struct InputState{
 	unsigned int keyStates;

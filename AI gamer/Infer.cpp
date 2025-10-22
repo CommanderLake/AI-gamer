@@ -4,30 +4,27 @@
 #include "NN.h"
 #include "NvDisplayCap.h"
 #include <csignal>
+#undef min
+#undef max
 static Infer* this_ = nullptr;
 void InferSig(const int sig){
 	if(sig == SIGINT){
 		this_->stop_ = true;
 	}
 }
-Infer::Infer(const bool tune) : tune_(tune){
+Infer::Infer(){
 	if(this_) throw std::runtime_error("Infer class can only have one instance");
 	this_ = this;
 	InitCUDA();
 	InitNvFBC();
 	cudnnCreate(&cudnn_);
 	cublasCreate(&cublas_);
-	nn_ = new NN(cudnn_, cublas_, 0, 0, tune_);
+	nn_ = new NN(cudnn_, cublas_, 0, 0, false);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&sequenceHalf_, nn_->stateSize_*nn_->seqLength_*sizeof(__half));
 	int width, height;
 	GrabFrameUInt8(&width, &height, true, false);
 	scaleFactor_ = width/TGT_STATE_WIDTH_;
-	if(tune_){
-		nn_->SetFineTune(false);
-		record_ = new Record();
-		train_ = new Train();
-	}
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
 	listenThread_.detach();
 	signal(SIGINT, InferSig);
@@ -48,22 +45,13 @@ void Infer::Dispose(){
 }
 void Infer::ListenForKey(){
 	std::cout << "\nF9 to start Inference\n";
-	if(tune_) std::cout << "F10 to record a correction\nF11 to tune network with correction\n";
 	std::cout << "Escape to stop\n";
 	while(!stop_){
-		if(activeMode_ == InferMode::Off && GetAsyncKeyState(VK_F9) & 0x8000){
+		if(!inferEnable_ && GetAsyncKeyState(VK_F9) & 0x8000){
 			StartInfer();
 			while(GetAsyncKeyState(VK_F9) & 0x8000){ Sleep(10); }
 		}
-		if(tune_ && activeMode_ != InferMode::Correct && GetAsyncKeyState(VK_F10) & 0x8000){
-			activeMode_ = InferMode::Correct;
-			while(GetAsyncKeyState(VK_F10) & 0x8000){ Sleep(10); }
-		}
-		if(tune_ && activeMode_ == InferMode::Correct && GetAsyncKeyState(VK_F11) & 0x8000){
-			activeMode_ = InferMode::Tune;
-			while(GetAsyncKeyState(VK_F11) & 0x8000){ Sleep(10); }
-		}
-		if(activeMode_ != InferMode::Off && GetAsyncKeyState(VK_ESCAPE) & 0x8000){
+		if(inferEnable_ && GetAsyncKeyState(VK_ESCAPE) & 0x8000){
 			PauseInfer();
 			while(GetAsyncKeyState(VK_ESCAPE) & 0x8000){ Sleep(10); }
 		}
@@ -71,11 +59,11 @@ void Infer::ListenForKey(){
 	}
 }
 void Infer::StartInfer(){
-	activeMode_ = InferMode::On;
+	inferEnable_ = true;
 	std::cout << "Inference started\n";
 }
 void Infer::PauseInfer(){
-	activeMode_ = InferMode::Off;
+	inferEnable_ = false;
 	std::cout << "Inference paused\n";
 }
 void Infer::ProcessOutput(const float* predictions){
@@ -118,8 +106,8 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
 		inputIndex++;
 	}
-	const int mouseX = static_cast<int>(predictions[14]*AXIS_SCALE_);
-	const int mouseY = static_cast<int>(predictions[15]*AXIS_SCALE_);
+	const int mouseX = static_cast<int>(std::sinh(predictions[14])*AXIS_SCALE_);
+	const int mouseY = static_cast<int>(std::sinh(predictions[15])*AXIS_SCALE_);
 	if(mouseX != 0 || mouseY != 0){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dx = mouseX;
@@ -129,57 +117,29 @@ void Infer::ProcessOutput(const float* predictions){
 	}
 	if(inputIndex > 0){ SendInput(inputIndex, inputs, sizeof(INPUT)); }
 }
-void Infer::Step(InferMode mode){
-	int capWidth = 0, capHeight = 0;
-	InputState inputState;
-	const unsigned char* frame = nullptr;
-	if(mode != InferMode::Off){
-		if(tune_) inputState = record_->GetInputStates();
-		frame = GrabFrameScaleUInt8(cudnn_, &capWidth, &capHeight, scaleFactor_, true, false);
+void Infer::Step(){
+	if(inferEnable_){
+		int capWidth = 0, capHeight = 0;
+		const auto* frame = GrabFrameScaleUInt8(cudnn_, &capWidth, &capHeight, scaleFactor_, true, false);
 		if(capWidth != nn_->inWidth_ || capHeight != nn_->inHeight_){
 			PauseInfer();
 			std::cerr << "Capture resolution mismatch\n";
-			return;
 		}
-	}
-	if(mode != lastMode_){
-		memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
-		ProcessOutput(predictionsF_);
-		if(mode == InferMode::Tune && states_.size() >= nn_->batchSize_){
-			nn_->SetFineTune(true);
-			train_->TuneModel(nn_, states_, 5, 0.000001);
-			nn_->SetFineTune(false);
-			std::cout << "Tuned with " << states_.size() << " states\n";
-			activeMode_ = InferMode::On;
-		} else if(mode == InferMode::Tune && states_.size() < nn_->batchSize_){
-			std::cout << "Sample size too small to tune\n";
-			activeMode_ = InferMode::On;
-		}
-		if(mode == InferMode::Tune || mode == InferMode::Off || mode == InferMode::On){
-			for(const StateSingle* state : states_){
-				delete state;
-			}
-			states_.clear();
-		}
-		lastMode_ = mode;
-	}
-	if(mode == InferMode::Correct){
-		const auto state = new StateSingle(inputState, frame, nn_->stateSize_, true);
-		states_.push_back(state);
-	} else if(mode == InferMode::On){
 		//BlockShiftHalf(sequenceHalf_ + nn_->stateSize_, -nn_->stateSize_, nn_->seqLength_);
 		//ConvertByteToHalf(frame, sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, nn_->stateSize_, true);
 		ConvertByteToHalf(frame, sequenceHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(sequenceHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchStateTotal_);
-		for(int axis = NUM_BUTS_; axis < NUM_CTRLS_; ++axis){
-			predictionsF_[axis] = std::sinh(predictionsF_[axis]);
-		}
+		ProcessOutput(predictionsF_);
+	}
+	if(inferEnable_ != inferLast_ && !inferEnable_){
+		inferLast_ = false;
+		memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
 		ProcessOutput(predictionsF_);
 	}
 }
 void Infer::Run(){
-	while(activeMode_ == InferMode::Off){
+	while(!inferEnable_){
 		if(stop_) goto end;
 		Sleep(10);
 	}
@@ -191,7 +151,7 @@ void Infer::Run(){
 			nextFrameTime += frameDuration;
 			if(currentTime > nextFrameTime) nextFrameTime = currentTime + frameDuration;
 			std::this_thread::sleep_until(nextFrameTime);
-			Step(activeMode_);
+			Step();
 		}
 	} catch(const std::exception& e){
 		stop_ = true;
