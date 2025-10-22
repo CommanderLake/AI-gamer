@@ -193,6 +193,7 @@
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="WMMA.cu" />
+    <CudaCompile Include="WMMA_optimized.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
