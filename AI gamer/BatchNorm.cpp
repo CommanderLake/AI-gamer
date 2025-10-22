@@ -135,4 +135,8 @@ size_t BatchNorm::GetParameterSize(){ return outC_*sizeof(float); }
 size_t BatchNorm::GetOptimizerStateSize(){ return outC_*sizeof(float); }
 void BatchNorm::SetTrain(const bool enable){
 	train_ = enable;
+	if(!enable){
+		checkCUDA(cudaMemcpy(bnRunningMeanInfer_, bnRunningMeanTrain_, outC_*sizeof(float), cudaMemcpyDeviceToDevice));
+		checkCUDA(cudaMemcpy(bnRunningVarInfer_, bnRunningVarTrain_, outC_*sizeof(float), cudaMemcpyDeviceToDevice));
+	}
 }
