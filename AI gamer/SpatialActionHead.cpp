@@ -45,17 +45,17 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC1, "Trunk-neck FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	sharedLayers_.push_back(new LayerNorm(batchSize_, outC1, 1, 1, "Trunk-neck LN", train_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, outC1, 1, 1, "Trunk-neck GELU"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, outC1, 1, 1, "Trunk-neck Drop", train_));
+	sharedLayers_.push_back(new Dropout(cudnn_, 0.25f, batchSize_, outC1, 1, 1, "Trunk-neck Drop", train_));
 	constexpr auto outC2 = 1024;
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC1, outC2, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Buttons LN", train_));
 	buttonLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Buttons GELU"));
-	buttonLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, outC2, 1, 1, "Buttons Drop", train_));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.25f, batchSize_, outC2, 1, 1, "Buttons Drop", train_));
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC2, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC1, outC2, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Axes LN", train_));
 	axisLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, outC2, 1, 1, "Axes Drop", train_));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.25f, batchSize_, outC2, 1, 1, "Axes Drop", train_));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC2, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }

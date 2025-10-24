@@ -3,7 +3,6 @@
 #include "CuCommon.cuh"
 #include "FCLayer.h"
 #include "GELULayer.h"
-#include "SigmoidLayer.h"
 //#include "ViewerLayer.h"
 CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int inputSize, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
 	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
@@ -14,7 +13,6 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1));
 	constexpr int hiddenDim = 256;
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, NUM_BUTS_, "Buts_FC1", train, weightDecay, gradAccumLength_, Xavier, true));
-	buttonLayers_.push_back(new SigmoidLayer(batchSize_*seqLength_, NUM_BUTS_, NUM_BUTS_, "Buts_Sigmoid"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, hiddenDim, "Axes_FC1", train, weightDecay, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new GELULayer(batchSize_*seqLength_, hiddenDim, 1, 1, "GELU"));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, hiddenDim, NUM_AXES_, "Axes_FC_Out", train, weightDecay, gradAccumLength_, Xavier, true));
