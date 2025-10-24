@@ -333,7 +333,7 @@ void ClearScreen(char fill){
 	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
 	SetConsoleCursorPosition(console, tl);
 }
-std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\trainingData0.bin", "E:\\TrainingData\\trainingData1.bin"};
+std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\trainingData0.bin", "E:\\TrainingData\\trainingData1.bin", "E:\\TrainingData\\trainingData2.bin"};
 std::string valDataFile = "E:\\TrainingData\\validationData.bin";
 std::string trainDataOutFileName = "E:\\TrainingData.bin";
 std::string ckptFileName = "E:\\AIGamer.ckpt";

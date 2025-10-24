@@ -106,8 +106,8 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
 		inputIndex++;
 	}
-	const int mouseX = static_cast<int>(std::sinh(predictions[14])*AXIS_SCALE_);
-	const int mouseY = static_cast<int>(std::sinh(predictions[15])*AXIS_SCALE_);
+	const int mouseX = static_cast<int>(std::sinh(predictions[14])*(AXIS_SCALE_/2));
+	const int mouseY = static_cast<int>(std::sinh(predictions[15])*(AXIS_SCALE_/2));
 	if(mouseX != 0 || mouseY != 0){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dx = mouseX;
@@ -132,10 +132,12 @@ void Infer::Step(){
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchStateTotal_);
 		ProcessOutput(predictionsF_);
 	}
-	if(inferEnable_ != inferLast_ && !inferEnable_){
-		inferLast_ = false;
-		memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
-		ProcessOutput(predictionsF_);
+	if(inferEnable_ != inferLast_){
+		if(!inferEnable_){
+			memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
+			ProcessOutput(predictionsF_);
+		}
+		inferLast_ = inferEnable_;
 	}
 }
 void Infer::Run(){
@@ -143,7 +145,7 @@ void Infer::Run(){
 		if(stop_) goto end;
 		Sleep(10);
 	}
-	constexpr std::chrono::microseconds frameDuration(33333);
+	constexpr std::chrono::microseconds frameDuration(1000000/60);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	try{
 		while(!stop_){
