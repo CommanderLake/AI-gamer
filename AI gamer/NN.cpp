@@ -29,7 +29,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
-	constexpr auto wd = 0.05f;
+	constexpr auto wd = 0.01f;
 	constexpr auto patchSize = 20;
 	constexpr auto embedSqrt = 16;
 	constexpr auto embedDim = embedSqrt*embedSqrt;
@@ -51,7 +51,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 				//layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, name + " Output Viewer", 1.0f, false));
 		//}
 	}
-	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedDim, 1, 1, nTokens, "Post-encoder norm", train));
+	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedDim, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedDim, nTokens, embedSqrt, embedSqrt, patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchStateTotal_, seqLength_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
@@ -134,10 +134,5 @@ void NN::SaveOptimizerState(const std::string& filename){
 void NN::SetTrain(const bool enable){
 	for(int i = 0; i<layers_.size(); ++i){
 		layers_[i]->SetTrain(enable);
-	}
-}
-void NN::SetDropout(const bool enable){
-	for(int i = 0; i<layers_.size(); ++i){
-		layers_[i]->SetDropout(enable);
 	}
 }

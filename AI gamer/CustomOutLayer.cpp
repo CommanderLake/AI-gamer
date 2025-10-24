@@ -100,7 +100,3 @@ void CustomOutLayer::SetTrain(const bool enable){
 	for(int i = 0; i<buttonLayers_.size(); ++i){ buttonLayers_[i]->SetTrain(enable); }
 	for(int i = 0; i<axisLayers_.size(); ++i){ axisLayers_[i]->SetTrain(enable); }
 }
-void CustomOutLayer::SetDropout(const bool enable){
-	for(int i = 0; i<buttonLayers_.size(); ++i){ buttonLayers_[i]->SetDropout(enable); }
-	for(int i = 0; i<axisLayers_.size(); ++i){ axisLayers_[i]->SetDropout(enable); }
-}

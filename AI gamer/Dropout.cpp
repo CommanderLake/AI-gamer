@@ -4,7 +4,7 @@
 Dropout::Dropout(cudnnHandle_t cudnnHandle, float dropoutRate, int batchSize, int channels, int height, int width, const char* layerName, bool train) : cudnnHandle_(cudnnHandle), dropoutRate_(dropoutRate), batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;
 	train_ = train;
-	outNCHW_ = outWidth_*outHeight_*outC_*batchSize_;
+	outNCHW_ = outWidth_ * outHeight_ * outC_ * batchSize_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize, channels, height, width));
 	checkCUDNN(cudnnDropoutGetStatesSize(cudnnHandle_, &stateSize_));
@@ -20,7 +20,7 @@ Dropout::~Dropout(){
 	checkCUDA(cudaFree(reserveSpace_));
 }
 __half* Dropout::Forward(__half* data){
-	if(train_ && enable_){ checkCUDNN(cudnnDropoutForward(cudnnHandle_, dropoutDesc_, outDesc_, data, outDesc_, data, reserveSpace_, reserveSpaceSize_)); }
+	if(train_){ checkCUDNN(cudnnDropoutForward(cudnnHandle_, dropoutDesc_, outDesc_, data, outDesc_, data, reserveSpace_, reserveSpaceSize_)); }
 	return data;
 }
 __half* Dropout::Backward(__half* grad){
@@ -28,6 +28,3 @@ __half* Dropout::Backward(__half* grad){
 	return grad;
 }
 void Dropout::SetTrain(const bool enable){ train_ = enable; }
-void Dropout::SetDropout(const bool enable){
-	enable_ = enable;
-}

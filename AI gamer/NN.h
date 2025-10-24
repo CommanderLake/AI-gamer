@@ -14,7 +14,6 @@ public:
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
 	void SetTrain(bool enable);
-	void SetDropout(bool enable);
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	std::vector<Layer*> layers_;

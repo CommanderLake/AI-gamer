@@ -8,7 +8,6 @@ public:
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void SetTrain(bool enable) override;
-	void SetDropout(bool enable) override;
 	cudnnHandle_t cudnnHandle_;
 	cudnnDropoutDescriptor_t dropoutDesc_;
 	void* dropoutStates_;
@@ -17,5 +16,4 @@ public:
 	size_t reserveSpaceSize_;
 	float dropoutRate_;
 	int batchSize_, outC_, outHeight_, outWidth_;
-	bool enable_ = true;
 };

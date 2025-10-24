@@ -111,7 +111,6 @@ void Train::TrainModel(const int width, const int height){
 		nn->SaveOptimizerState(optFileName);
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
-		nn->SetDropout(false);
 		fetchBatch(true);
 		for(size_t batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
 			threadPool.WaitAll();
@@ -120,7 +119,6 @@ void Train::TrainModel(const int width, const int height){
 			if(result == -1){ stopTraining = true; }
 		}
 		nn->SetTrain(true);
-		nn->SetDropout(true);
 		if(stopTraining){
 			std::cout << "\nNaN encountered during validation. Stopping.\n";
 			break;

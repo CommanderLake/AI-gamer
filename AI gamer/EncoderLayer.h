@@ -15,7 +15,6 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-	void SetDropout(bool enable) override;
 private:
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;

@@ -13,10 +13,10 @@ EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t
 	outNCHW_ = batchSize_*tokens_*embedDim_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*tokens_, embedDim_, 1, 1));
-	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, tokens_, "Norm1", train));
+	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm1", train));
 	layers_.push_back(new WmmaAttentionLayer(cudnnHandle_, cublasHandle_, batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay, gradAccumLength_, Xavier));
 	layers_.push_back(new Dropout(cudnnHandle_, 0.2f, batchSize_*tokens_, embedDim_, 1, 1, "Attn_Dropout", train));
-	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, tokens_, "Norm2", train));
+	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm2", train));
 	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_*tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_, Xavier));
 	layers_.push_back(new GELULayer(batchSize_*tokens_, ffDim_, 1, 1, "GELU"));
 	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle_, batchSize_*tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_, Xavier));
@@ -92,4 +92,3 @@ void EncoderLayer::SetTrain(bool enable){
 	train_ = enable;
 	for(const auto layer : layers_){ layer->SetTrain(enable); }
 }
-void EncoderLayer::SetDropout(const bool enable){ for(const auto layer : layers_){ layer->SetDropout(enable); } }

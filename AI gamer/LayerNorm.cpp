@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <vector>
-LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const int tokensPerSample, const char* layerName, const bool train) : batchSize_(batchSize), tokenBatchSize_(tokensPerSample), outC_(channels), outHW_(height*width), height_(height), width_(width){
+LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train) : batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHW_;
