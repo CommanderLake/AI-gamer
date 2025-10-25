@@ -106,8 +106,8 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
 		inputIndex++;
 	}
-	const int mouseX = static_cast<int>(std::sinh(predictions[14])*(AXIS_SCALE_/2));
-	const int mouseY = static_cast<int>(std::sinh(predictions[15])*(AXIS_SCALE_/2));
+	const int mouseX = static_cast<int>(std::sinh(predictions[14])*AXIS_SCALE_);
+	const int mouseY = static_cast<int>(std::sinh(predictions[15])*AXIS_SCALE_);
 	if(mouseX != 0 || mouseY != 0){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dx = mouseX;
@@ -125,8 +125,8 @@ void Infer::Step(){
 			PauseInfer();
 			std::cerr << "Capture resolution mismatch\n";
 		}
-		//BlockShiftHalf(sequenceHalf_ + nn_->stateSize_, -nn_->stateSize_, nn_->seqLength_);
-		//ConvertByteToHalf(frame, sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, nn_->stateSize_, true);
+		BlockShiftHalf(sequenceHalf_ + nn_->stateSize_, -nn_->stateSize_, nn_->seqLength_);
+		ConvertByteToHalf(frame, sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, nn_->stateSize_, true);
 		ConvertByteToHalf(frame, sequenceHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(sequenceHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchStateTotal_);
@@ -145,7 +145,7 @@ void Infer::Run(){
 		if(stop_) goto end;
 		Sleep(10);
 	}
-	constexpr std::chrono::microseconds frameDuration(1000000/60);
+	constexpr std::chrono::microseconds frameDuration(33333);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	try{
 		while(!stop_){

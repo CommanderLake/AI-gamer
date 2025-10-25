@@ -22,6 +22,7 @@ public:
 	int batchSize_, seqLength_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
 	int sharedHeight_, sharedWidth_;
+	int sequenceBatch_;
 	float weightDecay_;
 	int gradAccumLength_;
 	const float alpha_ = 1.0f;
@@ -32,4 +33,6 @@ public:
 	__half* spatialData_ = nullptr;
 	__half* tokenGrad_ = nullptr;
 	__half* predictions_ = nullptr;
+	__half* blendedTokens_ = nullptr;
+	__half* temporalGrad_ = nullptr;
 };

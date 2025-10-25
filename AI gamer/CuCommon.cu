@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <ctime>
 curandGenerator_t generator_;
-int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
+size_t GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 const char* cublasGetErrorString(cublasStatus_t status){
 	switch(status){
 		case CUBLAS_STATUS_SUCCESS:
@@ -69,7 +69,8 @@ int ConvertSmVer2Cores(int major, int minor){
 	printf("MapSMtoCores for SM %d.%d is undefined. Default to use %d Cores/SM\n", major, minor, nGpuArchCoresPerSM[index - 1].Cores);
 	return nGpuArchCoresPerSM[index - 1].Cores;
 }
-void GetLaunchConfigGridStride(int n, int& blocks, int& tpb){
+size_t DivCeil(const size_t a, const size_t b){ return a%b != 0 ? a/b + 1 : a/b; }
+void GetLaunchConfigGridStride(size_t n, size_t& blocks, size_t& tpb){
 	if(tpb <= 0 || tpb > 1024) tpb = BS;
 	blocks = std::min(DivCeil(n, tpb*8), GS);
 }

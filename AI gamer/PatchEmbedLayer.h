@@ -6,7 +6,7 @@
 class PatchEmbedLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchEmbedLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -20,11 +20,12 @@ public:
 	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
-	int batchSize_, inC_, inH_, inW_;
+	int batchSize_, seqLength_, inC_, inH_, inW_;
 	int patchSize_, embedDim_;
 	int patchRows_, patchCols_;
 	int patchDim_;
 	int numPatches_;
+	int featureSize_;
 	__half* patchBuffer_ = nullptr;
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;
@@ -34,7 +35,6 @@ public:
 	const __half* inData_ = nullptr;
 	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;
 	__half *m_PosEmbed_ = nullptr, *v_PosEmbed_ = nullptr;
-	cudnnTensorDescriptor_t posDesc_{};
 	int t_ = 1;
 	const float alpha_ = 1.0f;
 	float alphaWeights_ = 1.0f;

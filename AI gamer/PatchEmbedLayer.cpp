@@ -1,26 +1,25 @@
 #include "PatchEmbedLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
-PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) :
-	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) :
+	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	patchRows_ = DivCeil(inH_, patchSize_);
 	patchCols_ = DivCeil(inW_, patchSize_);
 	patchDim_ = inC_*patchSize_*patchSize_;
 	numPatches_ = patchRows_*patchCols_;
+	featureSize_ = embedDim_*numPatches_;
 	outNCHW_ = batchSize_*embedDim_*numPatches_;
 	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
 	weightCount_ = embedDim_*patchDim_;
-	posCount_ = embedDim_*numPatches_;
+	posCount_ = seqLength_*embedDim_*numPatches_;
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	CUDAMallocZero(&posEmbed_, posCount_*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&patchBuffer_, batchSize_*numPatches_*patchDim_*sizeof(__half));
-	checkCUDNN(cudnnCreateTensorDescriptor(&posDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
 	if(train_){
 		WeightInit(weights_, weightCount_, patchDim_, embedDim_, weightInitMethod);
 		//std::vector<__half> hostWeights(weightCount_, __float2half(1.0f/patchDim_));
@@ -40,7 +39,6 @@ PatchEmbedLayer::~PatchEmbedLayer(){
 	cudaFree(outData_);
 	cudaFree(patchBuffer_);
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
-	checkCUDNN(cudnnDestroyTensorDescriptor(posDesc_));
 	if(train_){
 		cudaFree(gradWeights_);
 		cudaFree(gradPosEmbed_);
@@ -55,7 +53,7 @@ __half* PatchEmbedLayer::Forward(__half* data){
 	inData_ = data;
 	ExtractPatches(data, patchBuffer_, batchSize_, inC_, inH_, inW_, patchSize_);
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, batchSize_*numPatches_, patchDim_, &alpha_, weights_, CUDA_R_16F, embedDim_, patchBuffer_, CUDA_R_16F, patchDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, posDesc_, posEmbed_, &alpha_, outDesc_, outData_));
+	AddTemporalPositionalEmbedding(outData_, posEmbed_, batchSize_, seqLength_, featureSize_);
 	return outData_;
 }
 __half* PatchEmbedLayer::Backward(__half* grad){
@@ -63,7 +61,7 @@ __half* PatchEmbedLayer::Backward(__half* grad){
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, patchDim_, batchSize_*numPatches_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, patchBuffer_, CUDA_R_16F, patchDim_, betaWeights, gradWeights_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_T, CUBLAS_OP_N, patchDim_, batchSize_*numPatches_, embedDim_, &alpha_, weights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &beta0_, patchBuffer_, CUDA_R_16F, patchDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	const bool zeroPos = ((accumCount_-1) % gradAccumLength_) == 0;
-	SumPositionalGrad(grad, gradPosEmbed_, batchSize_, embedDim_, numPatches_, zeroPos, alphaWeights_);
+	SumPositionalGrad(grad, gradPosEmbed_, batchSize_, seqLength_, embedDim_, numPatches_, zeroPos, alphaWeights_);
 	CombinePatchGrads(patchBuffer_, outGrad_, batchSize_, inC_, inH_, inW_, patchSize_);
 	return outGrad_;
 }

@@ -28,7 +28,7 @@ const char* cublasGetErrorString(cublasStatus_t status);
 }
 #define EPSILON_F 1e-6f
 extern curandGenerator_t generator_;
-extern int GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
+extern size_t GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 struct pixARGB{
 	unsigned char B;
 	unsigned char G;
@@ -75,7 +75,10 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
-void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
+void SumPositionalGrad(const __half* grad, __half* out, int batchTotal, int seqLength, int C, int P, bool first, float scale);
+void AddTemporalPositionalEmbedding(__half* output, const __half* posEmbed, int batchTotal, int seqLength, int featureSize);
+void TemporalBlendForward(const __half* input, __half* output, int batch, int seqLength, int featureSize);
+void TemporalBlendBackward(const __half* gradOut, __half* gradIn, int batch, int seqLength, int featureSize);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void ScaleArrayHalf(__half* data, size_t count, float scale);
@@ -86,12 +89,11 @@ void PackHeadsToColumns(const __half* input, __half* output, int batch, int toke
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 int ConvertSmVer2Cores(int major, int minor);
-template<typename Ta, typename Tb>
-int DivCeil(const Ta a, const Tb b){ return a%b != 0 ? a/b + 1 : a/b; }
-void GetLaunchConfigGridStride(int n, int& blocks, int& tpb);
+size_t DivCeil(size_t a, size_t b);
+void GetLaunchConfigGridStride(size_t n, size_t& blocks, size_t& tpb);
 void InitCUDA();
 void WeightInit(__half* weights, int elementCount, int fanIn, int fanOut, WeightInitMethod method);
-template <typename T>
+template<class T>
 void CUDAMallocZero(T** ptr, size_t size){
 	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
 	checkCUDA(cudaMemset(*ptr, 0, size));
