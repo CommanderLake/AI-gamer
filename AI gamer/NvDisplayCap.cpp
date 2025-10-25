@@ -4,6 +4,8 @@
 #include <iostream>
 #include <NvFBC\nvFBC.h>
 #include <NvFBC\nvFBCCuda.h>
+
+#include "CuCommon.cuh"
 namespace{
 	NvFBCLibrary* nvfbc = nullptr;
 	NvFBCCuda* nvfbcCuda = nullptr;
@@ -59,8 +61,8 @@ void AllocGPU(){
 		FreeGPU();
 		throw std::exception("Unable to allocate CUDA device memory.");
 	}
-	cudaMemset(pDevBufBGRA, 0, maxBufferSize);
-	cudaMemset(pDevBufRGB, 0, maxBufferSize);
+	checkCUDA(cudaMemset(pDevBufBGRA, 0, maxBufferSize));
+	checkCUDA(cudaMemset(pDevBufRGB, 0, maxBufferSize*0.75f));
 }
 int InitNvFBC(){
 	if(nvfbc) return 0;

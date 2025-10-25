@@ -127,7 +127,7 @@ void Infer::Step(){
 		}
 		BlockShiftHalf(sequenceHalf_ + nn_->stateSize_, -nn_->stateSize_, nn_->seqLength_);
 		ConvertByteToHalf(frame, sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, nn_->stateSize_, true);
-		ConvertByteToHalf(frame, sequenceHalf_, nn_->stateSize_, true);
+		//ConvertByteToHalf(frame, sequenceHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(sequenceHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchStateTotal_);
 		ProcessOutput(predictionsF_);
