@@ -5,10 +5,19 @@
 #include <device_functions.h>
 #include <device_launch_parameters.h>
 void BlockShiftHalf(__half* hPtr, const int shiftBy, const int blocksToShift){
+	if(!hPtr || shiftBy == 0 || blocksToShift <= 1){
+		return;
+	}
 	auto blockSize = shiftBy;
 	if(blockSize < 0) blockSize = -blockSize;
-	if(shiftBy > 0){ for(int i = blocksToShift; 0 < i; --i){ checkCUDA(cudaMemcpy(hPtr + i*blockSize, hPtr + (i - 1)*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice)); } } else{
-		for(int i = 0; i < blocksToShift; ++i){ checkCUDA(cudaMemcpy(hPtr + (i - 1)*blockSize, hPtr + i*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice)); }
+	if(shiftBy > 0){
+		for(int i = blocksToShift - 1; i > 0; --i){
+			checkCUDA(cudaMemcpy(hPtr + i*blockSize, hPtr + (i - 1)*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice));
+		}
+	} else{
+		for(int i = 0; i + 1 < blocksToShift; ++i){
+			checkCUDA(cudaMemcpy(hPtr + (i - 1)*blockSize, hPtr + i*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice));
+		}
 	}
 }
 __global__ void GradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
