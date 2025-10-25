@@ -167,6 +167,8 @@ void AddTemporalPositionalEmbedding(__half* output, const __half* posEmbed, int 
 	checkCUDA(cudaGetLastError());
 }
 constexpr int MAX_TEMPORAL_SEQ = 16;
+constexpr float kTemporalMeanWeight = 0.1f;
+constexpr float kTemporalDiffWeight = 0.2f;
 __global__ void TemporalBlendForwardKernel(const __half* input, __half* output, int batch, int seqLength, int featureSize){
 	const int stride = blockDim.x*gridDim.x;
 	const int total = batch*featureSize;
@@ -184,8 +186,10 @@ __global__ void TemporalBlendForwardKernel(const __half* input, __half* output, 
 		const float mean = sum/static_cast<float>(seqLength);
 		for(int t = 0; t < seqLength; ++t){
 			const float prev = t == 0 ? values[t] : values[t - 1];
-			const float diff = values[t] - prev;
-			const float blended = 0.5f*(values[t] + mean) + 0.5f*diff;
+			const float diff = t == 0 ? 0.0f : (values[t] - prev);
+			const float blended = values[t]
+				+ kTemporalMeanWeight*(mean - values[t])
+				+ kTemporalDiffWeight*diff;
 			const int outIndex = ((b*seqLength + t)*featureSize) + f;
 			output[outIndex] = __float2half(blended);
 		}
@@ -210,24 +214,25 @@ __global__ void TemporalBlendBackwardKernel(const __half* gradOut, __half* gradI
 		const int f = idx - b*featureSize;
 		float grads[MAX_TEMPORAL_SEQ];
 		float accum[MAX_TEMPORAL_SEQ];
-		float sum = 0.0f;
+		float gradSum = 0.0f;
 		for(int t = 0; t < seqLength; ++t){
 			const int offset = ((b*seqLength + t)*featureSize) + f;
 			const float val = __half2float(gradOut[offset]);
 			grads[t] = val;
-			sum += val;
+			gradSum += val;
 			accum[t] = 0.0f;
 		}
-		const float meanContribution = 0.5f*sum/static_cast<float>(seqLength);
+		const float meanContribution = kTemporalMeanWeight*gradSum/static_cast<float>(seqLength);
 		for(int t = 0; t < seqLength; ++t){
 			accum[t] += meanContribution;
-			if(t == 0){
-				accum[0] += 0.5f*grads[0];
-			} else{
-				accum[t] += grads[t];
-				accum[t - 1] -= 0.5f*grads[t];
+		}
+		for(int t = 0; t < seqLength; ++t){
+			const float g = grads[t];
+			accum[t] += g*(1.0f - kTemporalMeanWeight);
+			if(t > 0){
+				accum[t] += kTemporalDiffWeight*g;
+				accum[t - 1] -= kTemporalDiffWeight*g;
 			}
-			if(t < seqLength - 1){ accum[t] -= 0.5f*grads[t + 1]; }
 		}
 		for(int t = 0; t < seqLength; ++t){
 			const int outIndex = ((b*seqLength + t)*featureSize) + f;
