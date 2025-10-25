@@ -20,6 +20,7 @@ void LeakyReluForward(const half* dataIn, half* dataOut, const int size, const f
 	GetLaunchConfigGridStride(size, blocks, threads);
 	const half negSlopeHalf = __float2half(negativeSlope);
 	LeakyReluKernel<<<blocks, threads, 0, stream>>>(dataIn, dataOut, size, negSlopeHalf);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void LeakyReluBackwardKernel(half* __restrict__ grad, const half* __restrict__ dataIn, const int size, const half negativeSlope){
 	const int stride = blockDim.x*gridDim.x;
@@ -35,6 +36,7 @@ void LeakyReluBackward(half* grad, const half* dataIn, const int size, const flo
 	GetLaunchConfigGridStride(size, blocks, threads);
 	const half negSlopeHalf = __float2half(negativeSlope);
 	LeakyReluBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size, negSlopeHalf);
+	checkCUDA(cudaGetLastError());
 }
 // ==================== Swish ====================
 __global__ void SwishKernel(const half* __restrict__ dataIn, half* __restrict__ outData, const int size){
@@ -49,6 +51,7 @@ void SwishForward(const half* dataIn, half* outData, const int size, cudaStream_
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	SwishKernel<<<blocks, threads, 0, stream>>>(dataIn, outData, size);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void SwishBackwardKernel(half* __restrict__ grad, const half* __restrict__ dataIn, const int size){
 	const int stride = blockDim.x*gridDim.x;
@@ -63,6 +66,7 @@ void SwishBackward(half* grad, const half* dataIn, const int size, cudaStream_t 
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	SwishBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size);
+	checkCUDA(cudaGetLastError());
 }
 // ==================== Sigmoid ====================
 __global__ void SigmoidKernel(const half* __restrict__ dataIn, half* __restrict__ dataOut, const int numCtrls, const int numButs, const int size){
@@ -78,6 +82,7 @@ void SigmoidForward(const half* dataIn, half* dataOut, const int numCtrls, const
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	SigmoidKernel<<<blocks, threads, 0, stream>>>(dataIn, dataOut, numCtrls, numButs, size);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void SigmoidBackwardKernel(half* __restrict__ grad, const half* __restrict__ dataIn, const int numCtrls, const int numButs, const int size){
 	const int stride = blockDim.x*gridDim.x;
@@ -93,6 +98,7 @@ void SigmoidBackward(half* grad, const half* dataIn, const int numCtrls, const i
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	SigmoidBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, numCtrls, numButs, size);
+	checkCUDA(cudaGetLastError());
 }
 // ==================== GELU ====================
 __global__ void GELUForwardKernel(const half* __restrict__ dataIn, half* __restrict__ dataOut, const int size){
@@ -109,6 +115,7 @@ void GELUForward(const half* dataIn, half* dataOut, const int size, cudaStream_t
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	GELUForwardKernel<<<blocks, threads, 0, stream>>>(dataIn, dataOut, size);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void GELUBackwardKernel(half* __restrict__ grad, const half* __restrict__ dataIn, const int size){
 	const int stride = blockDim.x*gridDim.x;
@@ -129,6 +136,7 @@ void GELUBackward(half* grad, const half* dataIn, const int size, cudaStream_t s
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	GELUBackwardKernel<<<blocks, threads, 0, stream>>>(grad, dataIn, size);
+	checkCUDA(cudaGetLastError());
 }
 // ==================== Asinh ====================
 __global__ void AsinhForwardKernel(const half* __restrict__ x, half* __restrict__ y, int size, float alpha){
@@ -141,6 +149,7 @@ void AsinhForward(const half* x, half* y, int size, float alpha, cudaStream_t st
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	AsinhForwardKernel<<<blocks, threads, 0, stream>>>(x, y, size, alpha);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void AsinhBackwardKernel(half* __restrict__ grad, const half* __restrict__ y, int size, float alpha){
 	const int stride = blockDim.x * gridDim.x;
@@ -154,4 +163,5 @@ void AsinhBackward(half* grad, const half* activated, int size, float alpha, cud
 	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	AsinhBackwardKernel<<<blocks, threads, 0, stream>>>(grad, activated, size, alpha);
+	checkCUDA(cudaGetLastError());
 }

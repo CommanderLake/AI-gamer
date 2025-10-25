@@ -1,5 +1,4 @@
 #include "CuCommon.cuh"
-#include <cstdio>
 #include <cuda_runtime_api.h>
 #include <device_launch_parameters.h>
 __global__ void ExtractPatchesKernelVec2(const __half* __restrict__ x, __half* __restrict__ y, int B, int C, int H, int W, int P){
@@ -81,9 +80,7 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 		if(blocks > 0 && tpb > 0)
 			ExtractPatchesKernel<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	}
-	const auto e = cudaGetLastError();
-	if(e != cudaSuccess)
-		printf("ExtractPatches error: %s\n", cudaGetErrorString(e));
+	checkCUDA(cudaGetLastError());
 }
 __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* __restrict__ dx, int B, int C, int H, int W, int P){
 	const int kPatchArea = P*P;
@@ -107,21 +104,18 @@ __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* _
 		int dstX = pxPatch*P + px;
 		if(dstY >= H || dstX >= W) continue;
 		long dstIdx = (((static_cast<long>(b)*C + c)*H + dstY)*W) + dstX;
-		// For non-overlapping patches, direct assignment is correct
-		// If you need overlapping patches, use atomicAdd
 		dx[dstIdx] = dy[idx];
 	}
 }
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P){
-	cudaMemset(dx, 0, B*C*H*W*sizeof(__half));
+	checkCUDA(cudaMemset(dx, 0, B*C*H*W*sizeof(__half)));
 	const int PH = (H + P - 1)/P;
 	const int PW = (W + P - 1)/P;
 	const size_t total = static_cast<size_t>(B)*PH*PW*C*P*P;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
 	CombinePatchGradsKernel<<<blocks, tpb>>>(dy, dx, B, C, H, W, P);
-	const auto e = cudaGetLastError();
-	if(e != cudaSuccess) printf("CombinePatchGrads error: %s\n", cudaGetErrorString(e));
+	checkCUDA(cudaGetLastError());
 }
 __global__ void SumPositionalGradKernel(const __half* grad, __half* out, int batchTotal, int seqLength, int C, int P, bool first, float scale){
 	const int featureCount = C*P;
@@ -149,13 +143,11 @@ __global__ void SumPositionalGradKernel(const __half* grad, __half* out, int bat
 		}
 	}
 }
-
 void SumPositionalGrad(const __half* grad, __half* out, int batchTotal, int seqLength, int C, int P, bool first, float scale){
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(seqLength*C*P, blocks, tpb);
 	SumPositionalGradKernel<<<blocks, tpb>>>(grad, out, batchTotal, seqLength, C, P, first, scale);
-	const auto e = cudaGetLastError();
-	if(e != cudaSuccess) printf("SumPositionalGrad error: %s\n", cudaGetErrorString(e));
+	checkCUDA(cudaGetLastError());
 }
 
 __global__ void AddTemporalPositionalEmbeddingKernel(__half* output, const __half* posEmbed, int batchTotal, int seqLength, int featureSize){
@@ -172,8 +164,7 @@ void AddTemporalPositionalEmbedding(__half* output, const __half* posEmbed, int 
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(batchTotal*featureSize, blocks, tpb);
 	AddTemporalPositionalEmbeddingKernel<<<blocks, tpb>>>(output, posEmbed, batchTotal, seqLength, featureSize);
-	const auto e = cudaGetLastError();
-	if(e != cudaSuccess) printf("AddTemporalPositionalEmbedding error: %s\n", cudaGetErrorString(e));
+	checkCUDA(cudaGetLastError());
 }
 constexpr int MAX_TEMPORAL_SEQ = 16;
 __global__ void TemporalBlendForwardKernel(const __half* input, __half* output, int batch, int seqLength, int featureSize){
@@ -209,8 +200,7 @@ void TemporalBlendForward(const __half* input, __half* output, int batch, int se
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(batch*featureSize, blocks, tpb);
 	TemporalBlendForwardKernel<<<blocks, tpb>>>(input, output, batch, seqLength, featureSize);
-	const auto e = cudaGetLastError();
-	if(e != cudaSuccess) printf("TemporalBlendForward error: %s\n", cudaGetErrorString(e));
+	checkCUDA(cudaGetLastError());
 }
 __global__ void TemporalBlendBackwardKernel(const __half* gradOut, __half* gradIn, int batch, int seqLength, int featureSize){
 	const int stride = blockDim.x*gridDim.x;
@@ -254,6 +244,5 @@ void TemporalBlendBackward(const __half* gradOut, __half* gradIn, int batch, int
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(batch*featureSize, blocks, tpb);
 	TemporalBlendBackwardKernel<<<blocks, tpb>>>(gradOut, gradIn, batch, seqLength, featureSize);
-	const auto e = cudaGetLastError();
-	if(e != cudaSuccess) printf("TemporalBlendBackward error: %s\n", cudaGetErrorString(e));
+	checkCUDA(cudaGetLastError());
 }

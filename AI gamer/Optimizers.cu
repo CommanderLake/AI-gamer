@@ -17,6 +17,7 @@ void SGDHalf(__half* params, const __half* grads, const int size, const float le
 	size_t blocks, tpb = 128;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	SGDHalfKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void SGDFloatKernel(float* params, const float* grads, const int size, const float learningRate, const float weightDecay){
 	const auto stride = blockDim.x*gridDim.x;
@@ -30,6 +31,7 @@ void SGDFloat(float* params, const float* grads, const int size, const float lea
 	size_t blocks, tpb = 128;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	SGDFloatKernel<<<blocks, tpb>>>(params, grads, size, learningRate, weightDecay);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __restrict__ grads, float* __restrict__ m, float* __restrict__ v, const float lr, const int t, const float wd, const int n){
 	__shared__ float sBiasCorrection2;
@@ -108,6 +110,7 @@ void AdamWFloat(float* params, const float* grads, float* m, float* v, const flo
 	size_t blocks, tpb = 16;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	AdamwKernelFloat<<<blocks, tpb>>>(params, grads, m, v, learningRate, t, weightDecay, size);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __restrict__ grads, __half* __restrict__ m, __half* __restrict__ v, const float lr, const int t, const float wd, const int n){
 	// Shared memory for frequently used constants
@@ -209,4 +212,5 @@ void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, const 
 	size_t blocks, tpb = 16;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
+	checkCUDA(cudaGetLastError());
 }

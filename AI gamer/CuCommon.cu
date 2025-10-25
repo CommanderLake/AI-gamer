@@ -72,7 +72,7 @@ int ConvertSmVer2Cores(int major, int minor){
 size_t DivCeil(const size_t a, const size_t b){ return a%b != 0 ? a/b + 1 : a/b; }
 void GetLaunchConfigGridStride(size_t n, size_t& blocks, size_t& tpb){
 	if(tpb <= 0 || tpb > 1024) tpb = BS;
-	blocks = std::min(DivCeil(n, tpb*8), GS);
+	blocks = std::min(DivCeil(n, tpb*4), GS);
 }
 static bool inited = false;
 void InitCUDA(){

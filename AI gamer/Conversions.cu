@@ -1,6 +1,6 @@
 #include "CuCommon.cuh"
 #include <device_launch_parameters.h>
-__global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, int n){
+__global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, size_t n){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += stride){
 		dst[i].R = src[i].R;
@@ -8,12 +8,13 @@ __global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, int n){
 		dst[i].B = src[i].B;
 	}
 }
-void ARGBtoRGB(unsigned char* src, unsigned char* dst, int n){
+void ARGBtoRGB(unsigned char* src, unsigned char* dst, size_t n){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(n, blocks, tpb);
 	cuARGBtoRGB<<<blocks, tpb>>>(reinterpret_cast<pixARGB*>(src), reinterpret_cast<pixRGB*>(dst), n);
+	checkCUDA(cudaGetLastError());
 }
-__global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, int n){
+__global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, size_t n){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += stride){
 		const int srcIdx = i*4;
@@ -22,10 +23,11 @@ __global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, 
 		dst[i + 2*n] = src[srcIdx];
 	}
 }
-void ARGBtoRGBplanar(unsigned char* src, unsigned char* dst, int n){
+void ARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, size_t n){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(n, blocks, tpb);
 	cuARGBtoRGBplanar<<<blocks, tpb>>>(src, dst, n);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void ConvertByteToHalfKernel(const unsigned char* input, __half* output, const size_t size, const float scale){
 	const auto stride = blockDim.x*gridDim.x;
@@ -35,6 +37,7 @@ void ConvertByteToHalf(const unsigned char* input, __half* output, const size_t 
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	ConvertByteToHalfKernel<<<blocks, tpb>>>(input, output, size, normalize ? 255.0 : 1.0f);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void ConvertHalfToByteKernel(const __half* input, unsigned char* output, const size_t size, const float scale){
 	const auto stride = blockDim.x*gridDim.x;
@@ -44,6 +47,7 @@ void ConvertHalfToByte(const __half* input, unsigned char* output, const size_t 
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	ConvertHalfToByteKernel<<<blocks, tpb>>>(input, output, size, normalize ? 255.0f : 1.0f);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void ConvertFloatToHalfKernel(const float* input, __half* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
@@ -53,6 +57,7 @@ void ConvertFloatToHalf(const float* input, __half* output, const size_t size){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	ConvertFloatToHalfKernel<<<blocks, tpb>>>(input, output, size);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void ConvertHalfToFloatKernel(const __half* input, float* output, const size_t size){
 	const auto stride = blockDim.x*gridDim.x;
@@ -62,6 +67,7 @@ void ConvertHalfToFloat(const __half* input, float* output, const size_t size){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	ConvertHalfToFloatKernel<<<blocks, tpb>>>(input, output, size);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void ConvertFloatToHalfScaleKernel(__half* halfWeights, const float* weights, const size_t size, const float scale){
 	const auto stride = blockDim.x*gridDim.x;
@@ -71,4 +77,5 @@ void ConvertFloatToHalfScale(__half* halfWeights, const float* weights, const si
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	ConvertFloatToHalfScaleKernel<<<blocks, tpb>>>(halfWeights, weights, size, scale);
+	checkCUDA(cudaGetLastError());
 }

@@ -765,21 +765,17 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 // WRAPPER FUNCTIONS
 // ============================================================================
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, int batchSize, int tokens, int headDim, int heads){
-	// Validate dimensions
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
 		printf("WmmaAttention: Invalid dimensions, aborting\n");
 		return;
 	}
-	// Check for null pointers
 	if(!Q || !K || !V || !Out){
 		printf("WmmaAttention: Null input/output pointer(s)\n");
 		return;
 	}
-	// Configure kernel launch
 	constexpr int threadsPerBlock = kDefaultThreads;
 	const int numRowBlocks = DivCeil(tokens, 16);
-	// Validate grid dimensions
 	if(numRowBlocks > 65535 || batchSize > 65535 || heads > 65535){
 		printf("WmmaAttention: Grid dimensions exceed limits (blocks=%d, batch=%d, heads=%d)\n", numRowBlocks, batchSize, heads);
 		return;
@@ -787,33 +783,25 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 	dim3 block(threadsPerBlock);
 	dim3 grid(numRowBlocks, batchSize, heads);
 	const int tileCols = GetAttentionTileCols(tokens);
-	// Set shared memory configuration
 	cudaError_t err = cudaFuncSetAttribute(WmmaAttentionKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
 	if(err != cudaSuccess){
 		printf("WmmaAttention: Failed to set shared memory size: %s\n", cudaGetErrorString(err));
 		return;
 	}
-	// Set optimal shared memory bank configuration
 	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	// Launch kernel
 	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, batchSize, tokens, headDim, heads, tileCols);
-	// Check for launch errors
-	err = cudaGetLastError();
-	if(err != cudaSuccess){ printf("WmmaAttention Forward error: %s\n", cudaGetErrorString(err)); }
+	checkCUDA(cudaGetLastError());
 }
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){
-	// Validate pointers
 	if(!Q || !K || !V || !dOut || !Att || !dQ || !dK || !dV || !dAttWorkspace){
 		printf("WmmaAttentionBackward: Null pointer(s) provided\n");
 		return;
 	}
-	// Validate workspace
 	const size_t requiredElements = static_cast<size_t>(batchSize) * heads * tokens * tokens;
 	if(requiredElements > workspaceElements){
 		printf("WmmaAttentionBackward: Workspace too small (%zu required, %zu provided)\n", requiredElements, workspaceElements);
 		return;
 	}
-	// Validate dimensions
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
 		printf("WmmaAttentionBackward: Invalid dimensions\n");

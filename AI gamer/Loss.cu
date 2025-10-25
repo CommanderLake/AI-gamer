@@ -25,6 +25,7 @@ float MseLoss(const __half* dPredictions, const float* dTargets, int size){
 	cudaMemcpyToSymbol(dLoss, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	auto gridSize = DivCeil(size, BS);
 	MseLossKernel<<<gridSize, BS, BS*sizeof(float)>>>(dPredictions, dTargets, size);
+	checkCUDA(cudaGetLastError());
 	float h_loss;
 	cudaMemcpyFromSymbol(&h_loss, dLoss, sizeof(float));
 	return h_loss / size;
@@ -76,6 +77,7 @@ void MseLoss2(const __half* dPredictions, const float* dTargets, const int numBu
 	cudaMemcpyToSymbol(dLossMouse, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	auto gridSize = DivCeil(size, BS);
 	MseLoss2Kernel<<<gridSize, BS, 2*BS*sizeof(float)>>>(dPredictions, dTargets, size, numButs, numCtrls);
+	checkCUDA(cudaGetLastError());
 	cudaMemcpyFromSymbol(butLoss, dLossKeys, sizeof(float));
 	cudaMemcpyFromSymbol(axesLoss, dLossMouse, sizeof(float));
 	*butLoss /= numButs*batchSize;

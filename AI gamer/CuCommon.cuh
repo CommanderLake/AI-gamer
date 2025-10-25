@@ -9,21 +9,24 @@
 #include <string>
 const char* cublasGetErrorString(cublasStatus_t status);
 #define checkCUBLAS(status) { \
-    if (status != CUBLAS_STATUS_SUCCESS) { \
-        std::cerr << "\ncuBLAS error: " << cublasGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("cuBLAS error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cublasGetErrorString(status)); \
+	const auto err = status; \
+    if (err != CUBLAS_STATUS_SUCCESS) { \
+        std::cerr << "\ncuBLAS error: " << cublasGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("cuBLAS error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cublasGetErrorString(err)); \
     } \
 }
 #define checkCUDNN(status) { \
-    if (status != CUDNN_STATUS_SUCCESS) { \
-        std::cerr << "\ncuDNN error: " << cudnnGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("cuDNN error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudnnGetErrorString(status)); \
+	const auto err = status; \
+    if (err != CUDNN_STATUS_SUCCESS) { \
+        std::cerr << "\ncuDNN error: " << cudnnGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("cuDNN error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudnnGetErrorString(err)); \
     } \
 }
 #define checkCUDA(status) { \
-    if (status != cudaSuccess) { \
-        std::cerr << "\nCUDA error: " << cudaGetErrorString(status) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(status)); \
+	const auto err = status; \
+    if (err != cudaSuccess) { \
+        std::cerr << "\nCUDA error: " << cudaGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(err)); \
     } \
 }
 #define EPSILON_F 1e-6f

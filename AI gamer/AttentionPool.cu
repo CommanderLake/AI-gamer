@@ -40,9 +40,12 @@ __global__ void AttentionPoolWeightedSumKernel(const __half* input, const float*
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim){
 	dim3 scoreGrid(batchSize, DivCeil(tokens, BS));
 	AttentionPoolScoresKernel<<<scoreGrid, BS>>>(input, query, tempBuffer, batchSize, tokens, embedDim, invSqrtDim);
+	checkCUDA(cudaGetLastError());
 	AttentionPoolSoftmaxKernel<<<batchSize, 1>>>(tempBuffer, attnWeights, batchSize, tokens);
+	checkCUDA(cudaGetLastError());
 	dim3 sumGrid(batchSize, DivCeil(embedDim, BS));
 	AttentionPoolWeightedSumKernel<<<sumGrid, BS>>>(input, attnWeights, output, batchSize, tokens, embedDim);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void AttentionPoolGradWeightsKernel(const __half* grad, const __half* input, float* gradWeights, int batchSize, int tokens, int embedDim){
 	const int b = blockIdx.x;
@@ -96,10 +99,15 @@ __global__ void AttentionPoolGradInputKernel(__half* gradInput, const __half* gr
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim){
 	dim3 gradWeightGrid(batchSize, DivCeil(tokens, BS));
 	AttentionPoolGradWeightsKernel<<<gradWeightGrid, BS>>>(grad, input, tempBuffer, batchSize, tokens, embedDim);
+	checkCUDA(cudaGetLastError());
 	AttentionPoolBatchSumKernel<<<batchSize, 1>>>(tempBuffer, attnWeights, batchSums, batchSize, tokens);
+	checkCUDA(cudaGetLastError());
 	const int totalTokens = batchSize*tokens;
 	AttentionPoolGradScoresKernel<<<DivCeil(totalTokens, BS), BS>>>(tempBuffer, tempBuffer, attnWeights, batchSums, batchSize, tokens);
+	checkCUDA(cudaGetLastError());
 	AttentionPoolGradQueryKernel<<<DivCeil(embedDim, BS), BS>>>(tempBuffer, input, gradQuery, batchSize, tokens, embedDim, invSqrtDim);
+	checkCUDA(cudaGetLastError());
 	dim3 gradInputGrid(batchSize, tokens, DivCeil(embedDim, BS));
 	AttentionPoolGradInputKernel<<<gradInputGrid, BS>>>(outGrad, grad, attnWeights, tempBuffer, query, batchSize, tokens, embedDim, invSqrtDim);
+	checkCUDA(cudaGetLastError());
 }

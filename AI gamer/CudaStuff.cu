@@ -7,8 +7,8 @@
 void BlockShiftHalf(__half* hPtr, const int shiftBy, const int blocksToShift){
 	auto blockSize = shiftBy;
 	if(blockSize < 0) blockSize = -blockSize;
-	if(shiftBy > 0){ for(int i = blocksToShift; 0 < i; --i){ cudaMemcpy(hPtr + i*blockSize, hPtr + (i - 1)*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice); } } else{
-		for(int i = 0; i < blocksToShift; ++i){ cudaMemcpy(hPtr + (i - 1)*blockSize, hPtr + i*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice); }
+	if(shiftBy > 0){ for(int i = blocksToShift; 0 < i; --i){ checkCUDA(cudaMemcpy(hPtr + i*blockSize, hPtr + (i - 1)*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice)); } } else{
+		for(int i = 0; i < blocksToShift; ++i){ checkCUDA(cudaMemcpy(hPtr + (i - 1)*blockSize, hPtr + i*blockSize, blockSize*sizeof(__half), cudaMemcpyDeviceToDevice)); }
 	}
 }
 __global__ void GradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
@@ -18,6 +18,7 @@ __global__ void GradientKernel(__half* grads, const __half* predictions, const _
 void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const float clip, const int size){
 	auto gridSize = DivCeil(size, BS);
 	GradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, size);
+	checkCUDA(cudaGetLastError());
 }
 __device__ inline float Sigmoidf(const float x){
 	if(x >= 0.0f){
@@ -46,6 +47,7 @@ __global__ void SplitGradKernel(__half* gradients, const __half* predictions, co
 void SplitGradient(__half* dGradient, const __half* dPredictions, const float* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
 	auto gridSize = DivCeil(size, BS);
 	SplitGradKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -58,6 +60,7 @@ __global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, co
 void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, const int numCtrls, const int numButs, const int size){
 	auto gridSize = DivCeil(size, BS);
 	MergeOutputsKernel<<<gridSize, BS>>>(predOut, buttonData, axisData, size, numCtrls, numButs);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void BCEGradientKernel(__half* gradients, const __half* predictions, const __half* targets, const int size, const float scale){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -66,6 +69,7 @@ __global__ void BCEGradientKernel(__half* gradients, const __half* predictions, 
 void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, const int size, const float scale){
 	auto gridSize = DivCeil(size, BS);
 	BCEGradientKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, size, scale);
+	checkCUDA(cudaGetLastError());
 }
 __device__ int deviceResult;
 __global__ void isNaNKernel(const __half* __restrict__ data, int size){
@@ -77,6 +81,7 @@ bool IsnanHalf(const __half* __restrict__ data, int size){
 	cudaMemcpyToSymbol(deviceResult, &hResult, sizeof(int));
 	auto gridSize = DivCeil(size, BS);
 	isNaNKernel<<<gridSize, BS>>>(data, size);
+	checkCUDA(cudaGetLastError());
 	cudaMemcpyFromSymbol(&hResult, deviceResult, sizeof(int));
 	return hResult != 0;
 }
@@ -97,6 +102,7 @@ void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, const int H,
 	dim3 blockDim(8, 8, 8);
 	dim3 gridDim((inC + blockDim.x - 1) / blockDim.x, (H + blockDim.y - 1) / blockDim.y, (W + blockDim.z - 1) / blockDim.z);
 	FeatureMapMosaicKernel<<<gridDim, blockDim, 0, stream>>>(dInput, dOutput, H, W, inC, mosaicW, tileW, tileH, gridW, scale);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void GetPredictionKernel(const __half* predBatch, float* prediction, const int numCtrls, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -106,6 +112,7 @@ void GetPrediction(const __half* predBatch, float* prediction, const int numCtrl
 	float* devPtr = nullptr;
 	cudaHostGetDevicePointer(&devPtr, prediction, 0);
 	GetPredictionKernel<<<1, numCtrls>>>(predBatch, devPtr, numCtrls, batchSize*numCtrls);
+	checkCUDA(cudaGetLastError());
 	cudaDeviceSynchronize();
 }
 __global__ void ScaleHalfKernel(__half* data, const size_t count, const float scale){
