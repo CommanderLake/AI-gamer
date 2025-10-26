@@ -19,17 +19,17 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inputSize, 1, 1));
-	const auto outC = inC_*4;
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inC_, outC, "Buttons FC 1", train_, weightDecay, gradAccumLength_, Xavier, true));
+	const auto outC = 1024;
+	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, inC_, outC, "Buttons FC 1", train_, weightDecay, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new LayerNorm(batchSize_, outC, 1, 1, "Buttons LN", train_));
 	buttonLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Buttons GELU"));
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, outC, 1, 1, "Buttons Drop", train_));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay, gradAccumLength_, Xavier, true));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inC_, outC, "Axes FC 1", train_, weightDecay, gradAccumLength_, Xavier, true));
+	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, outC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, inC_, outC, "Axes FC 1", train_, weightDecay, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new LayerNorm(batchSize_, outC, 1, 1, "Axes LN", train_));
 	axisLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Axes GELU"));
 	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, outC, 1, 1, "Axes Drop", train_));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_AXES_, "Axes FC 2", train_, weightDecay, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, outC, NUM_AXES_, "Axes FC 2", train_, weightDecay, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 CustomOutLayer::~CustomOutLayer(){

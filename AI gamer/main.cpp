@@ -39,7 +39,7 @@ namespace{
 		}
 		std::vector<std::uint64_t> positions((recordCount));
 		if(recordCount > 0U){
-			cache.read(reinterpret_cast<char*>(positions.data()), static_cast<std::streamsize>(recordCount * sizeof(std::uint64_t)));
+			cache.read(reinterpret_cast<char*>(positions.data()), static_cast<std::streamsize>(recordCount*sizeof(std::uint64_t)));
 			if(cache.fail()){
 				std::cerr << "Failed to read cache records from: " << cachePath << "\n";
 				return false;
@@ -69,7 +69,7 @@ namespace{
 		cache.write(reinterpret_cast<const char*>(&width32), sizeof(width32));
 		cache.write(reinterpret_cast<const char*>(&height32), sizeof(height32));
 		cache.write(reinterpret_cast<const char*>(&recordCount), sizeof(recordCount));
-		if(recordCount > 0U){ cache.write(reinterpret_cast<const char*>(positions.data()), static_cast<std::streamsize>(recordCount * sizeof(std::uint64_t))); }
+		if(recordCount > 0U){ cache.write(reinterpret_cast<const char*>(positions.data()), static_cast<std::streamsize>(recordCount*sizeof(std::uint64_t))); }
 		if(cache.fail()){
 			std::cerr << "Failed to fully write index cache file: " << cachePath << "\n";
 			return;
@@ -88,7 +88,7 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 	const auto cachePath = GetIndexCachePath(dataPath);
 	if(LoadIndexCache(cachePath, fileSize, width, height, fileName, index)){
 		if(width && height){
-			const auto stateSize = static_cast<std::uintmax_t>(*width) * static_cast<std::uintmax_t>(*height) * 3U;
+			const auto stateSize = static_cast<std::uintmax_t>(*width)*static_cast<std::uintmax_t>(*height)*3U;
 			std::cerr << "State size calculated: " << stateSize << " bytes (from cache)" << std::endl;
 		}
 		return;
@@ -104,7 +104,7 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 		std::cerr << "Failed to read width/height from file: " << *fileName << "\n";
 		return;
 	}
-	const auto stateSize = static_cast<std::uintmax_t>(*width) * static_cast<std::uintmax_t>(*height) * 3U;
+	const auto stateSize = static_cast<std::uintmax_t>(*width)*static_cast<std::uintmax_t>(*height)*3U;
 	std::cerr << "State size calculated: " << stateSize << " bytes" << std::endl;
 	const auto recordSize = 12U + stateSize;
 	std::vector<std::uint64_t> recordPositions;

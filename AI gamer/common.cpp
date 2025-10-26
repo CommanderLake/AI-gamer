@@ -488,8 +488,8 @@ static bool EnsureMatrixStorage(const size_t matrixSize){
 		matrixH_ = nullptr;
 		matrixSize_ = 0;
 	}
-	matrixF_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
-	matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize * sizeof(__half), 64));
+	matrixF_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
+	matrixH_ = static_cast<__half*>(_mm_malloc(matrixSize*sizeof(__half), 64));
 	if(!matrixF_ || !matrixH_){
 		if(matrixF_){ _mm_free(matrixF_); matrixF_ = nullptr; }
 		if(matrixH_){ _mm_free(matrixH_); matrixH_ = nullptr; }
@@ -506,7 +506,7 @@ static bool EnsureTransposeStorage(const size_t matrixSize){
 		matrixT_ = nullptr;
 		matrixTSize_ = 0;
 	}
-	matrixT_ = static_cast<float*>(_mm_malloc(matrixSize * sizeof(float), 64));
+	matrixT_ = static_cast<float*>(_mm_malloc(matrixSize*sizeof(float), 64));
 	if(!matrixT_){
 		std::cout << "Allocation error: matrixT_ null (size=" << matrixSize << ")\n";
 		return false;
@@ -521,7 +521,7 @@ static bool EnsureTauStorage(const size_t size){
 		tau_ = nullptr;
 		tauSize_ = 0;
 	}
-	tau_ = static_cast<float*>(_mm_malloc(size * sizeof(float), 64));
+	tau_ = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
 	if(!tau_){
 		std::cout << "Allocation error: tau_ null (k=" << size << ")\n";
 		return false;
@@ -536,7 +536,7 @@ static bool EnsureWorkStorage(const size_t size){
 		work_ = nullptr;
 		workSize_ = 0;
 	}
-	work_ = static_cast<float*>(_mm_malloc(size * sizeof(float), 64));
+	work_ = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
 	if(!work_){
 		std::cout << "Allocation error: work_ null (needWork=" << size << ")\n";
 		return false;
@@ -556,7 +556,7 @@ static bool EnsureRandomStream(){
 static void FallbackGaussianInit(__half* dWeights, int rows, int cols, WeightInitMethod method){
 	if(rows <= 0){ rows = 1; }
 	if(cols <= 0){ cols = 1; }
-	const size_t elems = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+	const size_t elems = static_cast<size_t>(rows)*static_cast<size_t>(cols);
 	if(elems == 0){
 		std::cout << "FallbackGaussianInit: invalid element count for rows=" << rows << " cols=" << cols << '\n';
 		return;
@@ -573,7 +573,7 @@ static void FallbackGaussianInit(__half* dWeights, int rows, int cols, WeightIni
 	if(method == He && fanIn > 0.0f){ scale = std::sqrt(2.0f / fanIn); } else if(method == Xavier && fanIn > 0.0f){ scale = std::sqrt(1.0f / fanIn); }
 	for(size_t i = 0; i < elems; ++i){ matrixF_[i] *= scale; }
 	FloatToHalfAsm(matrixF_, matrixH_, static_cast<int>(elems));
-	const cudaError_t cerr = cudaMemcpy(dWeights, matrixH_, elems * sizeof(__half), cudaMemcpyHostToDevice);
+	const cudaError_t cerr = cudaMemcpy(dWeights, matrixH_, elems*sizeof(__half), cudaMemcpyHostToDevice);
 	if(cerr != cudaSuccess){
 		std::cout << "CUDA error: cudaMemcpy H2D failed: " << cudaGetErrorString(cerr) << '\n';
 	}
@@ -591,7 +591,7 @@ void OrthogonalInit(__half* dWeights, const int rows, const int cols, WeightInit
 		m = cols;
 		n = rows;
 	}
-	const size_t matrixSize = static_cast<size_t>(m) * static_cast<size_t>(n);
+	const size_t matrixSize = static_cast<size_t>(m)*static_cast<size_t>(n);
 	if(!EnsureMatrixStorage(matrixSize)){
 		FallbackGaussianInit(dWeights, rows, cols, method);
 		return;
@@ -656,10 +656,10 @@ void OrthogonalInit(__half* dWeights, const int rows, const int cols, WeightInit
 		mkl_somatcopy('C', 'T', m, n, 1.0f, matrixF_, m, matrixT_, n);
 		outF = matrixT_;
 	}
-	const size_t elems = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+	const size_t elems = static_cast<size_t>(rows)*static_cast<size_t>(cols);
 	for(size_t i = 0; i < elems; ++i){ outF[i] *= scale; }
 	FloatToHalfAsm(outF, matrixH_, static_cast<int>(elems));
-	const cudaError_t cerr = cudaMemcpy(dWeights, matrixH_, elems * sizeof(__half), cudaMemcpyHostToDevice);
+	const cudaError_t cerr = cudaMemcpy(dWeights, matrixH_, elems*sizeof(__half), cudaMemcpyHostToDevice);
 	if(cerr != cudaSuccess){
 		std::cout << "CUDA error: cudaMemcpy H2D failed: " << cudaGetErrorString(cerr) << '\n';
 	}

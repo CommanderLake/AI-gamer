@@ -45,21 +45,21 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedWidth_ = sharedW;
 	const int sharedSpatialSize = sharedHeight_*sharedWidth_;
 	constexpr auto outC1 = 4096;
-	sharedLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC1, "Trunk-neck FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	sharedLayers_.push_back(new FCLayer(cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC1, "Trunk-neck FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	sharedLayers_.push_back(new LayerNorm(batchSize_, outC1, 1, 1, "Trunk-neck LN", train_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, outC1, 1, 1, "Trunk-neck GELU"));
 	sharedLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC1, 1, 1, "Trunk-neck Drop", train_));
 	constexpr auto outC2 = 1024;
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC1, outC2, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, outC1, outC2, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Buttons LN", train_));
 	buttonLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Buttons GELU"));
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC2, 1, 1, "Buttons Drop", train_));
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC2, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC1, outC2, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, outC2, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, outC1, outC2, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Axes LN", train_));
 	axisLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Axes GELU"));
 	axisLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC2, 1, 1, "Axes Drop", train_));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC2, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, outC2, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 SpatialActionHead::~SpatialActionHead(){
@@ -93,7 +93,7 @@ __half* SpatialActionHead::Backward(__half* grad){
 	auto axisGrad = grad + NUM_BUTS_*batchSize_;
 	for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){ buttonGrad = buttonLayers_[i]->Backward(buttonGrad); }
 	for(int i = static_cast<int>(axisLayers_.size()); --i >= 0;){ axisGrad = axisLayers_[i]->Backward(axisGrad); }
-	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, sharedDesc_, axisGrad, &alpha_, sharedDesc_, buttonGrad));
+	checkCUDNN(cudnnAddTensor(cudnn_, &one_, sharedDesc_, axisGrad, &one_, sharedDesc_, buttonGrad));
 	auto sharedGrad = buttonGrad;
 	for(int i = static_cast<int>(sharedLayers_.size()); --i >= 0;){ sharedGrad = sharedLayers_[i]->Backward(sharedGrad); }
 	if(seqLength_ > 1){

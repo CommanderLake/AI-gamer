@@ -3,7 +3,8 @@
 #include "CuCommon.cuh"
 #include "FCLayer.h"
 #include "BatchNorm.h"
-#include "Activate.h"
+#include "GELULayer.h"
+#include "LayerNorm.h"
 ResFCLayer::ResFCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int hiddenC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength):
 	cudnnHandle_(cudnnHandle), batchSize_(batchSize), inC_(inC), hiddenC_(hiddenC), outC_(outC), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
@@ -12,15 +13,16 @@ ResFCLayer::ResFCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cub
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, 1, 1));
-	layers_.push_back(new FCLayer(cudnnHandle, cublasHandle, batchSize_, inC_, hiddenC_, "FC0", train, weightDecay, gradAccumLength_, He));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, hiddenC_, 1, 1, "FC0 BatchNorm", train_, gradAccumLength_));
-	layers_.push_back(new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, hiddenC_, 1, 1, "FC0 ReLU"));
-	layers_.push_back(new FCLayer(cudnnHandle_, cublasHandle, batchSize_, hiddenC_, outC_, "FC1", train, weightDecay, gradAccumLength_, He));
-	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, 1, 1, "FC1 BatchNorm", train_, gradAccumLength_));
-	residue_ = new FCLayer(cudnnHandle_, cublasHandle, batchSize_, inC_, outC_, "Residue", train, weightDecay, gradAccumLength_, He);
-	resAct_ = new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC_, 1, 1, "Residue ReLU");
+	layers_.push_back(new FCLayer(cublasHandle, batchSize_, inC_, hiddenC_, "FC0", train, weightDecay, gradAccumLength_, Xavier));
+	layers_.push_back(new LayerNorm(batchSize_, hiddenC_, 1, 1, "FC0 LayerNorm", train_));
+	layers_.push_back(new GELULayer(batchSize_, hiddenC_, 1, 1, "GELU"));
+	layers_.push_back(new FCLayer(cublasHandle, batchSize_, hiddenC_, outC_, "FC1", train, weightDecay, gradAccumLength_, Xavier));
+	layers_.push_back(new LayerNorm(batchSize_, outC_, 1, 1, "FC1 LayerNorm", train_));
+	residue_ = new FCLayer(cublasHandle, batchSize_, inC_, outC_, "Residue", train, weightDecay, gradAccumLength_, Xavier);
+	resAct_ = new GELULayer(batchSize_, hiddenC_, 1, 1, "Residue GELU");
 }
 ResFCLayer::~ResFCLayer(){
+	for(const auto layer : layers_) delete layer;
 	layers_.clear();
 	delete residue_;
 	delete resAct_;
@@ -34,7 +36,7 @@ __half* ResFCLayer::Forward(__half* data){
 		data = layers_[i]->Forward(data);
 		//PrintDataHalf(buttonData, 14, "buttonData");
 	}
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &fwdAlpha, residue_->outDesc_, residue, &fwdBeta, layers_.back()->outDesc_, data));
+	checkCUDNN(cudnnAddTensor(cudnnHandle_, &fwdAlpha, outDesc_, residue, &fwdBeta, outDesc_, data));
 	return resAct_->Forward(data);
 }
 __half* ResFCLayer::Backward(__half* grad){

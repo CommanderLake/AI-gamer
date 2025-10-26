@@ -25,7 +25,7 @@ public:
 	int sequenceBatch_;
 	float weightDecay_;
 	int gradAccumLength_;
-	const float alpha_ = 1.0f;
+	const float one_ = 1.0f;
 	int trunkC1_, trunkC2_;
 	std::vector<Layer*> sharedLayers_;
 	std::vector<Layer*> buttonLayers_;

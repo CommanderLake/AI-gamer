@@ -1,11 +1,11 @@
 #pragma once
 #include "Layer.h"
 #include "ConvLayer.h"
+#include "FCLayer.h"
+#include "GELULayer.h"
 #include <cudnn.h>
 #include <cublas_v2.h>
 #include <vector>
-#include "Activate.h"
-#include "FCLayer.h"
 class ResFCLayer : public Layer{
 public:
 	ResFCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int hiddenC, int outC, const char* layerName, bool train, float weightDecay, int gradAccumLength);
@@ -25,7 +25,7 @@ public:
 	int batchSize_, inC_, hiddenC_, outC_;
 	std::vector<Layer*> layers_;
 	FCLayer* residue_;
-	Activate* resAct_;
+	GELULayer* resAct_;
 	const float fwdAlpha = 0.2f;
 	const float fwdBeta = 0.8f;
 	const float bwdAlpha = 0.2f;

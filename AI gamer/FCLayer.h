@@ -2,11 +2,10 @@
 #include "Layer.h"
 #include "WeightInitMethod.h"
 #include <cublas_v2.h>
-#include <cudnn.h>
 class FCLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	FCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, bool useBias = false);
+	FCLayer(cublasHandle_t cublasHandle, int batchSize, int inC, int outC, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, bool useBias = false);
 	~FCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -18,7 +17,6 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	int batchSize_, inC_, outC_;
 	__half* outData_ = nullptr;
