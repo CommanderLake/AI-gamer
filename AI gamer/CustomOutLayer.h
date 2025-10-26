@@ -4,7 +4,7 @@
 #include <vector>
 class CustomOutLayer : public Layer{
 public:
-	CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int inputSize, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int tokens, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~CustomOutLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -20,7 +20,9 @@ public:
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
 	int batchSize_, seqLength_, inC_;
-	int sequenceBatch_;
+	int tokens_;
+	int embedDim_;
+	int fullFeatureSize_;
 	const float alpha_ = 1.0f;
 	int gradAccumLength_;
 	std::vector<Layer*> buttonLayers_;
@@ -28,4 +30,6 @@ public:
 	__half* predictions_ = nullptr;
 	__half* blendedTokens_ = nullptr;
 	__half* temporalGrad_ = nullptr;
+	__half* classTokens_ = nullptr;
+	__half* upstreamGrad_ = nullptr;
 };

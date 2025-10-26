@@ -40,22 +40,23 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);
 	const auto nTokens = patchRows*patchCols;
+	const auto tokensWithCls = nTokens + 1;
 	constexpr bool enableViewerLayers = false;
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedSize, 3, netHeight, netWidth, 3, "Input Viewer", true, 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, 3, netHeight, netWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Patch Embedding Viewer", true, 1.0f, false));
 	for(int i = 0; i < numEncoders; ++i){
 		auto name = "Encoder" + std::to_string(i);
-		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, nTokens, embedSize, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_));
+		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchStateTotal_, tokensWithCls, embedSize, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_));
 		//if(enableViewerLayers){
-			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1) 
-				//layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, name + " Output Viewer", 1.0f, false));
+				//if(i == 0 || i == numEncoders/2 || i == numEncoders-1)
+						//layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, name + " Output Viewer", 1.0f, false));
 		//}
 	}
-	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedSize, 1, 1, "Post-encoder norm", train));
+	layers_.push_back(new LayerNorm(batchStateTotal_*tokensWithCls, embedSize, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	//layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchStateTotal_, seqLength_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, nTokens*embedSize, "SpatialActionHead", train, wd, gradAccumLength_));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, tokensWithCls, embedSize, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
