@@ -18,11 +18,6 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;
-	if(seqLength_ <= 0){ seqLength_ = 1; }
-	if(batchSize_ % seqLength_ != 0){ throw std::invalid_argument("batchSize must be divisible by seqLength"); }
-	sequenceBatch_ = batchSize_/seqLength_;
-	CUDAMallocZero(&blendedTokens_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
-	CUDAMallocZero(&temporalGrad_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
@@ -64,8 +59,6 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 }
 SpatialActionHead::~SpatialActionHead(){
 	cudaFree(predictions_);
-	cudaFree(blendedTokens_);
-	cudaFree(temporalGrad_);
 	cudnnDestroyTensorDescriptor(sharedDesc_);
 	for(const auto* layer : axisLayers_) delete layer;
 	for(const auto* layer : buttonLayers_) delete layer;
@@ -76,10 +69,6 @@ SpatialActionHead::~SpatialActionHead(){
 }
 __half* SpatialActionHead::Forward(__half* data){
 	auto tokenInput = data;
-	if(seqLength_ > 1){
-		TemporalBlendForward(data, blendedTokens_, sequenceBatch_, seqLength_, nTokens_*embedSize_);
-		tokenInput = blendedTokens_;
-	}
 	for(auto* layer : sharedLayers_){ tokenInput = layer->Forward(tokenInput); }
 	auto buttonData = tokenInput;
 	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
@@ -96,10 +85,6 @@ __half* SpatialActionHead::Backward(__half* grad){
 	checkCUDNN(cudnnAddTensor(cudnn_, &one_, sharedDesc_, axisGrad, &one_, sharedDesc_, buttonGrad));
 	auto sharedGrad = buttonGrad;
 	for(int i = static_cast<int>(sharedLayers_.size()); --i >= 0;){ sharedGrad = sharedLayers_[i]->Backward(sharedGrad); }
-	if(seqLength_ > 1){
-		TemporalBlendBackward(sharedGrad, temporalGrad_, sequenceBatch_, seqLength_, nTokens_*embedSize_);
-		return temporalGrad_;
-	}
 	return sharedGrad;
 }
 void SpatialActionHead::UpdateParameters(const float learningRate){

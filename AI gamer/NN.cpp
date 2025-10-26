@@ -9,7 +9,7 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), seqLength_(4), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train): cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), seqLength_(1), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	batchStateTotal_ = batchSize_*seqLength_;
 	int netWidth = w;
@@ -43,7 +43,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	const auto tokensWithCls = nTokens + 1;
 	constexpr bool enableViewerLayers = false;
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedSize, 3, netHeight, netWidth, 3, "Input Viewer", true, 1.0f, false));
-	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, 3, netHeight, netWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchStateTotal_, 3, netHeight, netWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Patch Embedding Viewer", true, 1.0f, false));
 	for(int i = 0; i < numEncoders; ++i){
 		auto name = "Encoder" + std::to_string(i);

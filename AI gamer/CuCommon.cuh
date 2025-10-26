@@ -78,15 +78,11 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
-void SumPositionalGrad(const __half* grad, __half* out, int batchTotal, int seqLength, int C, int P, bool first, float scale);
+void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
 void SumClassTokenGrad(const __half* grad, __half* out, int batchTotal, int seqLength, int embedDim, int tokens, bool first, float scale);
-void BuildClassTokenOutput(const __half* classToken, const __half* patches, __half* output, int batchTotal, int seqLength, int embedDim, int numPatches);
 void StripClassToken(const __half* input, __half* output, int batchTotal, int embedDim, int numPatches);
 void GatherClassTokens(const __half* input, __half* output, int batchTotal, int tokens, int embedDim);
 void ScatterClassTokenGrads(const __half* classGrad, __half* output, int batchTotal, int tokens, int embedDim);
-void AddTemporalPositionalEmbedding(__half* output, const __half* posEmbed, int batchTotal, int seqLength, int featureSize);
-void TemporalBlendForward(const __half* input, __half* output, int batch, int seqLength, int featureSize);
-void TemporalBlendBackward(const __half* grad, __half* output, int batch, int seqLength, int featureSize);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void ScaleArrayHalf(__half* data, size_t count, float scale);

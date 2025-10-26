@@ -115,134 +115,34 @@ void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W,
 	CombinePatchGradsKernel<<<blocks, tpb>>>(dy, dx, B, C, H, W, P);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void SumPositionalGradKernel(const __half* grad, __half* out, int batchTotal, int seqLength, int C, int P, bool first, float scale){
-	const int featureCount = C * P;
-	const int total = seqLength * featureCount;
-	const int stride = blockDim.x * gridDim.x;
-	const int sequences = batchTotal / seqLength;
-	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
-		const int cp = idx % featureCount;
-		const int t = idx / featureCount;
-		const int c = cp / P;
-		const int p = cp - c * P;
+__global__ void SumPositionalGradKernel(const __half* grad, __half* out, int B, int C, int P, bool first, float scale){
+	const int total = C*P;
+	const int stride = blockDim.x*gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int c = idx / P;
+		const int p = idx - c*P;
 		float sum = 0.0f;
-		for(int s = 0; s < sequences; ++s){
-			const int sample = s * seqLength + t;
-			const int gradIndex = c + C * (sample * P + p);
-			sum += __half2float(grad[gradIndex]);
+		for(int b = 0; b < B; ++b){
+			const int index = c + C*(b*P + p);
+			sum += __half2float(grad[index]);
 		}
-		const float scaled = sum * scale;
-		const int outIndex = c + C * (t * P + p);
-		if(first){ out[outIndex] = __float2half(scaled); } else{
-			const float prev = __half2float(out[outIndex]);
-			out[outIndex] = __float2half(prev + scaled);
+		const float scaled = sum*scale;
+		if(first){
+			out[idx] = __float2half(scaled);
+		} else{
+			const float prev = __half2float(out[idx]);
+			out[idx] = __float2half(prev + scaled);
 		}
 	}
 }
-void SumPositionalGrad(const __half* grad, __half* out, int batchTotal, int seqLength, int C, int P, bool first, float scale){
+void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale){
 	size_t blocks = 0, tpb = 0;
-	GetLaunchConfigGridStride(seqLength * C * P, blocks, tpb);
-	SumPositionalGradKernel<<<blocks, tpb>>>(grad, out, batchTotal, seqLength, C, P, first, scale);
-	checkCUDA(cudaGetLastError());
+	GetLaunchConfigGridStride(C*P, blocks, tpb);
+	SumPositionalGradKernel<<<blocks, tpb>>>(grad, out, B, C, P, first, scale);
+	const auto e = cudaGetLastError();
+	if(e != cudaSuccess) printf("SumPositionalGrad error: %s\n", cudaGetErrorString(e));
 }
-__global__ void AddTemporalPositionalEmbeddingKernel(__half* output, const __half* posEmbed, int batchTotal, int seqLength, int featureSize){
-	const int stride = blockDim.x * gridDim.x;
-	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < batchTotal * featureSize; idx += stride){
-		const int sample = idx / featureSize;
-		const int t = seqLength > 0 ? sample % seqLength : 0;
-		const int posIndex = t * featureSize + (idx - sample * featureSize);
-		output[idx] = __hadd(output[idx], posEmbed[posIndex]);
-	}
-}
-void AddTemporalPositionalEmbedding(__half* output, const __half* posEmbed, int batchTotal, int seqLength, int featureSize){
-	if(seqLength <= 0){ return; }
-	size_t blocks = 0, tpb = 0;
-	GetLaunchConfigGridStride(batchTotal * featureSize, blocks, tpb);
-	AddTemporalPositionalEmbeddingKernel<<<blocks, tpb>>>(output, posEmbed, batchTotal, seqLength, featureSize);
-	checkCUDA(cudaGetLastError());
-}
-constexpr int MAX_TEMPORAL_SEQ = 16;
-constexpr float kTemporalMeanWeight = 0.1f;
-constexpr float kTemporalDiffWeight = 0.2f;
-__global__ void TemporalBlendForwardKernel(const __half* input, __half* output, int batch, int seqLength, int featureSize){
-	const int stride = blockDim.x * gridDim.x;
-	const int total = batch * featureSize;
-	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
-		const int b = idx / featureSize;
-		const int f = idx - b * featureSize;
-		float values[MAX_TEMPORAL_SEQ];
-		float sum = 0.0f;
-		for(int t = 0; t < seqLength; ++t){
-			const int offset = ((b * seqLength + t) * featureSize) + f;
-			const float val = __half2float(input[offset]);
-			values[t] = val;
-			sum += val;
-		}
-		const float mean = sum / static_cast<float>(seqLength);
-		for(int t = 0; t < seqLength; ++t){
-			const float prev = t == 0 ? values[t] : values[t - 1];
-			const float diff = t == 0 ? 0.0f : (values[t] - prev);
-			const float blended = values[t] + kTemporalMeanWeight * (mean - values[t]) + kTemporalDiffWeight * diff;
-			const int outIndex = ((b * seqLength + t) * featureSize) + f;
-			output[outIndex] = __float2half(blended);
-		}
-	}
-}
-void TemporalBlendForward(const __half* input, __half* output, int batch, int seqLength, int featureSize){
-	if(seqLength <= 0 || batch <= 0){ return; }
-	if(seqLength > MAX_TEMPORAL_SEQ){
-		checkCUDA(cudaMemcpy(output, input, static_cast<size_t>(batch)*seqLength*featureSize*sizeof(__half), cudaMemcpyDeviceToDevice));
-		return;
-	}
-	size_t blocks = 0, tpb = 0;
-	GetLaunchConfigGridStride(batch * featureSize, blocks, tpb);
-	TemporalBlendForwardKernel<<<blocks, tpb>>>(input, output, batch, seqLength, featureSize);
-	checkCUDA(cudaGetLastError());
-}
-__global__ void TemporalBlendBackwardKernel(const __half* gradOut, __half* gradIn, int batch, int seqLength, int featureSize){
-	const int stride = blockDim.x * gridDim.x;
-	const int total = batch * featureSize;
-	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
-		const int b = idx / featureSize;
-		const int f = idx - b * featureSize;
-		float grads[MAX_TEMPORAL_SEQ];
-		float accum[MAX_TEMPORAL_SEQ];
-		float gradSum = 0.0f;
-		for(int t = 0; t < seqLength; ++t){
-			const int offset = ((b * seqLength + t) * featureSize) + f;
-			const float val = __half2float(gradOut[offset]);
-			grads[t] = val;
-			gradSum += val;
-			accum[t] = 0.0f;
-		}
-		const float meanContribution = kTemporalMeanWeight * gradSum / static_cast<float>(seqLength);
-		for(int t = 0; t < seqLength; ++t){ accum[t] += meanContribution; }
-		for(int t = 0; t < seqLength; ++t){
-			const float g = grads[t];
-			accum[t] += g * (1.0f - kTemporalMeanWeight);
-			if(t > 0){
-				accum[t] += kTemporalDiffWeight * g;
-				accum[t - 1] -= kTemporalDiffWeight * g;
-			}
-		}
-		for(int t = 0; t < seqLength; ++t){
-			const int outIndex = ((b * seqLength + t) * featureSize) + f;
-			gradIn[outIndex] = __float2half(accum[t]);
-		}
-	}
-}
-void TemporalBlendBackward(const __half* grad, __half* output, int batch, int seqLength, int featureSize){
-	if(seqLength <= 0 || batch <= 0){ return; }
-	if(seqLength > MAX_TEMPORAL_SEQ){
-		checkCUDA(cudaMemcpy(output, grad, static_cast<size_t>(batch)*seqLength*featureSize*sizeof(__half), cudaMemcpyDeviceToDevice));
-		return;
-	}
-	size_t blocks = 0, tpb = 0;
-	GetLaunchConfigGridStride(batch * featureSize, blocks, tpb);
-	TemporalBlendBackwardKernel<<<blocks, tpb>>>(grad, output, batch, seqLength, featureSize);
-	checkCUDA(cudaGetLastError());
-}
-__global__ void BuildClassTokenOutputKernel(const __half* __restrict__ classToken, const __half* __restrict__ patches, __half* __restrict__ output, int batchTotal, int seqLength, int embedDim, int numPatches){
+__global__ void BuildClassTokenOutputKernel(const __half* __restrict__ classToken, const __half* __restrict__ patches, __half* __restrict__ output, int batchTotal, int embedDim, int numPatches){
 	const int tokensWithCls = numPatches + 1;
 	const long long total = static_cast<long long>(batchTotal) * tokensWithCls * embedDim;
 	const long long stride = static_cast<long long>(blockDim.x) * gridDim.x;
@@ -251,24 +151,22 @@ __global__ void BuildClassTokenOutputKernel(const __half* __restrict__ classToke
 		const int rem = static_cast<int>(idx - static_cast<long long>(sample) * tokensWithCls * embedDim);
 		const int token = rem / embedDim;
 		const int emb = rem - token * embedDim;
-		const int seqIndex = seqLength > 0 ? sample % seqLength : 0;
 		if(token == 0){
-			const int clsIndex = seqIndex * embedDim + emb;
-			output[idx] = classToken[clsIndex];
+			output[idx] = classToken[emb];
 		} else{
 			const int patchIndex = sample * numPatches * embedDim + (token - 1) * embedDim + emb;
 			output[idx] = patches[patchIndex];
 		}
 	}
 }
-void BuildClassTokenOutput(const __half* classToken, const __half* patches, __half* output, int batchTotal, int seqLength, int embedDim, int numPatches){
+void BuildClassTokenOutput(const __half* classToken, const __half* patches, __half* output, int batchTotal, int embedDim, int numPatches){
 	const int tokensWithCls = numPatches + 1;
 	const long long total = static_cast<long long>(batchTotal) * tokensWithCls * embedDim;
 	if(total <= 0) return;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
 	if(blocks > 0 && tpb > 0){
-		BuildClassTokenOutputKernel<<<blocks, tpb>>>(classToken, patches, output, batchTotal, seqLength, embedDim, numPatches);
+		BuildClassTokenOutputKernel<<<blocks, tpb>>>(classToken, patches, output, batchTotal, embedDim, numPatches);
 		checkCUDA(cudaGetLastError());
 	}
 }

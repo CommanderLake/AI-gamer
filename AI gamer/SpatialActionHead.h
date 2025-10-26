@@ -22,7 +22,6 @@ public:
 	int batchSize_, seqLength_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
 	int sharedHeight_, sharedWidth_;
-	int sequenceBatch_;
 	float weightDecay_;
 	int gradAccumLength_;
 	const float one_ = 1.0f;
@@ -31,6 +30,4 @@ public:
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
 	__half* predictions_ = nullptr;
-	__half* blendedTokens_ = nullptr;
-	__half* temporalGrad_ = nullptr;
 };

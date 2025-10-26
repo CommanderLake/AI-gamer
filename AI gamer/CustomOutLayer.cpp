@@ -11,10 +11,8 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;
-	CUDAMallocZero(&classTokens_, static_cast<size_t>(batchSize_)*seqLength_*embedDim_*sizeof(__half));
-	CUDAMallocZero(&blendedTokens_, static_cast<size_t>(batchSize_)*embedDim_*sizeof(__half));
-	CUDAMallocZero(&temporalGrad_, static_cast<size_t>(batchSize_)*seqLength_*embedDim_*sizeof(__half));
-	CUDAMallocZero(&upstreamGrad_, static_cast<size_t>(batchSize_)*seqLength_*fullFeatureSize_*sizeof(__half));
+	CUDAMallocZero(&classTokens_, static_cast<size_t>(batchSize_)*embedDim_*sizeof(__half));
+	CUDAMallocZero(&upstreamGrad_, static_cast<size_t>(batchSize_)*fullFeatureSize_*sizeof(__half));
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, 1, 1));
@@ -33,10 +31,8 @@ CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 }
 CustomOutLayer::~CustomOutLayer(){
 	cudaFree(predictions_);
-	cudaFree(temporalGrad_);
-	cudaFree(blendedTokens_);
-	cudaFree(classTokens_);
 	cudaFree(upstreamGrad_);
+	cudaFree(classTokens_);
 	cudnnDestroyTensorDescriptor(inDesc_);
 	for(const auto layer : axisLayers_) delete layer;
 	for(const auto layer : buttonLayers_) delete layer;
@@ -44,15 +40,10 @@ CustomOutLayer::~CustomOutLayer(){
 	buttonLayers_.clear();
 }
 __half* CustomOutLayer::Forward(__half* data){
-	GatherClassTokens(data, classTokens_, batchSize_*seqLength_, tokens_, embedDim_);
-	auto tokenInput = classTokens_;
-	if(seqLength_ > 1){
-		TemporalBlendForward(classTokens_, blendedTokens_, batchSize_, seqLength_, embedDim_);
-		tokenInput = blendedTokens_;
-	}
-	auto buttonData = tokenInput;
+	GatherClassTokens(data, classTokens_, batchSize_, tokens_, embedDim_);
+	auto buttonData = classTokens_;
 	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
-	auto axisData = tokenInput;
+	auto axisData = classTokens_;
 	for(auto* layer : axisLayers_){ axisData = layer->Forward(axisData); }
 	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_);
 	return predictions_;
@@ -63,12 +54,7 @@ __half* CustomOutLayer::Backward(__half* grad){
 	for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){ buttonGrad = buttonLayers_[i]->Backward(buttonGrad); }
 	for(int i = static_cast<int>(axisLayers_.size()); --i >= 0;){ axisGrad = axisLayers_[i]->Backward(axisGrad); }
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, inDesc_, axisGrad, &alpha_, inDesc_, buttonGrad));
-	const __half* classGrad = buttonGrad;
-	if(seqLength_ > 1){
-		TemporalBlendBackward(buttonGrad, temporalGrad_, batchSize_, seqLength_, embedDim_);
-		classGrad = temporalGrad_;
-	}
-	ScatterClassTokenGrads(classGrad, upstreamGrad_, batchSize_, tokens_, embedDim_);
+	ScatterClassTokenGrads(buttonGrad, upstreamGrad_, batchSize_, tokens_, embedDim_);
 	return upstreamGrad_;
 }
 void CustomOutLayer::UpdateParameters(const float learningRate){
