@@ -4,7 +4,6 @@
 #include "ConvLayer.h"
 #include "CustomOutLayer.h"
 #include "EncoderLayer.h"
-#include "GlobalPoolLayer.h"
 #include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
 #include "ViewerLayer.h"
@@ -32,7 +31,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.02f;
 	constexpr auto patchSize = 20;
-	constexpr auto embedH = 24;
+	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
 	constexpr auto embedSize = embedH*embedW;
 	constexpr auto ffDim = embedSize*4;
@@ -56,8 +55,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	layers_.push_back(new LayerNorm(batchStateTotal_*nTokens, embedSize, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchStateTotal_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	//layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchStateTotal_, seqLength_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
-	layers_.push_back(new GlobalPoolLayer(batchStateTotal_, nTokens, embedSize, "GPL", train));
-	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchStateTotal_, seqLength_, embedSize, "SpatialActionHead", train, wd, gradAccumLength_));
+	layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, seqLength_, nTokens*embedSize, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
