@@ -7,61 +7,58 @@ GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, cons
 	outNCHW_ = batchSize_*embedSize_;
 	weightCount_ = embedSize_;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&query_, weightCount_*sizeof(__half));
+	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	CUDAMallocZero(&attnWeights_, batchSize_*nTokens_*sizeof(float));
 	CUDAMallocZero(&scratchBuffer_, batchSize_*nTokens_*sizeof(float));
-	CUDAMallocZero(&batchSums_, batchSize_*sizeof(float));
 	if(train_){
 		CUDAMallocZero(&outGrad_, batchSize_*nTokens_*embedSize_*sizeof(__half));
 		CUDAMallocZero(&gradQuery_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&mQuery_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&vQuery_, weightCount_*sizeof(__half));
+		CUDAMallocZero(&batchSums_, batchSize_*sizeof(float));
 	}
-	weights_ = query_;
 }
 GlobalPoolLayer::~GlobalPoolLayer(){
 	cudaFree(outData_);
-	cudaFree(query_);
+	cudaFree(weights_);
 	cudaFree(attnWeights_);
 	cudaFree(scratchBuffer_);
-	cudaFree(batchSums_);
-	if(outGrad_){ cudaFree(outGrad_); }
-	if(gradQuery_){ cudaFree(gradQuery_); }
-	if(mQuery_){ cudaFree(mQuery_); }
-	if(vQuery_){ cudaFree(vQuery_); }
+	if(train_){
+		cudaFree(outGrad_);
+		cudaFree(gradQuery_);
+		cudaFree(mQuery_);
+		cudaFree(vQuery_);
+		cudaFree(batchSums_);
+	}
 }
 __half* GlobalPoolLayer::Forward(__half* data){
 	inData_ = data;
-	AttentionPoolForward(data, query_, outData_, attnWeights_, scratchBuffer_, batchSize_, nTokens_, embedSize_, invSqrtDim_);
+	AttentionPoolForward(data, weights_, outData_, attnWeights_, scratchBuffer_, batchSize_, nTokens_, embedSize_, invSqrtDim_);
 	return outData_;
 }
 __half* GlobalPoolLayer::Backward(__half* grad){
-	if(!train_ || !outGrad_){ return grad; }
-	AttentionPoolBackward(grad, inData_, query_, attnWeights_, scratchBuffer_, batchSums_, outGrad_, gradQuery_, batchSize_, nTokens_, embedSize_, invSqrtDim_);
+	AttentionPoolBackward(grad, inData_, weights_, attnWeights_, scratchBuffer_, batchSums_, outGrad_, gradQuery_, batchSize_, nTokens_, embedSize_, invSqrtDim_);
 	return outGrad_;
 }
 void GlobalPoolLayer::UpdateParameters(float learningRate){
-	if(!train_ || !gradQuery_){ return; }
-	AdamWHalf(query_, gradQuery_, mQuery_, vQuery_, learningRate, t_, weightDecay_, embedSize_);
+	AdamWHalf(weights_, gradQuery_, mQuery_, vQuery_, learningRate, t_, weightDecay_, embedSize_);
 	++t_;
 }
 void GlobalPoolLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
-	cudaMemcpy(buffer, query_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+	cudaMemcpy(buffer, weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 }
 void GlobalPoolLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
-	cudaMemcpy(query_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	cudaMemcpy(weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 }
 void GlobalPoolLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
-	if(!train_ || !mQuery_ || !vQuery_){ return; }
 	cudaMemcpy(buffer, mQuery_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(buffer, vQuery_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 }
 void GlobalPoolLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
-	if(!train_ || !mQuery_ || !vQuery_){ return; }
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(mQuery_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
@@ -69,7 +66,6 @@ void GlobalPoolLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buf
 }
 size_t GlobalPoolLayer::GetParameterSize(){ return weightCount_*sizeof(__half); }
 size_t GlobalPoolLayer::GetOptimizerStateSize(){
-	if(!train_ || !mQuery_ || !vQuery_){ return 0; }
 	return 2*weightCount_*sizeof(__half);
 }
 void GlobalPoolLayer::SetTrain(bool enable){

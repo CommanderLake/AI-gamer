@@ -20,9 +20,12 @@ public:
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
 	int batchSize_, seqLength_, inC_;
+	int sequenceBatch_;
+	const float alpha_ = 1.0f;
+	int gradAccumLength_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
-	__half* predictions_;
-	const float alpha = 1.0f;
-	int gradAccumLength_;
+	__half* predictions_ = nullptr;
+	__half* blendedTokens_ = nullptr;
+	__half* temporalGrad_ = nullptr;
 };

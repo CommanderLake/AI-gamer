@@ -3,63 +3,68 @@
 #include "CuCommon.cuh"
 #include "FCLayer.h"
 #include "GELULayer.h"
-//#include "ViewerLayer.h"
+#include "AsinhLayer.h"
+#include "Dropout.h"
+#include "LayerNorm.h"
 CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int inputSize, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
 	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), inC_(inputSize), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;
+	if(seqLength_ <= 0){ seqLength_ = 1; }
+	if(batchSize_ % seqLength_ != 0){ throw std::invalid_argument("batchSize must be divisible by seqLength"); }
+	sequenceBatch_ = batchSize_/seqLength_;
+	CUDAMallocZero(&blendedTokens_, static_cast<size_t>(batchSize_)*inC_*sizeof(__half));
+	CUDAMallocZero(&temporalGrad_, static_cast<size_t>(batchSize_)*inC_*sizeof(__half));
+	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*seqLength_, inputSize, 1, 1));
-	constexpr int hiddenDim = 256;
-	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, NUM_BUTS_, "Buts_FC1", train, weightDecay, gradAccumLength_, Xavier, true));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, inputSize, hiddenDim, "Axes_FC1", train, weightDecay, gradAccumLength_, Xavier, true));
-	axisLayers_.push_back(new GELULayer(batchSize_*seqLength_, hiddenDim, 1, 1, "GELU"));
-	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_*seqLength_, hiddenDim, NUM_AXES_, "Axes_FC_Out", train, weightDecay, gradAccumLength_, Xavier, true));
-	CUDAMallocZero(&predictions_, batchSize_*seqLength_*NUM_CTRLS_*sizeof(__half));
+	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inputSize, 1, 1));
+	const auto outC = inC_*2;
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inC_, outC, "Buttons FC 1", train_, weightDecay, gradAccumLength_, Xavier, true));
+	buttonLayers_.push_back(new LayerNorm(batchSize_, outC, 1, 1, "Buttons LN", train_));
+	buttonLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Buttons GELU"));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC, 1, 1, "Buttons Drop", train_));
+	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, inC_, outC, "Axes FC 1", train_, weightDecay, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new LayerNorm(batchSize_, outC, 1, 1, "Axes LN", train_));
+	axisLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Axes GELU"));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC, 1, 1, "Axes Drop", train_));
+	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC, NUM_AXES_, "Axes FC 2", train_, weightDecay, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 CustomOutLayer::~CustomOutLayer(){
 	cudaFree(predictions_);
-	for(const auto layer : axisLayers_){
-		delete layer;
-	}
-	for(const auto layer : buttonLayers_){
-		delete layer;
-	}
+	cudaFree(temporalGrad_);
+	cudaFree(blendedTokens_);
+	cudnnDestroyTensorDescriptor(inDesc_);
+	for(const auto layer : axisLayers_) delete layer;
+	for(const auto layer : buttonLayers_) delete layer;
 	axisLayers_.clear();
 	buttonLayers_.clear();
-	cudnnDestroyTensorDescriptor(inDesc_);
 }
 __half* CustomOutLayer::Forward(__half* data){
-	auto buttonData = data;
-	auto axisData = data;
-	for(int i = 0; i<buttonLayers_.size(); ++i){
-		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
-		buttonData = buttonLayers_[i]->Forward(buttonData);
-		//SummarizeHalfDevice(buttonData, buttonLayers_[i]->outNCHW_, "buttonData");
+	auto tokenInput = data;
+	if(seqLength_ > 1){
+		TemporalBlendForward(data, blendedTokens_, sequenceBatch_, seqLength_, inC_);
+		tokenInput = blendedTokens_;
 	}
-	for(int i = 0; i<axisLayers_.size(); ++i){
-		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
-		axisData = axisLayers_[i]->Forward(axisData);
-		//SummarizeHalfDevice(axisData, axisLayers_[i]->outNCHW_, "axisData");
-	}
-	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_*seqLength_);
+	auto buttonData = tokenInput;
+	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
+	auto axisData = tokenInput;
+	for(auto* layer : axisLayers_){ axisData = layer->Forward(axisData); }
+	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_);
 	return predictions_;
 }
 __half* CustomOutLayer::Backward(__half* grad){
 	auto buttonGrad = grad;
-	auto axisGrad = grad+NUM_BUTS_*batchSize_*seqLength_;
-	for(int i = buttonLayers_.size(); --i>=0;){
-		//std::cout << "\n" << buttonLayers_[i]->layerName_ << " ";
-		buttonGrad = buttonLayers_[i]->Backward(buttonGrad);
-		//SummarizeHalfDevice(buttonGrad, buttonLayers_[i]->outNCHW_, "buttonGrad");
+	auto axisGrad = grad + NUM_BUTS_*batchSize_;
+	for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){ buttonGrad = buttonLayers_[i]->Backward(buttonGrad); }
+	for(int i = static_cast<int>(axisLayers_.size()); --i >= 0;){ axisGrad = axisLayers_[i]->Backward(axisGrad); }
+	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, inDesc_, axisGrad, &alpha_, inDesc_, buttonGrad));
+	if(seqLength_ > 1){
+		TemporalBlendBackward(buttonGrad, temporalGrad_, sequenceBatch_, seqLength_, inC_);
+		return temporalGrad_;
 	}
-	for(int i = axisLayers_.size(); --i>=0;){
-		//std::cout << "\n" << axisLayers_[i]->layerName_ << " ";
-		axisGrad = axisLayers_[i]->Backward(axisGrad);
-		//SummarizeHalfDevice(axisGrad, axisLayers_[i]->outNCHW_, "axisGrad");
-	}
-	checkCUDNN(cudnnAddTensor(cudnn_, &alpha, inDesc_, axisGrad, &alpha, inDesc_, buttonGrad));
 	return buttonGrad;
 }
 void CustomOutLayer::UpdateParameters(const float learningRate){

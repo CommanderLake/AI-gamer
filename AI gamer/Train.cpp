@@ -20,7 +20,7 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
-	constexpr float baseLr = 0.00001f;
+	constexpr float baseLr = 0.0001f;
 	constexpr float minLr = 0.0000001f;
 	const size_t warmupSteps = epochBatchCount * 1;
 	const size_t totalSteps = epochBatchCount * 10;

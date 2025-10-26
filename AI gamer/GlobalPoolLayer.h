@@ -21,7 +21,6 @@ public:
 	__half* inData_ = nullptr;
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;
-	__half* query_ = nullptr;
 	__half* gradQuery_ = nullptr;
 	__half* mQuery_ = nullptr;
 	__half* vQuery_ = nullptr;

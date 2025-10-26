@@ -21,11 +21,9 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	if(seqLength_ <= 0){ seqLength_ = 1; }
 	if(batchSize_ % seqLength_ != 0){ throw std::invalid_argument("batchSize must be divisible by seqLength"); }
 	sequenceBatch_ = batchSize_/seqLength_;
-	CUDAMallocZero(&spatialData_, static_cast<size_t>(batchSize_)*embedSize_*nTokens_*sizeof(__half));
-	CUDAMallocZero(&tokenGrad_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
-	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	CUDAMallocZero(&blendedTokens_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
 	CUDAMallocZero(&temporalGrad_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
+	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
 	trunkC1_ = RoundUp(embedSize_/2, 16);
@@ -34,7 +32,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	checkCUDNN(cudnnSetTensor4dDescriptor(sharedDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, trunkC2_, sharedHeight_, sharedWidth_));
 	//sharedLayers_.push_back(new ViewerLayer(tokenElems, embedDim_, patchRows_, patchCols_, 16, "TokensToSpatial Viewer", true, 1.0f, false));
 	sharedLayers_.push_back(new TokensToSpatialLayer(batchSize_, nTokens_, embedSize_, patchRows_, patchCols_, "TokensToSpatialLayer", train_));
-	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, trunkC1_, 3, 1, 1, &sharedH, &sharedW, "Spatial Trunk Conv 1", train_, weightDecay_, gradAccumLength_, Xavier));
+	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, trunkC1_, 1, 1, 0, &sharedH, &sharedW, "Spatial Trunk Conv 1", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, trunkC1_, sharedH, sharedW, "Trunk BN 1", train_, gradAccumLength_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, trunkC1_, sharedH, sharedW, "Spatial Trunk GELU 1"));
 	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, trunkC1_, sharedH, sharedW, "Trunk Drop 1", train_));
@@ -50,46 +48,42 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC1, "Trunk-neck FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	sharedLayers_.push_back(new LayerNorm(batchSize_, outC1, 1, 1, "Trunk-neck LN", train_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, outC1, 1, 1, "Trunk-neck GELU"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, outC1, 1, 1, "Trunk-neck Drop", train_));
+	sharedLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC1, 1, 1, "Trunk-neck Drop", train_));
 	constexpr auto outC2 = 1024;
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC1, outC2, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Buttons LN", train_));
 	buttonLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Buttons GELU"));
-	buttonLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, outC2, 1, 1, "Buttons Drop", train_));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC2, 1, 1, "Buttons Drop", train_));
 	buttonLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC2, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC1, outC2, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Axes LN", train_));
 	axisLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, outC2, 1, 1, "Axes Drop", train_));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC2, 1, 1, "Axes Drop", train_));
 	axisLayers_.push_back(new FCLayer(cudnn_, cublas_, batchSize_, outC2, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 SpatialActionHead::~SpatialActionHead(){
-	cudaFree(spatialData_);
-	cudaFree(tokenGrad_);
 	cudaFree(predictions_);
 	cudaFree(blendedTokens_);
 	cudaFree(temporalGrad_);
 	cudnnDestroyTensorDescriptor(sharedDesc_);
-	for(auto* layer : axisLayers_){ delete layer; }
-	for(auto* layer : buttonLayers_){ delete layer; }
-	for(auto* layer : sharedLayers_){ delete layer; }
+	for(const auto* layer : axisLayers_) delete layer;
+	for(const auto* layer : buttonLayers_) delete layer;
+	for(const auto* layer : sharedLayers_) delete layer;
 	axisLayers_.clear();
 	buttonLayers_.clear();
 	sharedLayers_.clear();
 }
 __half* SpatialActionHead::Forward(__half* data){
-	const int featureSize = nTokens_*embedSize_;
 	auto tokenInput = data;
 	if(seqLength_ > 1){
-		TemporalBlendForward(data, blendedTokens_, sequenceBatch_, seqLength_, featureSize);
+		TemporalBlendForward(data, blendedTokens_, sequenceBatch_, seqLength_, nTokens_*embedSize_);
 		tokenInput = blendedTokens_;
 	}
-	auto spatialData = tokenInput;
-	for(auto* layer : sharedLayers_){ spatialData = layer->Forward(spatialData); }
-	auto buttonData = spatialData;
+	for(auto* layer : sharedLayers_){ tokenInput = layer->Forward(tokenInput); }
+	auto buttonData = tokenInput;
 	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
-	auto axisData = spatialData;
+	auto axisData = tokenInput;
 	for(auto* layer : axisLayers_){ axisData = layer->Forward(axisData); }
 	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_);
 	return predictions_;

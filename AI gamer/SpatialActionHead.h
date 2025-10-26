@@ -30,8 +30,6 @@ public:
 	std::vector<Layer*> sharedLayers_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
-	__half* spatialData_ = nullptr;
-	__half* tokenGrad_ = nullptr;
 	__half* predictions_ = nullptr;
 	__half* blendedTokens_ = nullptr;
 	__half* temporalGrad_ = nullptr;
