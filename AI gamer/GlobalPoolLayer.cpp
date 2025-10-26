@@ -11,6 +11,7 @@ GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, cons
 	CUDAMallocZero(&attnWeights_, batchSize_*nTokens_*sizeof(float));
 	CUDAMallocZero(&scratchBuffer_, batchSize_*nTokens_*sizeof(float));
 	if(train_){
+		WeightInit(weights_, weightCount_, embedSize_, embedSize_, Xavier);
 		CUDAMallocZero(&outGrad_, batchSize_*nTokens_*embedSize_*sizeof(__half));
 		CUDAMallocZero(&gradQuery_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&mQuery_, weightCount_*sizeof(__half));
