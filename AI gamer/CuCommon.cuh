@@ -79,7 +79,8 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
-void SumClassTokenGrad(const __half* grad, __half* out, int batchTotal, int seqLength, int embedDim, int tokens, bool first, float scale);
+void BuildClassTokenOutput(const __half* classToken, const __half* patches, __half* output, int batchTotal, int embedDim, int numPatches);
+void SumClassTokenGrad(const __half* grad, __half* out, int batchTotal, int embedDim, int tokens, bool first, float scale);
 void StripClassToken(const __half* input, __half* output, int batchTotal, int embedDim, int numPatches);
 void GatherClassTokens(const __half* input, __half* output, int batchTotal, int tokens, int embedDim);
 void ScatterClassTokenGrads(const __half* classGrad, __half* output, int batchTotal, int tokens, int embedDim);

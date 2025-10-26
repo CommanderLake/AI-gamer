@@ -165,10 +165,8 @@ void BuildClassTokenOutput(const __half* classToken, const __half* patches, __ha
 	if(total <= 0) return;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
-	if(blocks > 0 && tpb > 0){
-		BuildClassTokenOutputKernel<<<blocks, tpb>>>(classToken, patches, output, batchTotal, embedDim, numPatches);
-		checkCUDA(cudaGetLastError());
-	}
+	BuildClassTokenOutputKernel<<<blocks, tpb>>>(classToken, patches, output, batchTotal, embedDim, numPatches);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void StripClassTokenKernel(const __half* __restrict__ input, __half* __restrict__ output, int batchTotal, int embedDim, int numPatches){
 	const int tokensWithCls = numPatches + 1;
@@ -188,10 +186,8 @@ void StripClassToken(const __half* input, __half* output, int batchTotal, int em
 	if(total <= 0) return;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
-	if(blocks > 0 && tpb > 0){
-		StripClassTokenKernel<<<blocks, tpb>>>(input, output, batchTotal, embedDim, numPatches);
-		checkCUDA(cudaGetLastError());
-	}
+	StripClassTokenKernel<<<blocks, tpb>>>(input, output, batchTotal, embedDim, numPatches);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void GatherClassTokensKernel(const __half* __restrict__ input, __half* __restrict__ output, int batchTotal, int tokens, int embedDim){
 	const long long total = static_cast<long long>(batchTotal) * embedDim;
@@ -208,10 +204,8 @@ void GatherClassTokens(const __half* input, __half* output, int batchTotal, int 
 	if(total <= 0) return;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
-	if(blocks > 0 && tpb > 0){
-		GatherClassTokensKernel<<<blocks, tpb>>>(input, output, batchTotal, tokens, embedDim);
-		checkCUDA(cudaGetLastError());
-	}
+	GatherClassTokensKernel<<<blocks, tpb>>>(input, output, batchTotal, tokens, embedDim);
+	checkCUDA(cudaGetLastError());
 }
 __global__ void ScatterClassTokenGradsKernel(const __half* __restrict__ classGrad, __half* __restrict__ output, int batchTotal, int tokens, int embedDim){
 	const long long total = static_cast<long long>(batchTotal) * tokens * embedDim;
@@ -228,42 +222,32 @@ __global__ void ScatterClassTokenGradsKernel(const __half* __restrict__ classGra
 	}
 }
 void ScatterClassTokenGrads(const __half* classGrad, __half* output, int batchTotal, int tokens, int embedDim){
-	const long long total = static_cast<long long>(batchTotal) * tokens * embedDim;
-	if(total <= 0) return;
+	const auto total = static_cast<long long>(batchTotal) * tokens * embedDim;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
-	if(blocks > 0 && tpb > 0){
-		ScatterClassTokenGradsKernel<<<blocks, tpb>>>(classGrad, output, batchTotal, tokens, embedDim);
-		checkCUDA(cudaGetLastError());
-	}
+	ScatterClassTokenGradsKernel<<<blocks, tpb>>>(classGrad, output, batchTotal, tokens, embedDim);
+	checkCUDA(cudaGetLastError());
 }
-__global__ void SumClassTokenGradKernel(const __half* __restrict__ grad, __half* __restrict__ out, int batchTotal, int seqLength, int embedDim, int tokens, bool first, float scale){
-	const int total = seqLength * embedDim;
-	const int sequences = seqLength > 0 ? batchTotal / seqLength : batchTotal;
+__global__ void SumClassTokenGradKernel(const __half* __restrict__ grad, __half* __restrict__ out, int batchTotal, int embedDim, int tokens, bool first, float scale){
 	const int stride = blockDim.x * gridDim.x;
-	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
-		const int t = idx / embedDim;
-		const int e = idx - t * embedDim;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < embedDim; idx += stride){
 		float sum = 0.0f;
-		for(int s = 0; s < sequences; ++s){
-			const int sample = s * seqLength + t;
-			const int gradIndex = sample * tokens * embedDim + e;
+		for(int b = 0; b < batchTotal; ++b){
+			const int gradIndex = (b * tokens) * embedDim + idx;
 			sum += __half2float(grad[gradIndex]);
 		}
 		const float scaled = sum * scale;
-		const int outIndex = t * embedDim + e;
-		if(first){ out[outIndex] = __float2half(scaled); } else{
-			const float prev = __half2float(out[outIndex]);
-			out[outIndex] = __float2half(prev + scaled);
+		if(first){
+			out[idx] = __float2half(scaled);
+		} else{
+			const float prev = __half2float(out[idx]);
+			out[idx] = __float2half(prev + scaled);
 		}
 	}
 }
-void SumClassTokenGrad(const __half* grad, __half* out, int batchTotal, int seqLength, int embedDim, int tokens, bool first, float scale){
-	if(seqLength <= 0){ return; }
+void SumClassTokenGrad(const __half* grad, __half* out, int batchTotal, int embedDim, int tokens, bool first, float scale){
 	size_t blocks = 0, tpb = 0;
-	GetLaunchConfigGridStride(seqLength * embedDim, blocks, tpb);
-	if(blocks > 0 && tpb > 0){
-		SumClassTokenGradKernel<<<blocks, tpb>>>(grad, out, batchTotal, seqLength, embedDim, tokens, first, scale);
-		checkCUDA(cudaGetLastError());
-	}
+	GetLaunchConfigGridStride(embedDim, blocks, tpb);
+	SumClassTokenGradKernel<<<blocks, tpb>>>(grad, out, batchTotal, embedDim, tokens, first, scale);
+	checkCUDA(cudaGetLastError());
 }
