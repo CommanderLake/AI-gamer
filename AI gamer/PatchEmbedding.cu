@@ -162,7 +162,6 @@ __global__ void BuildClassTokenOutputKernel(const __half* __restrict__ classToke
 void BuildClassTokenOutput(const __half* classToken, const __half* patches, __half* output, int batchTotal, int embedDim, int numPatches){
 	const int tokensWithCls = numPatches + 1;
 	const long long total = static_cast<long long>(batchTotal) * tokensWithCls * embedDim;
-	if(total <= 0) return;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
 	BuildClassTokenOutputKernel<<<blocks, tpb>>>(classToken, patches, output, batchTotal, embedDim, numPatches);
@@ -183,7 +182,6 @@ __global__ void StripClassTokenKernel(const __half* __restrict__ input, __half* 
 }
 void StripClassToken(const __half* input, __half* output, int batchTotal, int embedDim, int numPatches){
 	const long long total = static_cast<long long>(batchTotal) * numPatches * embedDim;
-	if(total <= 0) return;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
 	StripClassTokenKernel<<<blocks, tpb>>>(input, output, batchTotal, embedDim, numPatches);
@@ -201,7 +199,6 @@ __global__ void GatherClassTokensKernel(const __half* __restrict__ input, __half
 }
 void GatherClassTokens(const __half* input, __half* output, int batchTotal, int tokens, int embedDim){
 	const long long total = static_cast<long long>(batchTotal) * embedDim;
-	if(total <= 0) return;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
 	GatherClassTokensKernel<<<blocks, tpb>>>(input, output, batchTotal, tokens, embedDim);

@@ -7,7 +7,7 @@ cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(e
 	train_ = train;
 	headDim_ = embedDim_ / numHeads_;
 	outNCHW_ = batchSize_*tokens_*embedDim_;
-	alphaWeights_ = 1.0f / (batchSize_*tokens_*gradAccumLength_);
+	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
 	const size_t projSize = embedDim_*embedDim_;
 	CUDAMallocZero(&qWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&kWeights_, projSize*sizeof(__half));
@@ -102,9 +102,6 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	const auto attnOut = workspace_ + 3*outNCHW_;
 	const __half* attentionWeights = workspace_ + 4*outNCHW_;
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &beta0_ : &beta1_;
-	if(!train_ || attnGradWorkspace_ == nullptr){
-		return outGrad_;
-	}
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, betaWeights, gradOut_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &alpha_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &beta0_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	PackColumnsToHeads(attnOut, attnOutPacked_, batchSize_, tokens_, embedDim_, numHeads_);

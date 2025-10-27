@@ -12,8 +12,8 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int patchRows, const int patchCols, const int embedSize, const char* layerName, const bool train, const float weightDecay,
-	const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), nTokens_(patchRows*patchCols), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols),
+SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int patchRows, const int patchCols, const int embedSize, const char* layerName, const bool train, const float weightDecay,
+	const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), nTokens_(patchRows*patchCols), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols),
 	sharedHeight_(patchRows), sharedWidth_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
@@ -30,7 +30,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, trunkC1_, 1, 1, 0, &sharedH, &sharedW, "Spatial Trunk Conv 1", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, trunkC1_, sharedH, sharedW, "Trunk BN 1", train_, gradAccumLength_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, trunkC1_, sharedH, sharedW, "Spatial Trunk GELU 1"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, trunkC1_, sharedH, sharedW, "Trunk Drop 1", train_));
+	sharedLayers_.push_back(new Dropout(cudnn_, 0.1f, batchSize_, trunkC1_, sharedH, sharedW, "Trunk Drop 1", train_));
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, trunkC1_, trunkC2_, 1, 1, 0, &sharedH, &sharedW, "Spatial Trunk Conv 2", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, trunkC2_, sharedH, sharedW, "Trunk BN 2", train_, gradAccumLength_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, trunkC2_, sharedH, sharedW, "Spatial Trunk GELU 2"));
@@ -43,17 +43,17 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedLayers_.push_back(new FCLayer(cublas_, batchSize_, trunkC2_*sharedSpatialSize, outC1, "Trunk-neck FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	sharedLayers_.push_back(new LayerNorm(batchSize_, outC1, 1, 1, "Trunk-neck LN", train_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, outC1, 1, 1, "Trunk-neck GELU"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC1, 1, 1, "Trunk-neck Drop", train_));
+	sharedLayers_.push_back(new Dropout(cudnn_, 0.1f, batchSize_, outC1, 1, 1, "Trunk-neck Drop", train_));
 	constexpr auto outC2 = 1024;
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, outC1, outC2, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Buttons LN", train_));
 	buttonLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Buttons GELU"));
-	buttonLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC2, 1, 1, "Buttons Drop", train_));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.1f, batchSize_, outC2, 1, 1, "Buttons Drop", train_));
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, outC2, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, outC1, outC2, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new LayerNorm(batchSize_, outC2, 1, 1, "Axes LN", train_));
 	axisLayers_.push_back(new GELULayer(batchSize_, outC2, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC2, 1, 1, "Axes Drop", train_));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.1f, batchSize_, outC2, 1, 1, "Axes Drop", train_));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, outC2, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
