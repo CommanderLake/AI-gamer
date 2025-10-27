@@ -36,7 +36,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto embedSize = embedH*embedW;
 	constexpr auto ffDim = embedSize*4;
 	constexpr int numHeads = 6;
-	constexpr int numEncoders = 12;
+	constexpr int numEncoders = 10;
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);
 	const auto nTokens = patchRows*patchCols;
