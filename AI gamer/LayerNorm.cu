@@ -94,7 +94,8 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* _
 		if(laneId == 0){
 			mean[n] = blockData.mean;
 			// Use biased variance for layer norm
-			var[n] = blockData.count > 0.0f ? blockData.m2 / blockData.count : 0.0f;
+			const float varValue = blockData.count > 0.0f ? blockData.m2 / blockData.count : 0.0f;
+			var[n] = fmaxf(varValue, 0.0f);
 		}
 	}
 }
@@ -104,7 +105,8 @@ __global__ void LayerNormForwardKernel(__half* __restrict__ y, const __half* __r
 	const int stride = C * HW;
 	const int base = n * stride;
 	const float m = mean[n];
-	const float invStd = rsqrtf(var[n] + EPSILON_F);
+	const float varSafe = fmaxf(var[n], 0.0f);
+	const float invStd = rsqrtf(varSafe + EPSILON_F);
 	const int totalTiles = (stride + blockDim.x - 1) / blockDim.x;
 	for(int tile = blockIdx.x; tile < totalTiles; tile += gridDim.x){
 		const int localIdx = tile * blockDim.x + threadIdx.x;
@@ -164,7 +166,8 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 	PairData threadData{0.0f, 0.0f};
 	// Accumulate across batch dimension
 	for(int n = blockIdx.y; n < N; n += gridDim.y){
-		const float invStd = rsqrtf(__ldg(var + n) + EPSILON_F);
+		const float varSafe = fmaxf(__ldg(var + n), 0.0f);
+		const float invStd = rsqrtf(varSafe + EPSILON_F);
 		const float m = __ldg(mean + n);
 		const int base = n * C * HW + cid * HW;
 		for(int i = tid; i < HW; i += blockDim.x){
@@ -200,7 +203,8 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 	const int warpsPerBlock = (blockDim.x + 31) >> 5;
 	extern __shared__ unsigned char smem[];
 	auto* warpBuffer = reinterpret_cast<PairData*>(smem);
-	const float invStd = rsqrtf(var[n] + EPSILON_F);
+	const float varSafe = fmaxf(var[n], 0.0f);
+	const float invStd = rsqrtf(varSafe + EPSILON_F);
 	const float m = mean[n];
 	const int stride = C * HW;
 	const int base = n * stride;
@@ -237,7 +241,8 @@ __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restric
 	const int stride = C * HW;
 	const int base = n * stride;
 	const float m = mean[n];
-	const float invStd = rsqrtf(var[n] + EPSILON_F);
+	const float varSafe = fmaxf(var[n], 0.0f);
+	const float invStd = rsqrtf(varSafe + EPSILON_F);
 	const float invM = 1.0f / fmaxf(static_cast<float>(stride), 1.0f);
 	const float d1n = d1[n];
 	const float d2n = d2[n];

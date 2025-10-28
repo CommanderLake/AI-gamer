@@ -137,7 +137,7 @@ void Viewer::Play(std::string fileName){
 	int mouseDeltaX;
 	int mouseDeltaY;
 	const auto stateData = static_cast<unsigned char*>(_mm_malloc(stateSize, 64));
-	constexpr std::chrono::microseconds frameDuration(33333);
+	constexpr std::chrono::microseconds frameDuration(100);
 	auto nextFrameTime = std::chrono::high_resolution_clock::now();
 	while(file.peek() != EOF){
 		auto currentTime = std::chrono::high_resolution_clock::now();

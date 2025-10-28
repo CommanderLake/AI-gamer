@@ -18,7 +18,6 @@ public:
 	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
-	cudnnTensorDescriptor_t sharedDesc_;
 	cudnnTensorDescriptor_t neckDesc_;
 	int batchSize_, nTokens_, tokensWithCls_, embedSize_;
 	int patchRows_, patchCols_;
@@ -26,7 +25,7 @@ public:
 	float weightDecay_;
 	int gradAccumLength_;
 	const float one_ = 1.0f;
-	int trunkC1_, trunkC2_, neckDim_;
+	int trunkC1_, trunkC2_, sharedOutC_;
 	std::vector<Layer*> sharedLayers_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;

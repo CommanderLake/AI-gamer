@@ -20,7 +20,7 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
-	constexpr float baseLr = 0.00002f;
+	constexpr float baseLr = 0.00001f;
 	constexpr float minLr = 0.0000001f;
 	const size_t warmupSteps = epochBatchCount*1;
 	const size_t totalSteps = epochBatchCount*10;
@@ -91,12 +91,13 @@ void Train::TrainModel(const int width, const int height){
 	const auto epochBatchCount = trainRecordIndices.size() / nn->batchStateTotal_;
 	const auto epochBatchCountVal = valRecordIndices.size() / nn->batchStateTotal_;
 	for(size_t epoch = 0; epoch < epochs; ++epoch){
+		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nEpoch: " << epoch << "\n";
 		for(size_t batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
 			threadPool.WaitAll();
 			fetchBatch(false);
-			//const float lr = GetLearningRate(epoch, batch, epochBatchCount);
-			const auto result = TrainBatch(nn, sbRead, true, 0.00002f, batch, epochBatchCount);
+			const float lr = GetLearningRate(epoch, batch, epochBatchCount);
+			const auto result = TrainBatch(nn, sbRead, true, 0.00001f, batch, epochBatchCount);
 			if(result == -1){ stopTraining = true; }
 		}
 		if(stopTraining){
@@ -106,6 +107,7 @@ void Train::TrainModel(const int width, const int height){
 		threadPool.WaitAll();
 		nn->SaveModel(ckptFileName);
 		nn->SaveOptimizerState(optFileName);
+		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
 		fetchBatch(true);
