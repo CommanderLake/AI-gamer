@@ -1,7 +1,7 @@
 #include "ConvLayer.h"
 #include "CuCommon.cuh"
 #include <iostream>
-ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
+ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
 	inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
@@ -11,17 +11,20 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	checkCUDNN(cudnnCreateFilterDescriptor(&filterDesc_));
 	checkCUDNN(cudnnCreateConvolutionDescriptor(&convDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, inHeight_, inWidth_));
-	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, outC_, inC_, filterSize, filterSize));
+	const int cPerGroupIn = inC_/groups;
+	const int cPerGroupOut = outC_/groups;
+	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, outC_, cPerGroupIn, filterSize, filterSize));
 	//auto [padH, padW] = Padding(inHeight_, inWidth_, filterSize, stride);
 	checkCUDNN(cudnnSetConvolution2dDescriptor(convDesc_, padding, padding, stride, stride, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
+	checkCUDNN(cudnnSetConvolutionGroupCount(convDesc_, groups));
 	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH)); //S
 	int n, c;
 	checkCUDNN(cudnnGetConvolution2dForwardOutputDim(convDesc_, inDesc_, filterDesc_, &n, &c, &outHeight_, &outWidth_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, outHeight_, outWidth_));
 	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
 	inNCHW_ = batchSize_*inC_*inHeight_*inWidth_;
-	const auto fanIn = inC_*filterSize*filterSize;
-	const auto fanOut = outC_*filterSize*filterSize;
+	const auto fanIn = cPerGroupIn*filterSize*filterSize;
+	const auto fanOut = cPerGroupOut*filterSize*filterSize;
 	weightCount_ = outC_*fanIn;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));

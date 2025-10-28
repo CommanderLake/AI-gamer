@@ -13,12 +13,12 @@ ResConvLayer::ResConvLayer(const cudnnHandle_t cudnnHandle, const int batchSize,
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, *inHeight, *inWidth));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, outHeight_, outWidth_));
 	int resH = *inHeight, resW = *inWidth;
-	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 4, 2, 1, inHeight, inWidth, "Conv0", train, weightDecay, gradAccumLength_, He));
+	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 4, 2, 1, inHeight, inWidth, 1, "Conv0", train, weightDecay, gradAccumLength_, He));
 	//layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, *inHeight, *inWidth, "Conv0 BatchNorm", train_, gradAccumLength_));
 	layers_.push_back(new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC_, *inHeight, *inWidth, "Conv0 ReLU"));
-	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, outC_, outC_, 3, 1, 1, inHeight, inWidth, "Conv1", train, weightDecay, gradAccumLength_, He));
+	layers_.push_back(new ConvLayer(cudnnHandle_, batchSize_, outC_, outC_, 3, 1, 1, inHeight, inWidth, 1, "Conv1", train, weightDecay, gradAccumLength_, He));
 	layers_.push_back(new BatchNorm(cudnnHandle_, CUDNN_BATCHNORM_SPATIAL, batchSize_, outC_, *inHeight, *inWidth, "Conv1 BatchNorm", train_, gradAccumLength_));
-	residue_ = new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 1, 2, 0, &resH, &resW, "Residue", train, weightDecay, gradAccumLength_, He);
+	residue_ = new ConvLayer(cudnnHandle_, batchSize_, inC_, outC_, 1, 2, 0, &resH, &resW, 1, "Residue", train, weightDecay, gradAccumLength_, He);
 	resAct_ = new Activate(cudnnHandle_, CUDNN_ACTIVATION_RELU, 1.0, batchSize_, outC_, *inHeight, *inWidth, "Residue ReLU");
 	outWidth_ = *inWidth;
 	outHeight_ = *inHeight;;
