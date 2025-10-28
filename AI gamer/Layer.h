@@ -16,7 +16,7 @@ public:
 	virtual size_t GetOptimizerStateSize(){ return 0; }
 	virtual void SetTrain(bool enable){}
 	cudnnTensorDescriptor_t outDesc_;
-	int outNCHW_ = 0;
+	size_t outNCHW_ = 0;
 	const char* layerName_ = "";
 	bool train_;
 	size_t weightCount_ = 0;
