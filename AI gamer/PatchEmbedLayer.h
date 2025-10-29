@@ -41,6 +41,10 @@ public:
 	__half* gradWeights_ = nullptr;
 	__half* posEmbed_ = nullptr;
 	__half* gradPosEmbed_ = nullptr;
+	__half* controlPosEmbed_ = nullptr;
+	__half* gradControlPosEmbed_ = nullptr;
+	__half* tokenTypeEmbed_ = nullptr;
+	__half* gradTokenTypeEmbed_ = nullptr;
 	__half* controlWeights_ = nullptr;
 	__half* controlBiases_ = nullptr;
 	__half* gradControlWeights_ = nullptr;
@@ -49,6 +53,10 @@ public:
 	__half* v_ControlWeights_ = nullptr;
 	__half* m_ControlBiases_ = nullptr;
 	__half* v_ControlBiases_ = nullptr;
+	__half* m_ControlPosEmbed_ = nullptr;
+	__half* v_ControlPosEmbed_ = nullptr;
+	__half* m_TokenTypeEmbed_ = nullptr;
+	__half* v_TokenTypeEmbed_ = nullptr;
 	const __half* inData_ = nullptr;
 	const __half* controlInput_ = nullptr;
 	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;
@@ -63,4 +71,7 @@ public:
 	int gradAccumLength_;
 	int accumCount_ = 0;
 	int posCount_ = 0;
+	size_t controlPosCount_ = 0;
+	size_t tokenTypeCount_ = 0;
+	int tokenTypeClasses_ = 0;
 };

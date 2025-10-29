@@ -142,3 +142,22 @@ void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, boo
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("SumPositionalGrad error: %s\n", cudaGetErrorString(e));
 }
+__global__ void AddPerTokenEmbeddingKernel(__half* output, const __half* embed, int batch, int tokens, int embedDim){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
+	if(idx >= total) return;
+	const int feature = idx % embedDim;
+	const size_t tokenIndex = idx / embedDim;
+	const int token = static_cast<int>(tokenIndex % tokens);
+	const float sum = __half2float(output[idx]) + __half2float(embed[token*embedDim + feature]);
+	output[idx] = __float2half(sum);
+}
+void AddPerTokenEmbedding(__half* output, const __half* embed, int batch, int tokens, int embedDim){
+	if(!output || !embed || batch <= 0 || tokens <= 0 || embedDim <= 0) return;
+	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
+	size_t blocks = 0, tpb = 0;
+	GetLaunchConfigGridStride(total, blocks, tpb);
+	if(blocks == 0 || tpb == 0) return;
+	AddPerTokenEmbeddingKernel<<<blocks, tpb>>>(output, embed, batch, tokens, embedDim);
+	checkCUDA(cudaGetLastError());
+}
