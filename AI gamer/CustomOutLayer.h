@@ -28,6 +28,5 @@ public:
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
 	__half* predictions_ = nullptr;
-	__half* classTokens_ = nullptr;
 	__half* upstreamGrad_ = nullptr;
 };

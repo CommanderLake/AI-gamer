@@ -52,7 +52,7 @@ __half* LayerNorm::Backward(__half* grad){
 	LayerNormBackward(outGrad_, grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, workspace_, workspaceSize_, batchSize_, outC_, outHW_);
 	return outGrad_;
 }
-void LayerNorm::UpdateParameters(float learningRate){
+void LayerNorm::UpdateParameters(const float learningRate){
 	AdamWFloat(gamma_, gradGamma_, mGamma_, vGamma_, learningRate, t_, 0.0f, outC_);
 	AdamWFloat(beta_, gradBeta_, mBeta_, vBeta_, learningRate, t_, 0.0f, outC_);
 	++t_;
@@ -78,6 +78,7 @@ void LayerNorm::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(buffer, vBeta_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void LayerNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
@@ -88,6 +89,7 @@ void LayerNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	cudaMemcpy(mBeta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(vBeta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 size_t LayerNorm::GetParameterSize(){
 	return 2*outC_*sizeof(float);

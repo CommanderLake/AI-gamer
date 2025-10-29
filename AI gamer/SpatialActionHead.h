@@ -2,7 +2,7 @@
 #include "Layer.h"
 #include <cublas_v2.h>
 #include <vector>
-class SpatialActionHead : public Layer{
+class SpatialActionHead final : public Layer{
 public:
 	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int patchRows, int patchCols, int embedSize, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~SpatialActionHead() override;
@@ -19,7 +19,7 @@ public:
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t neckDesc_;
-	int batchSize_, nTokens_, tokensWithCls_, embedSize_;
+	int batchSize_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
 	int sharedHeight_, sharedWidth_;
 	float weightDecay_;
@@ -29,10 +29,7 @@ public:
 	std::vector<Layer*> sharedLayers_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
-	std::vector<Layer*> classLayers_;
-	__half* classTokens_ = nullptr;
 	__half* patchTokens_ = nullptr;
-	__half* classNeckGrad_ = nullptr;
 	__half* upstreamGrad_ = nullptr;
 	__half* predictions_ = nullptr;
 };

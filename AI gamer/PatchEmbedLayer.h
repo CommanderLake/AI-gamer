@@ -26,9 +26,7 @@ public:
 	int patchRows_, patchCols_;
 	int patchDim_;
 	int numPatches_;
-	int tokensWithCls_;
 	int featureSize_;
-	int featureSizeWithCls_;
 	__half* patchBuffer_ = nullptr;
 	__half* patchTokens_ = nullptr;
 	__half* patchGradBuffer_ = nullptr;
@@ -37,12 +35,9 @@ public:
 	__half* gradWeights_ = nullptr;
 	__half* posEmbed_ = nullptr;
 	__half* gradPosEmbed_ = nullptr;
-	__half* classToken_ = nullptr;
-	__half* gradClassToken_ = nullptr;
 	const __half* inData_ = nullptr;
 	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;
 	__half *m_PosEmbed_ = nullptr, *v_PosEmbed_ = nullptr;
-	__half *m_ClassToken_ = nullptr, *v_ClassToken_ = nullptr;
 	int t_ = 1;
 	const float alpha_ = 1.0f;
 	float alphaWeights_ = 1.0f;

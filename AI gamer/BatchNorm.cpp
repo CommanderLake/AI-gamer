@@ -119,6 +119,7 @@ void BatchNorm::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(buffer, v_BnBias_, outC_*sizeof(float), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
+	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void BatchNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
@@ -130,6 +131,7 @@ void BatchNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	cudaMemcpy(m_BnBias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(v_BnBias_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 size_t BatchNorm::GetParameterSize(){ return outC_*sizeof(float); }
 size_t BatchNorm::GetOptimizerStateSize(){ return outC_*sizeof(float); }

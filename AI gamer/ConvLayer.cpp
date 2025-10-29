@@ -94,6 +94,7 @@ void ConvLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void ConvLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
@@ -101,6 +102,7 @@ void ConvLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(v_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 size_t ConvLayer::GetParameterSize(){
 	return weightCount_*sizeof(__half);

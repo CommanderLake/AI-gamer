@@ -100,6 +100,7 @@ void FCLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 		cudaMemcpy(buffer, v_Biases_, outC_*sizeof(__half), cudaMemcpyDeviceToHost);
 		file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(__half));
 	}
+	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void FCLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
@@ -113,6 +114,7 @@ void FCLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 		file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(__half));
 		cudaMemcpy(v_Biases_, buffer, outC_*sizeof(__half), cudaMemcpyHostToDevice);
 	}
+	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 size_t FCLayer::GetParameterSize(){
 	const size_t biasCount = useBias_ ? outC_ : 0;
