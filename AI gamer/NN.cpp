@@ -31,12 +31,12 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.02f;
 	constexpr auto patchSize = 20;
-	constexpr auto embedH = 24;
+	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
 	constexpr auto embedSize = embedH*embedW;
 	constexpr auto ffDim = embedSize*4;
-	constexpr int numHeads = 6;
-	constexpr int numEncoders = 12;
+	constexpr int numHeads = 4;
+	constexpr int numEncoders = 8;
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);
 	const auto nTokens = patchRows*patchCols;
