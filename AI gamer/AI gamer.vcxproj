@@ -114,6 +114,7 @@
     <ClInclude Include="ConvScale.h" />
     <ClInclude Include="CuCommon.cuh" />
     <ClInclude Include="CustomOutLayer.h" />
+    <ClInclude Include="DiscardTokensLayer.h" />
     <ClInclude Include="GELULayer.h" />
     <ClInclude Include="GlobalPoolLayer.h" />
     <ClInclude Include="LayerNorm.h" />
@@ -153,6 +154,7 @@
     <ClCompile Include="ConvLayer.cpp" />
     <ClCompile Include="ConvScale.cpp" />
     <ClCompile Include="CustomOutLayer.cpp" />
+    <ClCompile Include="DiscardTokensLayer.cpp" />
     <ClCompile Include="GELULayer.cpp" />
     <ClCompile Include="GlobalPoolLayer.cpp" />
     <ClCompile Include="LayerNorm.cpp" />

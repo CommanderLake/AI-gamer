@@ -24,16 +24,23 @@ struct StateSingle{
 struct StateBatch{
 	int batchSize;
 	int stateSize;
+	int seqLength;
+	int historyLength;
 	InputState* inputStates;
+	InputState* controlHistory;
 	unsigned char* stateData = nullptr;
-	explicit StateBatch(const int batchSize, const int stateSize) : batchSize(batchSize), stateSize(stateSize){
-		if(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*batchSize)!=cudaSuccess){
+	explicit StateBatch(const int batchSize, const int stateSize, const int seqLength, const int historyLength)
+		: batchSize(batchSize), stateSize(stateSize), seqLength(seqLength), historyLength(historyLength){
+		const size_t stateCount = static_cast<size_t>(batchSize)*seqLength;
+		if(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*stateCount)!=cudaSuccess){
 			throw std::runtime_error("Failed to allocate pinned memory with cudaMallocHost");
 		}
-		inputStates = new InputState[batchSize];
+		inputStates = new InputState[stateCount];
+		if(historyLength>0){ controlHistory = new InputState[stateCount*historyLength]; } else controlHistory = nullptr;
 	}
 	~StateBatch(){
 		delete[] inputStates;
+		delete[] controlHistory;
 		if(stateData){ cudaFreeHost(stateData); }
 	}
 };

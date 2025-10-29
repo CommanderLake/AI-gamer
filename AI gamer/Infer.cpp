@@ -21,7 +21,7 @@ Infer::Infer(){
 	cublasCreate(&cublas_);
 	nn_ = new NN(cudnn_, cublas_, 0, 0, false);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
-	CUDAMallocZero(&sequenceHalf_, nn_->stateSize_*nn_->seqLength_*sizeof(__half));
+	CUDAMallocZero(&sequenceHalf_, nn_->inputStride_*nn_->seqLength_*sizeof(__half));
 	int width, height;
 	GrabFrameUInt8(&width, &height, true, false);
 	scaleFactor_ = width/TGT_STATE_WIDTH_;
@@ -128,6 +128,10 @@ void Infer::Step(){
 		//BlockShiftHalf(sequenceHalf_ + nn_->stateSize_, -nn_->stateSize_, nn_->seqLength_);
 		//ConvertByteToHalf(frame, sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, nn_->stateSize_, true);
 		ConvertByteToHalf(frame, sequenceHalf_, nn_->stateSize_, true);
+		if(nn_->inputStride_>nn_->stateSize_){
+			const size_t controlCount = static_cast<size_t>(nn_->inputStride_ - nn_->stateSize_)*nn_->seqLength_;
+			checkCUDA(cudaMemset(sequenceHalf_ + nn_->stateSize_, 0, controlCount*sizeof(__half)));
+		}
 		const auto output = nn_->Forward(sequenceHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchStateTotal_);
 		ProcessOutput(predictionsF_);

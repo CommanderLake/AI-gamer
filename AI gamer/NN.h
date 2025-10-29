@@ -4,6 +4,7 @@
 #include <cudnn.h>
 #include <cublas_v2.h>
 #include <vector>
+class DiscardTokensLayer;
 class NN{
 public:
 	NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train);
@@ -21,7 +22,12 @@ public:
 	int seqLength_;
 	int batchStateTotal_;
 	int stateSize_;
-	int inWidth_= 0, inHeight_= 0;
-	size_t maxBufferSize_= 0;
+	int inWidth_ = 0, inHeight_ = 0;
+	size_t maxBufferSize_ = 0;
 	int gradAccumLength_;
+	int controlTokenCount_ = 0;
+	int embedDim_ = 0;
+	int controlInputDim_ = 0;
+	int inputStride_ = 0;
+	DiscardTokensLayer* discardLayer_ = nullptr;
 };
