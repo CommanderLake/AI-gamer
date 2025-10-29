@@ -19,8 +19,6 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
-	CUDAMallocZero(&patchTokens_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
-	CUDAMallocZero(&upstreamGrad_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
 	trunkC_ = RoundUp(embedSize_/4, 16);
@@ -57,8 +55,6 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 }
 SpatialActionHead::~SpatialActionHead(){
 	cudaFree(predictions_);
-	cudaFree(upstreamGrad_);
-	cudaFree(patchTokens_);
 	cudnnDestroyTensorDescriptor(neckDesc_);
 	for(const auto* layer : axisLayers_) delete layer;
 	for(const auto* layer : buttonLayers_) delete layer;
@@ -68,11 +64,10 @@ SpatialActionHead::~SpatialActionHead(){
 	sharedLayers_.clear();
 }
 __half* SpatialActionHead::Forward(__half* data){
-	auto tokenInput = patchTokens_;
-	for(auto* layer : sharedLayers_){ tokenInput = layer->Forward(tokenInput); }
-	auto buttonData = tokenInput;
+	for(auto* layer : sharedLayers_){ data = layer->Forward(data); }
+	auto buttonData = data;
 	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
-	auto axisData = tokenInput;
+	auto axisData = data;
 	for(auto* layer : axisLayers_){ axisData = layer->Forward(axisData); }
 	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_);
 	return predictions_;
@@ -85,7 +80,7 @@ __half* SpatialActionHead::Backward(__half* grad){
 	checkCUDNN(cudnnAddTensor(cudnn_, &one_, neckDesc_, axisGrad, &one_, neckDesc_, buttonGrad));
 	auto sharedGrad = buttonGrad;
 	for(int i = static_cast<int>(sharedLayers_.size()); --i >= 0;){ sharedGrad = sharedLayers_[i]->Backward(sharedGrad); }
-	return upstreamGrad_;
+	return sharedGrad;
 }
 void SpatialActionHead::UpdateParameters(const float learningRate){
 	for(auto* layer : sharedLayers_){ layer->UpdateParameters(learningRate); }
