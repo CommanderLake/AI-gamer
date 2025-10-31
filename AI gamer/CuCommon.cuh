@@ -44,7 +44,7 @@ struct pixRGB{
 	unsigned char R;
 };
 float MseLoss(const __half* dPredictions, const float* dTargets, int size);
-void MseLoss2(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
+void Loss2(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
 void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
 void ConvertByteToHalf(const unsigned char* input, __half* output, size_t size, bool normalize);
 void ConvertHalfToByte(const __half* input, unsigned char* output, size_t size, bool normalize);

@@ -82,7 +82,7 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 		std::cout << " NaN in predictions\n";
 		return -1;
 	}
-	MseLoss2(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchStateTotal_, &lossButs_, &lossAxes_);
+	Loss2(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchStateTotal_, &lossButs_, &lossAxes_);
 	if(smoothLoss){
 		constexpr float smoothing = 0.95f;
 		emaLossButs_ = smoothing*emaLossButs_ + (1.0f - smoothing)*lossButs_;
