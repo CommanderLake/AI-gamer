@@ -387,63 +387,11 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 					return;
 				}
 				if(!file.read(reinterpret_cast<char*>(batch->stateData + i * stateSize), stateSize)){ std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n"; }
-				if(batch->controlHistory && batch->historyLength > 0){ std::fill_n(batch->controlHistory + static_cast<size_t>(i) * batch->historyLength, batch->historyLength, InputState{}); }
 			} catch(const std::exception&){}
 		});
 	}
 }
-void LoadBatchLSTM(StateBatch* batch, const int batchSize, int seqLength, const int stateSize, const bool validation){
-	const std::vector<RecordIndex>* recordIndices = validation ? &valRecordIndices : &trainRecordIndices;
-	if(recordIndices->size() < batchSize * seqLength){
-		std::cerr << "Not enough records in the index to load the batch\n";
-		return;
-	}
-	for(size_t i = 0; i < batchSize; ++i){
-		threadPool.Enqueue([i, batch, seqLength, stateSize, recordIndices]() mutable{
-			const std::uniform_int_distribution<size_t> dist(0, recordIndices->size() - seqLength);
-			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
-			for(int t = 0; t < seqLength; ++t){
-				const size_t recordIndex = randomIndex + t;
-				const RecordIndex record = (*recordIndices)[recordIndex];
-				try{
-					auto& file = GetThreadFile(*record.fileName);
-					file.seekg(record.position);
-					if(file.fail()){
-						std::cerr << "Failed to seek to position:" << record.position << " in file: " << *record.fileName << "\n";
-						return;
-					}
-					const auto index = i * seqLength + t;
-					if(!file.read(reinterpret_cast<char*>(&batch->inputStates[index]), sizeof(InputState))){
-						std::cerr << "Failed to read input states for sequence " << index << " from file: " << *record.fileName << "\n";
-						return;
-					}
-					if(!file.read(reinterpret_cast<char*>(batch->stateData + index * stateSize), stateSize)){
-						std::cerr << "Failed to read stateData at index " << index << " from file: " << *record.fileName << "\n";
-						return;
-					}
-					if(batch->controlHistory && batch->historyLength > 0){
-						auto* historyBase = batch->controlHistory + static_cast<size_t>(index) * batch->historyLength;
-						std::fill_n(historyBase, batch->historyLength, InputState{});
-						for(int offset = 0; offset < batch->historyLength; ++offset){
-							if(recordIndex < static_cast<size_t>(offset)){ break; }
-							const size_t sourceIndex = recordIndex - offset;
-							const RecordIndex historyRecord = (*recordIndices)[sourceIndex];
-							if(historyRecord.fileName != record.fileName){ break; }
-							auto& historyFile = GetThreadFile(*historyRecord.fileName);
-							historyFile.seekg(historyRecord.position);
-							if(historyFile.fail()){ break; }
-							InputState historyState{};
-							if(!historyFile.read(reinterpret_cast<char*>(&historyState), sizeof(InputState))){ break; }
-							const int slot = batch->historyLength - 1 - offset;
-							historyBase[slot] = historyState;
-						}
-					}
-				} catch(const std::exception&){ return; }
-			}
-		});
-	}
-}
-void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, const int stateSize){
+void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, const int batchSize, const int stateSize){
 	if(states.size() < batchSize){
 		std::cerr << "Not enough RecordState instances to fill the batch\n";
 		return;
@@ -453,10 +401,8 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 		threadPool.Enqueue([i, batch, stateSize, &states, dist]() mutable{
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
 			const auto& record = states[randomIndex];
-			const auto index = i * batch->seqLength;
-			batch->inputStates[index] = record->inputState;
-			if(batch->stateData && record->stateData){ std::memcpy(batch->stateData + index * stateSize, record->stateData, stateSize); } else{ std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << "\n"; }
-			if(batch->controlHistory && batch->historyLength > 0){ std::fill_n(batch->controlHistory + static_cast<size_t>(index) * batch->historyLength, batch->historyLength, InputState{}); }
+			batch->inputStates[1] = record->inputState;
+			if(batch->stateData && record->stateData){ std::memcpy(batch->stateData + 1 * stateSize, record->stateData, stateSize); } else{ std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << "\n"; }
 		});
 	}
 }

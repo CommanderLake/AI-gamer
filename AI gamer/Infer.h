@@ -21,14 +21,14 @@ public:
 	Train* train_ = nullptr;
 	HWND hwnd_ = nullptr;
 	std::atomic<bool> stop_ = false;
-	std::vector<StateSingle*> states_;
 	cudnnContext* cudnn_ = nullptr;
 	cublasContext* cublas_ = nullptr;
 	NN* nn_ = nullptr;
 	std::thread inferThread_;
 	std::thread listenThread_;
 	float* predictionsF_ = nullptr;
-	__half* sequenceHalf_ = nullptr;
+	__half* frameHalf_ = nullptr;
 	int scaleFactor_ = 2;
-	bool inferEnable_, inferLast_;
+	bool inferEnable_ = false;
+	bool inferLast_ = false;
 };

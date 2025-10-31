@@ -24,23 +24,16 @@ struct StateSingle{
 struct StateBatch{
 	int batchSize;
 	int stateSize;
-	int seqLength;
-	int historyLength;
 	InputState* inputStates;
-	InputState* controlHistory;
 	unsigned char* stateData = nullptr;
-	explicit StateBatch(const int batchSize, const int stateSize, const int seqLength, const int historyLength)
-		: batchSize(batchSize), stateSize(stateSize), seqLength(seqLength), historyLength(historyLength){
-		const size_t stateCount = static_cast<size_t>(batchSize)*seqLength;
-		if(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*stateCount)!=cudaSuccess){
+	explicit StateBatch(const int batchSize, const int stateSize) : batchSize(batchSize), stateSize(stateSize){
+		if(cudaMallocHost(reinterpret_cast<void**>(&stateData), stateSize*batchSize)!=cudaSuccess){
 			throw std::runtime_error("Failed to allocate pinned memory with cudaMallocHost");
 		}
-		inputStates = new InputState[stateCount];
-		if(historyLength>0){ controlHistory = new InputState[stateCount*historyLength]; } else controlHistory = nullptr;
+		inputStates = new InputState[batchSize];
 	}
 	~StateBatch(){
 		delete[] inputStates;
-		delete[] controlHistory;
 		if(stateData){ cudaFreeHost(stateData); }
 	}
 };
@@ -67,7 +60,6 @@ extern std::vector<RecordIndex> trainRecordIndices;
 extern std::vector<RecordIndex> valRecordIndices;
 extern ThreadPool threadPool;
 void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation);
-void LoadBatchLSTM(StateBatch* batch, int batchSize, int seqLength, int stateSize, bool validation);
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
 ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t xDesc, cudnnFilterDescriptor_t wDesc, cudnnConvolutionDescriptor_t convDesc, cudnnTensorDescriptor_t yDesc, bool isTraining);
 void OrthogonalInit(__half* weights, int rows, int cols, WeightInitMethod method);
