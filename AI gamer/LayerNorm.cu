@@ -285,6 +285,16 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	const int rowsPerBlock = max(1, min(4096 / max(HW, 1), N));
 	int gradGridY = min(DivCeil(N, rowsPerBlock), 65535ull);
 	gradGridY = max(1, min(gradGridY, N));
+	size_t targetBlocks = DivCeil(GS, static_cast<size_t>(gradWarps));
+	if(targetBlocks == 0){ targetBlocks = 1; }
+	const size_t currentBlocks = static_cast<size_t>(C) * static_cast<size_t>(gradGridY);
+	if(currentBlocks < targetBlocks){
+		size_t desiredGridY = DivCeil(targetBlocks, static_cast<size_t>(C));
+		const size_t maxGridY = min(static_cast<size_t>(N), static_cast<size_t>(65535));
+		if(desiredGridY < 1){ desiredGridY = 1; }
+		if(desiredGridY > maxGridY){ desiredGridY = maxGridY; }
+		gradGridY = static_cast<int>(desiredGridY);
+	}
 	dim3 gradGrid(C, gradGridY, 1);
 	GradGammaBetaKernel<<<gradGrid, gradTpb, gradSmemSize>>>(dy, x, mean, var, dG, dB, N, C, HW);
 	checkCUDA(cudaGetLastError());
