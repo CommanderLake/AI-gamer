@@ -23,14 +23,10 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	int sharedW = patchCols_;
 	trunkC_ = RoundUp(embedSize_/4, 16);
 	sharedLayers_.push_back(new TokensToSpatialLayer(batchSize_, nTokens_, embedSize_, patchRows_, patchCols_, "TokensToSpatialLayer", train_));
-	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, embedSize_, 3, 1, 1, &sharedH, &sharedW, embedSize_, "Spatial Depthwise", train_, weightDecay_, gradAccumLength_, Xavier));
-	sharedLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, embedSize_, sharedH, sharedW, "Spatial BN 1", train_, gradAccumLength_));
-	sharedLayers_.push_back(new GELULayer(batchSize_, embedSize_, sharedH, sharedW, "Spatial GELU 1"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, embedSize_, sharedH, sharedW, "Spatial Drop 2", train_));
-	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, trunkC_, 1, 1, 0, &sharedH, &sharedW, 1, "Spatial Pointwise", train_, weightDecay_, gradAccumLength_, Xavier));
-	sharedLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, trunkC_, sharedH, sharedW, "Spatial BN 2", train_, gradAccumLength_));
-	sharedLayers_.push_back(new GELULayer(batchSize_, trunkC_, sharedH, sharedW, "Spatial GELU 2"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, trunkC_, sharedH, sharedW, "Spatial Drop 2", train_));
+	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, trunkC_, 3, 1, 1, &sharedH, &sharedW, 1, "Spatial Conv", train_, weightDecay_, gradAccumLength_, Xavier));
+	sharedLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, trunkC_, sharedH, sharedW, "Spatial BN", train_, gradAccumLength_));
+	sharedLayers_.push_back(new GELULayer(batchSize_, trunkC_, sharedH, sharedW, "Spatial GELU"));
+	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, trunkC_, sharedH, sharedW, "Spatial Drop", train_));
 	sharedHeight_ = sharedH;
 	sharedWidth_ = sharedW;
 	sharedOutC_ = trunkC_*sharedHeight_*sharedWidth_;
