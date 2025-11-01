@@ -9,7 +9,7 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(160), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	int netWidth = w;
 	int netHeight = h;
