@@ -56,13 +56,10 @@ namespace{
 		}
 		return value;
 	}
-	int SelectLayerNormThreads(int elements){
-		// Ensure we have at least warp size
-		int threads = 32;
-		// Scale up to cover elements, but cap at reasonable thread count
-		while(threads < elements && threads < 512){ threads <<= 1; }
-		// For very small element counts, use minimum warp size
-		if(elements < 32){ threads = 32; }
+	int SelectLayerNormThreads(const int elements){
+		int threads = BS;
+		while(threads < elements && threads < 512) threads <<= 1;
+		if(elements < BS){ threads = BS; }
 		return threads;
 	}
 }
@@ -77,23 +74,17 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* _
 	auto* warpBuffer = reinterpret_cast<WelfordData*>(smem);
 	const int stride = C * HW;
 	const __half* xn = x + n * stride;
-	// Initialize Welford data
 	WelfordData data{0.0f, 0.0f, 0.0f};
-	// Process elements with this thread
 	for(int i = tid; i < stride; i += blockDim.x){ data = WelfordUpdate(data, __half2float(xn[i])); }
-	// Warp-level reduction
 	data = WarpReduceWelford(data);
-	// Store warp results to shared memory
 	if(laneId == 0){ warpBuffer[warpId] = data; }
 	__syncthreads();
-	// Final reduction in first warp
 	if(warpId == 0){
 		WelfordData blockData{0.0f, 0.0f, 0.0f};
 		if(laneId < warpsPerBlock){ blockData = warpBuffer[laneId]; }
 		blockData = WarpReduceWelford(blockData);
 		if(laneId == 0){
 			mean[n] = blockData.mean;
-			// Use biased variance for layer norm
 			const float varValue = blockData.count > 0.0f ? blockData.m2 / blockData.count : 0.0f;
 			var[n] = fmaxf(varValue, 0.0f);
 		}
@@ -257,14 +248,12 @@ __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restric
 			const float xnorm = (xv - m) * invStd;
 			const float gi = __ldg(g + c);
 			float dxv = gi * invStd * (dyv - d1n * invM - xnorm * d2n * invM);
-			// Apply gradient clipping for stability
 			dxv = fmaxf(fminf(dxv, LN_GRAD_CLIP), -LN_GRAD_CLIP);
 			dx[idx] = __float2half(dxv);
 		}
 	}
 }
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW){
-	// Validate inputs
 	if(!dx || !dy || !x || !g || !dG || !dB || !mean || !var || !workspace){
 		fprintf(stderr, "LayerNormBackward: Null pointer input\n");
 		return;
@@ -273,50 +262,40 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 		fprintf(stderr, "LayerNormBackward: Invalid dimensions N=%d, C=%d, HW=%d\n", N, C, HW);
 		return;
 	}
-	// Check workspace size
 	const size_t required_size = 2 * N * sizeof(float);
 	if(workspaceSize < required_size){
 		fprintf(stderr, "LayerNormBackward: Insufficient workspace (need %zu, got %zu)\n", required_size, workspaceSize);
 		return;
 	}
-	// Setup workspace pointers
-	auto d1 = static_cast<float*>(workspace);
+	const auto d1 = static_cast<float*>(workspace);
 	float* d2 = d1 + N;
-	// Initialize gradient buffers
 	checkCUDA(cudaMemset(dG, 0, C * sizeof(float)));
 	checkCUDA(cudaMemset(dB, 0, C * sizeof(float)));
 	checkCUDA(cudaMemset(d1, 0, N * sizeof(float)));
 	checkCUDA(cudaMemset(d2, 0, N * sizeof(float)));
-	// Configure thread/block dimensions
-	const int gradThreads = SelectLayerNormThreads(HW);
-	const int gradWarps = (gradThreads + 31) / 32;
+	const int gradTpb = SelectLayerNormThreads(HW);
+	const int gradWarps = DivCeil(gradTpb, 32);
 	const size_t gradSmemSize = gradWarps * sizeof(PairData);
-	// Check shared memory limit
 	int maxSmem;
 	cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0);
 	if(gradSmemSize > maxSmem){
 		fprintf(stderr, "LayerNormBackward: Required shared memory %zu exceeds limit %d\n", gradSmemSize, maxSmem);
 		return;
 	}
-	// Configure grid for gradient computation
-	int rowsPerBlock = max(1, min(4096 / max(HW, 1), N));
-	int gradGridY = min((N + rowsPerBlock - 1) / rowsPerBlock, 65535);
+	const int rowsPerBlock = max(1, min(4096 / max(HW, 1), N));
+	int gradGridY = min(DivCeil(N, rowsPerBlock), 65535ull);
 	gradGridY = max(1, min(gradGridY, N));
 	dim3 gradGrid(C, gradGridY, 1);
-	// Launch gradient kernels
-	GradGammaBetaKernel<<<gradGrid, gradThreads, gradSmemSize>>>(dy, x, mean, var, dG, dB, N, C, HW);
+	GradGammaBetaKernel<<<gradGrid, gradTpb, gradSmemSize>>>(dy, x, mean, var, dG, dB, N, C, HW);
 	checkCUDA(cudaGetLastError());
-	ComputeStatsKernel<<<N, gradThreads, gradSmemSize>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
+	ComputeStatsKernel<<<N, gradTpb, gradSmemSize>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
 	checkCUDA(cudaGetLastError());
-	// Configure grid for input gradient computation
 	const int stride = C * HW;
-	const int threads = SelectLayerNormThreads(stride);
-	const int tiles = (stride + threads - 1) / threads;
-	int gridX = min(tiles, 65535);
+	const int tpb = SelectLayerNormThreads(stride);
+	const int tiles = (stride + tpb - 1) / tpb;
+	const int gridX = min(tiles, 65535);
 	dim3 grid(gridX, N, 1);
-	// Launch input gradient kernel
-	InputGradKernel<<<grid, threads>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);
+	InputGradKernel<<<grid, tpb>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);
 	checkCUDA(cudaGetLastError());
 }
-// Helper function to calculate required workspace size
 size_t LayerNormBackwardWorkspaceSize(int N){ return 2 * N * sizeof(float); }
