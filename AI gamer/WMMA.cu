@@ -127,6 +127,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	float* outAccum = rowSum + 16;
 	const float scale = rsqrtf(fmaxf(static_cast<float>(headDim), 1.0f));
 	const __half scaleHalf = __float2half(scale);
+	const __half2 scaleHalf2 = __halves2half2(scaleHalf, scaleHalf);
 	const int qBlocks = (headDim + 15) / 16;
 	// Runtime validation
 	if(qBlocks > kMaxValueBlocks || qBlocks <= 0) return;
@@ -154,10 +155,24 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 		__syncthreads();
 		if(globalRow < tokens){
 			const size_t qRowOffset = batchHeadOffset + globalRow * headDim;
-			// Coalesced loading with bounds checking
-			for(int col = threadIdx.x; col < headDim; col += blockDim.x){
-				const size_t idx = qRowOffset + col;
-				if(idx < totalElements){ sharedRow[col] = __hmul(Q[idx], scaleHalf); }
+			const __half* rowSrc = Q + qRowOffset;
+			__half* rowDst = sharedRow;
+			const int vecCount = headDim / 2;
+			auto srcVec = reinterpret_cast<const __half2*>(rowSrc);
+			auto dstVec = reinterpret_cast<__half2*>(rowDst);
+			for(int vec = threadIdx.x; vec < vecCount; vec += blockDim.x){
+				const size_t baseIdx = static_cast<size_t>(vec) * 2;
+				const size_t maxIdx = qRowOffset + baseIdx + 1;
+				if(maxIdx < totalElements){
+					dstVec[vec] = __hmul2(srcVec[vec], scaleHalf2);
+				} else if(qRowOffset + baseIdx < totalElements){
+					const __half first = __hmul(rowSrc[baseIdx], scaleHalf);
+					dstVec[vec] = __halves2half2(first, __float2half(0.0f));
+				}
+			}
+			if((headDim & 1) && threadIdx.x == 0){
+				const size_t tailIdx = qRowOffset + headDim - 1;
+				if(tailIdx < totalElements){ rowDst[headDim - 1] = __hmul(rowSrc[headDim - 1], scaleHalf); } else{ rowDst[headDim - 1] = __float2half(0.0f); }
 			}
 		}
 	}
@@ -182,24 +197,34 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			for(int kBlock = 0; kBlock < qBlocks; kBlock++){
 				if(kBlock * 16 >= headDim) break;
 				// Collaborative K tile loading
-				const int elementsPerTile = 16 * 16;
-				const int totalElements = elementsPerTile * activeWarps;
-#pragma unroll 4
-				for(int idx = threadIdx.x; idx < totalElements; idx += blockDim.x){
-					const int warpLocal = idx / elementsPerTile;
-					const int tileIndex = idx % elementsPerTile;
-					const int col = tileIndex / 16;
-					const int row = tileIndex % 16;
+				const int rowPairs = 8;
+				const int vectorsPerWarp = 16 * rowPairs;
+				const int totalVectors = vectorsPerWarp * activeWarps;
+				for(int vec = threadIdx.x; vec < totalVectors; vec += blockDim.x){
+					const int warpLocal = vec / vectorsPerWarp;
+					const int warpOffset = vec % vectorsPerWarp;
+					const int col = warpOffset / rowPairs;
+					const int pair = warpOffset % rowPairs;
+					const int row = pair * 2;
 					const int localCol = warpLocal * 16 + col;
 					const int globalCol = tileStart + colBlock + localCol;
-					const int globalRow = kBlock * 16 + row;
-					__half val = __float2half(0.0f);
-					if(globalCol < tokens && globalRow < headDim){
-						const size_t kIdx = batchHeadOffset + globalCol * headDim + globalRow;
-						if(kIdx < totalElements){ val = K[kIdx]; }
+					const int baseIdx = warpLocal * tileStride * 16 + col * tileStride + row;
+					__half first = __float2half(0.0f);
+					__half second = __float2half(0.0f);
+					const bool validCol = (warpLocal < activeWarps) && (localCol < remainingCols) && (globalCol < tokens);
+					if(validCol){
+						const int globalRow0 = kBlock * 16 + row;
+						const int globalRow1 = globalRow0 + 1;
+						if(globalRow0 < headDim){
+							const size_t idx0 = batchHeadOffset + static_cast<size_t>(globalCol) * headDim + globalRow0;
+							if(idx0 < totalElements){ first = K[idx0]; }
+						}
+						if(globalRow1 < headDim){
+							const size_t idx1 = batchHeadOffset + static_cast<size_t>(globalCol) * headDim + globalRow1;
+							if(idx1 < totalElements){ second = K[idx1]; }
+						}
 					}
-					const int tileIdx = warpLocal * tileStride * 16 + col * tileStride + row;
-					warpTiles[tileIdx] = val;
+					reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
 				}
 				__syncthreads();
 				if(warpId < activeWarps){
@@ -310,18 +335,29 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			for(int vb = 0; vb < valueBlocks; ++vb){
 				if(vb * 16 >= headDim) break;
 				// Load V tile
-#pragma unroll 4
-				for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
-					const int row = idx / 16;
-					const int col = idx % 16;
+				const int colPairs = 8;
+				const int totalPairs = 16 * colPairs;
+				for(int pairIdx = threadIdx.x; pairIdx < totalPairs; pairIdx += blockDim.x){
+					const int row = pairIdx / colPairs;
+					const int pair = pairIdx % colPairs;
+					const int col = pair * 2;
 					const int keyIdx = tileStart + colBlock + row;
-					const int valueIdx = vb * 16 + col;
-					__half val = __float2half(0.0f);
-					if(keyIdx < tokens && valueIdx < headDim){
-						const size_t vIdx = batchHeadOffset + keyIdx * headDim + valueIdx;
-						if(vIdx < totalElements){ val = V[vIdx]; }
+					const int baseIdx = row * tileStride + col;
+					__half first = __float2half(0.0f);
+					__half second = __float2half(0.0f);
+					if(row < remaining && keyIdx < tokens){
+						const int valueIdx0 = vb * 16 + col;
+						if(valueIdx0 < headDim){
+							const size_t vIdx0 = batchHeadOffset + static_cast<size_t>(keyIdx) * headDim + valueIdx0;
+							if(vIdx0 < totalElements){ first = V[vIdx0]; }
+						}
+						const int valueIdx1 = valueIdx0 + 1;
+						if(valueIdx1 < headDim){
+							const size_t vIdx1 = batchHeadOffset + static_cast<size_t>(keyIdx) * headDim + valueIdx1;
+							if(vIdx1 < totalElements){ second = V[vIdx1]; }
+						}
 					}
-					warpTiles[row * tileStride + col] = val;
+					reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
 				}
 				__syncthreads();
 				load_matrix_sync(v_frag, warpTiles, tileStride);
@@ -403,40 +439,81 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 			if(warpId < activeWarps){ fill_fragment(warpScores, 0.0f); }
 			for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
 				if(dBlock * 16 >= headDim) break;
-				// Load dOut tile for this value block
-#pragma unroll 4
-				for(int idx = threadIdx.x; idx < paddedTileElements; idx += blockDim.x){
-					const int row = idx / tileStride;
-					const int col = idx % tileStride;
-					if(row < 16 && col < 16){
-						const int globalRow = rowStart + row;
-						const int globalCol = dBlock * 16 + col;
-						__half val = __float2half(0.0f);
-						if(globalRow < tokens && globalCol < headDim){
-							const size_t dOutIdx = embOffset + globalRow * headDim + globalCol;
-							if(dOutIdx < totalEmbElements){ val = dOut[dOutIdx]; }
+				// Load dOut tile for this value block using half2 transactions
+				const int colBase = dBlock * 16;
+				const __half2 zero2 = __float2half2_rn(0.0f);
+				constexpr int kVecCols = 8;
+				for(int row = threadIdx.x; row < 16; row += blockDim.x){
+					__half* rowDst = outTile + row * tileStride;
+					auto dstVec = reinterpret_cast<__half2*>(rowDst);
+					const int globalRow = rowStart + row;
+					if(globalRow >= tokens || colBase >= headDim){
+						for(int vec = 0; vec < kVecCols; ++vec){ dstVec[vec] = zero2; }
+						continue;
+					}
+					const size_t rowOffset = embOffset + static_cast<size_t>(globalRow) * headDim;
+					if(rowOffset >= totalEmbElements){
+						for(int vec = 0; vec < kVecCols; ++vec){ dstVec[vec] = zero2; }
+						continue;
+					}
+					const size_t tileBase = rowOffset + colBase;
+					if(tileBase >= totalEmbElements){
+						for(int vec = 0; vec < kVecCols; ++vec){ dstVec[vec] = zero2; }
+						continue;
+					}
+					const __half* srcRow = dOut + tileBase;
+					for(int vec = 0; vec < kVecCols; ++vec){
+						const int globalCol = colBase + vec * 2;
+						__half2 packed = zero2;
+						if(globalCol < headDim){
+							const size_t elemIdx = tileBase + static_cast<size_t>(vec) * 2;
+							if(globalCol + 1 < headDim && elemIdx + 1 < totalEmbElements){
+								packed = reinterpret_cast<const __half2*>(srcRow)[vec];
+							} else{
+								__half lo = __float2half(0.0f);
+								__half hi = __float2half(0.0f);
+								if(elemIdx < totalEmbElements){ lo = srcRow[vec * 2]; }
+								if(globalCol + 1 < headDim && elemIdx + 1 < totalEmbElements){
+									hi = srcRow[vec * 2 + 1];
+								}
+								packed = __halves2half2(lo, hi);
+							}
 						}
-						outTile[row * tileStride + col] = val;
+						dstVec[vec] = packed;
 					}
 				}
 				__syncthreads();
 				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> outFrag;
 				if(warpId < activeWarps){ load_matrix_sync(outFrag, outTile, tileStride); }
-				// Load V tiles
-#pragma unroll 4
-				for(int idx = threadIdx.x; idx < activeWarps * 16 * 16; idx += blockDim.x){
-					const int warpLocal = idx / (16 * 16);
-					const int tileIndex = idx % (16 * 16);
-					const int r = tileIndex / 16;
-					const int c = tileIndex % 16;
-					const int globalRow = tileStart + colBlock + warpLocal * 16 + r;
+				// Load V tiles using packed row pairs
+				const __half zeroHalf = __float2half(0.0f);
+				constexpr int kVecRows = 8;
+				const int vecTileCount = activeWarps * 16 * kVecRows;
+				for(int pairIdx = threadIdx.x; pairIdx < vecTileCount; pairIdx += blockDim.x){
+					const int warpLocal = pairIdx / (16 * kVecRows);
+					const int rem = pairIdx % (16 * kVecRows);
+					const int c = rem / kVecRows;
+					const int rowPair = rem % kVecRows;
+					const int r0 = rowPair * 2;
+					const int r1 = r0 + 1;
+					const int globalRow0 = tileStart + colBlock + warpLocal * 16 + r0;
+					const int globalRow1 = tileStart + colBlock + warpLocal * 16 + r1;
 					const int globalCol = dBlock * 16 + c;
-					__half val = __float2half(0.0f);
-					if(globalRow < tokens && globalCol < headDim && warpLocal * 16 + r < remainingCols){
-						const size_t vIdx = embOffset + globalRow * headDim + globalCol;
-						if(vIdx < totalEmbElements){ val = V[vIdx]; }
+					__half h0 = zeroHalf;
+					__half h1 = zeroHalf;
+					if(globalCol < headDim){
+						if(warpLocal * 16 + r0 < remainingCols && globalRow0 < tokens){
+							const size_t vIdx0 = embOffset + static_cast<size_t>(globalRow0) * headDim + globalCol;
+							if(vIdx0 < totalEmbElements){ h0 = V[vIdx0]; }
+						}
+						if(r1 < 16 && warpLocal * 16 + r1 < remainingCols && globalRow1 < tokens){
+							const size_t vIdx1 = embOffset + static_cast<size_t>(globalRow1) * headDim + globalCol;
+							if(vIdx1 < totalEmbElements){ h1 = V[vIdx1]; }
+						}
 					}
-					valueTiles[warpLocal * paddedTileElements + c * tileStride + r] = val;
+					__half2 packed = __halves2half2(h0, h1);
+					__half* tileBase = valueTiles + warpLocal * paddedTileElements + c * tileStride + r0;
+					reinterpret_cast<__half2*>(tileBase)[0] = packed;
 				}
 				__syncthreads();
 				if(warpId < activeWarps){
@@ -534,33 +611,56 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 			if(keyBase >= tokens) continue;
 			__half* attTile = attTiles + warpId * paddedTileElements;
 			__half* kTile = valueTiles + warpId * paddedTileElements;
-			// Load attention tile
-#pragma unroll 4
-			for(int idx = laneId; idx < 16 * 16; idx += 32){
-				const int r = idx / 16;
-				const int c = idx % 16;
+			// Load attention tile using half2 stores
+			constexpr int kVecCols = 8;
+			for(int pairIdx = laneId; pairIdx < 16 * kVecCols; pairIdx += 32){
+				const int r = pairIdx / kVecCols;
+				const int vec = pairIdx % kVecCols;
+				const int c0 = vec * 2;
+				const int c1 = c0 + 1;
 				const int globalRow = rowStart + r;
-				const int globalCol = keyBase + c;
-				float val = 0.0f;
-				if(globalRow < tokens && globalCol < tokens){
-					const size_t attIdx = attOffset + globalRow * tokens + globalCol;
-					if(attIdx < totalAttElements){ val = dAtt[attIdx]; }
+				const int globalCol0 = keyBase + c0;
+				const int globalCol1 = keyBase + c1;
+				float val0 = 0.0f;
+				float val1 = 0.0f;
+				if(globalRow < tokens){
+					if(globalCol0 < tokens){
+						const size_t attIdx0 = attOffset + static_cast<size_t>(globalRow) * tokens + globalCol0;
+						if(attIdx0 < totalAttElements){ val0 = dAtt[attIdx0]; }
+					}
+					if(globalCol1 < tokens){
+						const size_t attIdx1 = attOffset + static_cast<size_t>(globalRow) * tokens + globalCol1;
+						if(attIdx1 < totalAttElements){ val1 = dAtt[attIdx1]; }
+					}
 				}
-				attTile[r * tileStride + c] = __float2half(val);
+				__half2 packed = __halves2half2(__float2half(val0), __float2half(val1));
+				__half* tileBase = attTile + r * tileStride + c0;
+				reinterpret_cast<__half2*>(tileBase)[0] = packed;
 			}
-			// Load K tile
-#pragma unroll 4
-			for(int idx = laneId; idx < 16 * 16; idx += 32){
-				const int r = idx / 16;
-				const int c = idx % 16;
+			// Load K tile with vectorized global reads
+			const __half2 zeroPair = __float2half2_rn(0.0f);
+			for(int pairIdx = laneId; pairIdx < 16 * kVecCols; pairIdx += 32){
+				const int r = pairIdx / kVecCols;
+				const int vec = pairIdx % kVecCols;
+				const int c0 = vec * 2;
 				const int globalRow = keyBase + r;
-				const int globalCol = dBlock * 16 + c;
-				__half val = __float2half(0.0f);
-				if(globalRow < tokens && globalCol < headDim){
-					const size_t kIdx = embOffset + globalRow * headDim + globalCol;
-					if(kIdx < totalEmbElements){ val = K[kIdx]; }
+				const int globalCol0 = dBlock * 16 + c0;
+				__half2 packed = zeroPair;
+				if(globalRow < tokens && globalCol0 < headDim){
+					const size_t baseIdx = embOffset + static_cast<size_t>(globalRow) * headDim + globalCol0;
+					if(baseIdx < totalEmbElements){
+						if(globalCol0 + 1 < headDim && baseIdx + 1 < totalEmbElements){
+							packed = reinterpret_cast<const __half2*>(K + baseIdx)[0];
+						} else{
+							__half h0 = K[baseIdx];
+							__half h1 = __float2half(0.0f);
+							if(globalCol0 + 1 < headDim && baseIdx + 1 < totalEmbElements){ h1 = K[baseIdx + 1]; }
+							packed = __halves2half2(h0, h1);
+						}
+					}
 				}
-				kTile[r * tileStride + c] = val;
+				__half* tileBase = kTile + r * tileStride + c0;
+				reinterpret_cast<__half2*>(tileBase)[0] = packed;
 			}
 			__syncwarp();
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> attFrag;
@@ -622,37 +722,60 @@ __global__ void ComputeDVKernel(const __half* __restrict__ attention, const __ha
 			const int queryBase = rowBlock * 16;
 			if(queryBase >= tokens) continue;
 			__half* attTile = attTiles + warpId * paddedTileElements;
-			// Load attention tile (transposed)
-#pragma unroll 4
-			for(int idx = laneId; idx < 16 * 16; idx += 32){
-				const int r = idx / 16;
-				const int c = idx % 16;
-				const int globalQuery = queryBase + r;
+			// Load attention tile (transposed) using half2 stores
+			constexpr int kVecRows = 8;
+			const __half zeroHalf = __float2half(0.0f);
+			for(int pairIdx = laneId; pairIdx < 16 * kVecRows; pairIdx += 32){
+				const int c = pairIdx / kVecRows;
+				const int rowPair = pairIdx % kVecRows;
+				const int r0 = rowPair * 2;
+				const int r1 = r0 + 1;
 				const int globalKey = keyStart + c;
-				__half val = 0.0f;
-				if(globalQuery < tokens && globalKey < tokens){
-					const size_t attIdx = attOffset + globalQuery * tokens + globalKey;
-					if(attIdx < totalAttElements){ val = attention[attIdx]; }
+				__half h0 = zeroHalf;
+				__half h1 = zeroHalf;
+				if(globalKey < tokens){
+					const int globalQuery0 = queryBase + r0;
+					const int globalQuery1 = queryBase + r1;
+					if(globalQuery0 < tokens){
+						const size_t attIdx0 = attOffset + static_cast<size_t>(globalQuery0) * tokens + globalKey;
+						if(attIdx0 < totalAttElements){ h0 = attention[attIdx0]; }
+					}
+					if(r1 < 16 && globalQuery1 < tokens){
+						const size_t attIdx1 = attOffset + static_cast<size_t>(globalQuery1) * tokens + globalKey;
+						if(attIdx1 < totalAttElements){ h1 = attention[attIdx1]; }
+					}
 				}
-				attTile[c * tileStride + r] = val;
+				__half* tileBase = attTile + c * tileStride + r0;
+				reinterpret_cast<__half2*>(tileBase)[0] = __halves2half2(h0, h1);
 			}
 			__syncwarp();
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> attFrag;
 			load_matrix_sync(attFrag, attTile, tileStride);
 			__half* outTile = outTiles + warpId * paddedTileElements;
-			// Load dOut tile
-#pragma unroll 4
-			for(int idx = laneId; idx < 16 * 16; idx += 32){
-				const int r = idx / 16;
-				const int c = idx % 16;
+			// Load dOut tile using half2 transactions
+			const __half2 zeroPair = __float2half2_rn(0.0f);
+			for(int pairIdx = laneId; pairIdx < 16 * kVecRows; pairIdx += 32){
+				const int r = pairIdx / kVecRows;
+				const int vec = pairIdx % kVecRows;
+				const int c0 = vec * 2;
 				const int globalQuery = queryBase + r;
-				const int globalCol = dBlock * 16 + c;
-				__half val = __float2half(0.0f);
-				if(globalQuery < tokens && globalCol < headDim){
-					const size_t outIdx = embOffset + globalQuery * headDim + globalCol;
-					if(outIdx < totalEmbElements){ val = dOut[outIdx]; }
+				const int globalCol0 = dBlock * 16 + c0;
+				__half2 packed = zeroPair;
+				if(globalQuery < tokens && globalCol0 < headDim){
+					const size_t baseIdx = embOffset + static_cast<size_t>(globalQuery) * headDim + globalCol0;
+					if(baseIdx < totalEmbElements){
+						if(globalCol0 + 1 < headDim && baseIdx + 1 < totalEmbElements){
+							packed = reinterpret_cast<const __half2*>(dOut + baseIdx)[0];
+						} else{
+							__half h0 = dOut[baseIdx];
+							__half h1 = __float2half(0.0f);
+							if(globalCol0 + 1 < headDim && baseIdx + 1 < totalEmbElements){ h1 = dOut[baseIdx + 1]; }
+							packed = __halves2half2(h0, h1);
+						}
+					}
 				}
-				outTile[r * tileStride + c] = val;
+				__half* tileBase = outTile + r * tileStride + c0;
+				reinterpret_cast<__half2*>(tileBase)[0] = packed;
 			}
 			__syncwarp();
 			wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> outFrag;
@@ -713,37 +836,60 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 			const int queryBase = rowBlock * 16;
 			if(queryBase >= tokens) continue;
 			__half* attTile = attTiles + warpId * paddedTileElements;
-			// Load dAtt tile (transposed)
-#pragma unroll 4
-			for(int idx = laneId; idx < 16 * 16; idx += 32){
-				const int r = idx / 16;
-				const int c = idx % 16;
-				const int globalKey = keyStart + r;
+			// Load dAtt tile (transposed) using half2 stores
+			constexpr int kVecRows = 8;
+			const __half zeroHalf = __float2half(0.0f);
+			for(int pairIdx = laneId; pairIdx < 16 * kVecRows; pairIdx += 32){
+				const int c = pairIdx / kVecRows;
+				const int rowPair = pairIdx % kVecRows;
+				const int r0 = rowPair * 2;
+				const int r1 = r0 + 1;
+				const int globalKey0 = keyStart + r0;
+				const int globalKey1 = keyStart + r1;
 				const int globalQuery = queryBase + c;
-				float val = 0.0f;
-				if(globalKey < tokens && globalQuery < tokens){
-					const size_t attIdx = attOffset + globalQuery * tokens + globalKey;
-					if(attIdx < totalAttElements){ val = dAtt[attIdx]; }
+				__half h0 = zeroHalf;
+				__half h1 = zeroHalf;
+				if(globalQuery < tokens){
+					if(globalKey0 < tokens){
+						const size_t attIdx0 = attOffset + static_cast<size_t>(globalQuery) * tokens + globalKey0;
+						if(attIdx0 < totalAttElements){ h0 = __float2half(dAtt[attIdx0]); }
+					}
+					if(r1 < 16 && globalKey1 < tokens){
+						const size_t attIdx1 = attOffset + static_cast<size_t>(globalQuery) * tokens + globalKey1;
+						if(attIdx1 < totalAttElements){ h1 = __float2half(dAtt[attIdx1]); }
+					}
 				}
-				attTile[c * tileStride + r] = __float2half(val);
+				__half* tileBase = attTile + c * tileStride + r0;
+				reinterpret_cast<__half2*>(tileBase)[0] = __halves2half2(h0, h1);
 			}
 			__syncwarp();
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> attFrag;
 			load_matrix_sync(attFrag, attTile, tileStride);
 			__half* qTile = qTiles + warpId * paddedTileElements;
-			// Load Q tile
-#pragma unroll 4
-			for(int idx = laneId; idx < 16 * 16; idx += 32){
-				const int r = idx / 16;
-				const int c = idx % 16;
+			// Load Q tile using half2 transactions
+			const __half2 zeroPair = __float2half2_rn(0.0f);
+			for(int pairIdx = laneId; pairIdx < 16 * kVecRows; pairIdx += 32){
+				const int r = pairIdx / kVecRows;
+				const int vec = pairIdx % kVecRows;
+				const int c0 = vec * 2;
 				const int globalQuery = queryBase + r;
-				const int globalCol = dBlock * 16 + c;
-				__half val = __float2half(0.0f);
-				if(globalQuery < tokens && globalCol < headDim){
-					const size_t qIdx = embOffset + globalQuery * headDim + globalCol;
-					if(qIdx < totalEmbElements){ val = Q[qIdx]; }
+				const int globalCol0 = dBlock * 16 + c0;
+				__half2 packed = zeroPair;
+				if(globalQuery < tokens && globalCol0 < headDim){
+					const size_t baseIdx = embOffset + static_cast<size_t>(globalQuery) * headDim + globalCol0;
+					if(baseIdx < totalEmbElements){
+						if(globalCol0 + 1 < headDim && baseIdx + 1 < totalEmbElements){
+							packed = reinterpret_cast<const __half2*>(Q + baseIdx)[0];
+						} else{
+							__half h0 = Q[baseIdx];
+							__half h1 = __float2half(0.0f);
+							if(globalCol0 + 1 < headDim && baseIdx + 1 < totalEmbElements){ h1 = Q[baseIdx + 1]; }
+							packed = __halves2half2(h0, h1);
+						}
+					}
 				}
-				qTile[r * tileStride + c] = val;
+				__half* tileBase = qTile + r * tileStride + c0;
+				reinterpret_cast<__half2*>(tileBase)[0] = packed;
 			}
 			__syncwarp();
 			wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> qFrag;
