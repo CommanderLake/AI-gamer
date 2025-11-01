@@ -24,8 +24,10 @@ public:
 	__half* outData_ = nullptr;
 	const __half* inData_ = nullptr;
 	__half* outGrad_ = nullptr;
-	__half *qWeights_, *kWeights_, *vWeights_, *oWeights_;
-	__half *gradQ_, *gradK_, *gradV_, *gradOut_;
+	__half *qkvWeightsBase_ = nullptr;
+	__half *qWeights_ = nullptr, *kWeights_ = nullptr, *vWeights_ = nullptr, *oWeights_ = nullptr;
+	__half *gradQkvBase_ = nullptr;
+	__half *gradQ_ = nullptr, *gradK_ = nullptr, *gradV_ = nullptr, *gradOut_ = nullptr;
 	__half *m_Q_, *v_Q_, *m_K_, *v_K_, *m_V_, *v_V_, *m_O_, *v_O_;
 	__half *dQ = nullptr, *dK = nullptr, *dV = nullptr;
 	__half *qPacked_ = nullptr, *kPacked_ = nullptr, *vPacked_ = nullptr, *attnOutPacked_ = nullptr;
