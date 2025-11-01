@@ -66,7 +66,13 @@ namespace{
 		const int warpCount = kDefaultThreads / 32;
 		const int qStride = (headDim + 15) / 16 * 16 + kSharedMemPad;
 		const int tileStride = 16 + kSharedMemPad;
-		sharedMemRequired = sizeof(__half) * (16 * qStride + warpCount * tileStride * 16 + tileStride * 16) + sizeof(float) * (16 * tileCols + 32);
+		const int valueBlocks = (headDim + 15) / 16;
+		if(valueBlocks > kMaxValueBlocks){
+			printf("Value blocks %d exceed limit %d\n", valueBlocks, kMaxValueBlocks);
+			return false;
+		}
+		const int valueStride = valueBlocks * 16;
+		sharedMemRequired = sizeof(__half) * (16 * qStride + warpCount * tileStride * 16 + tileStride * 16) + sizeof(float) * (16 * tileCols + 32 + 16 * valueStride);
 		if(sharedMemRequired > kMaxSharedMemory){
 			printf("Required shared memory %zu exceeds limit %zu (tokens=%d, headDim=%d)\n", sharedMemRequired, kMaxSharedMemory, tokens, headDim);
 			return false;
@@ -110,19 +116,23 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	// Calculate strides with alignment
 	const int qStride = ((headDim + 15) / 16 * 16) + kSharedMemPad;
 	const int tileStride = 16 + kSharedMemPad;
+	const int valueBlocks = (headDim + 15) / 16;
+	const int valueStride = valueBlocks * 16;
 	auto qShared = reinterpret_cast<__half*>(sharedMemBytes);
 	__half* warpTiles = qShared + 16 * qStride;
 	__half* attTile = warpTiles + numWarps * tileStride * 16;
 	auto scoresTile = reinterpret_cast<float*>(attTile + tileStride * 16);
 	float* rowMax = scoresTile + 16 * tileCols;
 	float* rowSum = rowMax + 16;
+	float* outAccum = rowSum + 16;
 	const float scale = rsqrtf(fmaxf(static_cast<float>(headDim), 1.0f));
 	const __half scaleHalf = __float2half(scale);
 	const int qBlocks = (headDim + 15) / 16;
 	// Runtime validation
 	if(qBlocks > kMaxValueBlocks || qBlocks <= 0) return;
+	if(valueBlocks > kMaxValueBlocks || valueBlocks <= 0) return;
 	// WMMA fragments
-	wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> q_frags[kMaxValueBlocks];
+	wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> q_frag;
 	wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> k_frag;
 	wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> v_frag;
 	// Initialize row statistics
@@ -152,9 +162,9 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 		}
 	}
 	__syncthreads();
-	// Load Q fragments
-#pragma unroll
-	for(int dBlock = 0; dBlock < qBlocks; ++dBlock){ if(dBlock * 16 < headDim){ load_matrix_sync(q_frags[dBlock], qShared + dBlock * 16, qStride); } }
+	// Initialize output accumulation buffer
+	for(int idx = threadIdx.x; idx < 16 * valueStride; idx += blockDim.x){ outAccum[idx] = 0.0f; }
+	__syncthreads();
 	const size_t attentionOffset = (static_cast<size_t>(batch) * heads + head) * tokens * tokens;
 	const size_t maxAttentionIdx = static_cast<size_t>(batchSize) * heads * tokens * tokens;
 	// Process K tiles - compute QK^T
@@ -169,7 +179,6 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			wmma::fragment<wmma::accumulator, 16, 16, 16, float> warpScores;
 			if(warpId < activeWarps){ fill_fragment(warpScores, 0.0f); }
 			// Process K blocks
-#pragma unroll 2
 			for(int kBlock = 0; kBlock < qBlocks; kBlock++){
 				if(kBlock * 16 >= headDim) break;
 				// Collaborative K tile loading
@@ -194,8 +203,9 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 				}
 				__syncthreads();
 				if(warpId < activeWarps){
+					load_matrix_sync(q_frag, qShared + kBlock * 16, qStride);
 					load_matrix_sync(k_frag, warpTiles + warpId * tileStride * 16, tileStride);
-					mma_sync(warpScores, q_frags[kBlock], k_frag, warpScores);
+					mma_sync(warpScores, q_frag, k_frag, warpScores);
 				}
 				__syncthreads();
 			}
@@ -245,12 +255,6 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 		}
 		__syncthreads();
 	}
-	// Initialize output accumulators
-	const int valueBlocks = (headDim + 15) / 16;
-	if(valueBlocks > kMaxValueBlocks || valueBlocks <= 0) return;
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> out_frags[kMaxValueBlocks];
-#pragma unroll
-	for(int vb = 0; vb < valueBlocks; ++vb){ fill_fragment(out_frags[vb], 0.0f); }
 	// Process V tiles - compute softmax(QK^T)V
 	for(int tileStart = 0; tileStart < tokens; tileStart += tileCols){
 		const int remaining = (tokens - tileStart < tileCols) ? (tokens - tileStart) : tileCols;
@@ -321,24 +325,33 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 				}
 				__syncthreads();
 				load_matrix_sync(v_frag, warpTiles, tileStride);
-				mma_sync(out_frags[vb], att_frag, v_frag, out_frags[vb]);
+				wmma::fragment<wmma::accumulator, 16, 16, 16, float> outFrag;
+				fill_fragment(outFrag, 0.0f);
+				mma_sync(outFrag, att_frag, v_frag, outFrag);
+				for(int i = 0; i < outFrag.num_elements; ++i){
+					const int row = i / 16;
+					const int col = i % 16;
+					const int outRow = row;
+					const int outCol = vb * 16 + col;
+					if(outRow < 16 && outCol < headDim){
+						const int outIdx = outRow * valueStride + outCol;
+						outAccum[outIdx] += outFrag.x[i];
+					}
+				}
 				__syncthreads();
 			}
 		}
 	}
+	__syncthreads();
 	// Store output
-	for(int vb = 0; vb < valueBlocks; ++vb){
-		if(vb * 16 >= headDim) break;
-#pragma unroll
-		for(int i = 0; i < out_frags[vb].num_elements; i++){
-			const int row = i / 16;
-			const int col = i % 16;
-			const int globalRow = rowBlock * 16 + row;
-			const int globalCol = vb * 16 + col;
-			if(globalRow < tokens && globalCol < headDim){
-				const size_t outIdx = batchHeadOffset + globalRow * headDim + globalCol;
-				if(outIdx < totalElements){ Out[outIdx] = __float2half(out_frags[vb].x[i]); }
-			}
+	for(int idx = threadIdx.x; idx < 16 * valueStride; idx += blockDim.x){
+		const int row = idx / valueStride;
+		const int col = idx % valueStride;
+		const int globalRow = rowBlock * 16 + row;
+		const int globalCol = col;
+		if(row < 16 && col < headDim && globalRow < tokens && globalCol < headDim){
+			const size_t outIdx = batchHeadOffset + globalRow * headDim + globalCol;
+			if(outIdx < totalElements){ Out[outIdx] = __float2half(outAccum[idx]); }
 		}
 	}
 }
@@ -368,34 +381,14 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 	const int paddedTileElements = tileStride * 16;
 	auto scoreTiles = reinterpret_cast<float*>(sharedBytes);
 	float* rowSums = scoreTiles + numWarps * paddedTileElements;
-	auto outTiles = reinterpret_cast<__half*>(rowSums + 16);
-	__half* valueTiles = outTiles + kMaxValueBlocks * paddedTileElements;
+	auto outTile = reinterpret_cast<__half*>(rowSums + 16);
+	__half* valueTiles = outTile + paddedTileElements;
 	__half* attTiles = valueTiles + numWarps * paddedTileElements;
 	// Initialize row sums
 	if(threadIdx.x < 16){
 		const int row = threadIdx.x;
 		const int globalRow = rowStart + row;
 		if(globalRow < tokens){ rowSums[row] = 0.0f; }
-	}
-	__syncthreads();
-	// Load dOut tiles
-	for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
-		if(dBlock * 16 >= headDim) break;
-#pragma unroll 4
-		for(int idx = threadIdx.x; idx < paddedTileElements; idx += blockDim.x){
-			const int row = idx / tileStride;
-			const int col = idx % tileStride;
-			if(row < 16 && col < 16){
-				const int globalRow = rowStart + row;
-				const int globalCol = dBlock * 16 + col;
-				__half val = __float2half(0.0f);
-				if(globalRow < tokens && globalCol < headDim){
-					const size_t dOutIdx = embOffset + globalRow * headDim + globalCol;
-					if(dOutIdx < totalEmbElements){ val = dOut[dOutIdx]; }
-				}
-				outTiles[dBlock * paddedTileElements + row * tileStride + col] = val;
-			}
-		}
 	}
 	__syncthreads();
 	// Compute dAtt = dOut @ V^T
@@ -410,9 +403,25 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 			if(warpId < activeWarps){ fill_fragment(warpScores, 0.0f); }
 			for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
 				if(dBlock * 16 >= headDim) break;
-				const __half* outTile = outTiles + dBlock * paddedTileElements;
+				// Load dOut tile for this value block
+#pragma unroll 4
+				for(int idx = threadIdx.x; idx < paddedTileElements; idx += blockDim.x){
+					const int row = idx / tileStride;
+					const int col = idx % tileStride;
+					if(row < 16 && col < 16){
+						const int globalRow = rowStart + row;
+						const int globalCol = dBlock * 16 + col;
+						__half val = __float2half(0.0f);
+						if(globalRow < tokens && globalCol < headDim){
+							const size_t dOutIdx = embOffset + globalRow * headDim + globalCol;
+							if(dOutIdx < totalEmbElements){ val = dOut[dOutIdx]; }
+						}
+						outTile[row * tileStride + col] = val;
+					}
+				}
+				__syncthreads();
 				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> outFrag;
-				load_matrix_sync(outFrag, outTile, tileStride);
+				if(warpId < activeWarps){ load_matrix_sync(outFrag, outTile, tileStride); }
 				// Load V tiles
 #pragma unroll 4
 				for(int idx = threadIdx.x; idx < activeWarps * 16 * 16; idx += blockDim.x){
@@ -822,7 +831,7 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	const int warpCount = block.x / 32;
 	const int tileStride = 16 + kSharedMemPad;
 	const size_t paddedTileElements = static_cast<size_t>(tileStride) * 16;
-	const size_t smemDQ = sizeof(float) * (warpCount * paddedTileElements + 16) + sizeof(__half) * ((kMaxValueBlocks + 2 * warpCount) * paddedTileElements);
+	const size_t smemDQ = sizeof(float) * (warpCount * paddedTileElements + 16) + sizeof(__half) * ((1 + 2 * warpCount) * paddedTileElements);
 	const size_t smemKV = sizeof(float) * (warpCount * paddedTileElements) + sizeof(__half) * (2 * warpCount * paddedTileElements);
 	if(smemDQ > kMaxSharedMemory || smemKV > kMaxSharedMemory){
 		printf("WmmaAttentionBackward: Shared memory requirements exceed limits\n");
