@@ -35,9 +35,8 @@ public:
 	size_t attnGradWorkspaceSize_ = 0;
 	int gradAccumLength_;
 	int t_ = 1;
-	const float alpha_ = 1.0f;
-	const float beta0_ = 0.0f;
-	const float beta1_ = 1.0f;
+	const float zero_ = 0.0f;
+	const float one_ = 1.0f;
 	float weightDecay_;
 	float alphaWeights_ = 1.0f;
 	int accumCount_ = 0;

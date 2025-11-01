@@ -7,6 +7,7 @@
 #include <cuda_fp16.h>
 #include <mma.h>
 #include <cstdio>
+#include <algorithm>
 using namespace nvcuda;
 namespace{
 	// Configuration constants with safer defaults
@@ -852,28 +853,37 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 // ============================================================================
 // PACKING/UNPACKING UTILITIES
 // ============================================================================
-__global__ void PackColumnsToHeadsKernel(const __half* __restrict__ input, __half* __restrict__ output, int B, int T, int H, int D){
-	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void PackColumnsToHeadsKernel(const __half* __restrict__ inputQ, const __half* __restrict__ inputK,
+	const __half* __restrict__ inputV,
+	__half* __restrict__ outputQ, __half* __restrict__ outputK,
+	__half* __restrict__ outputV,
+	int B, int T, int H, int D){
 	const int total = B * T * H * D;
-	if(idx >= total) return;
-	// Compute indices
-	const int d = idx % D;
-	int tmp = idx / D;
-	const int t = tmp % T;
-	tmp /= T;
-	const int h = tmp % H;
-	const int b = tmp / H;
 	const int embedDim = H * D;
-	const int col = b * T + t;
-	const int row = h * D + d;
-	// Bounds checking
-	const size_t inIdx = static_cast<size_t>(row) + col * embedDim;
-	const size_t maxIdx = static_cast<size_t>(B) * T * embedDim;
-	if(inIdx < maxIdx){ output[idx] = input[inIdx]; } else{ output[idx] = __float2half(0.0f); }
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += blockDim.x * gridDim.x){
+		const int d = idx % D;
+		int tmp = idx / D;
+		const int t = tmp % T;
+		tmp /= T;
+		const int h = tmp % H;
+		const int b = tmp / H;
+		const int col = b * T + t;
+		const int row = h * D + d;
+		const size_t inIdx = static_cast<size_t>(row) + static_cast<size_t>(col) * embedDim;
+		if(inputQ && outputQ){ outputQ[idx] = inputQ[inIdx]; }
+		if(inputK && outputK){ outputK[idx] = inputK[inIdx]; }
+		if(inputV && outputV){ outputV[idx] = inputV[inIdx]; }
+	}
 }
-void PackColumnsToHeads(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads){
-	if(!input || !output){
-		printf("PackColumnsToHeads: Null pointer(s)\n");
+static void LaunchPackColumnsToHeadsKernel(const __half* inputQ, const __half* inputK, const __half* inputV,
+	__half* outputQ, __half* outputK, __half* outputV,
+	int batch, int tokens, int embedDim, int numHeads){
+	if((inputQ && !outputQ) || (inputK && !outputK) || (inputV && !outputV) || (!inputQ && outputQ) || (!inputK && outputK) || (!inputV && outputV)){
+		printf("PackColumnsToHeads: Mismatched input/output pointers\n");
+		return;
+	}
+	if(!inputQ && !inputK && !inputV){
+		printf("PackColumnsToHeads: No input tensors provided\n");
 		return;
 	}
 	if(numHeads <= 0 || numHeads > 128){
@@ -890,36 +900,58 @@ void PackColumnsToHeads(const __half* input, __half* output, int batch, int toke
 	}
 	const int headDim = embedDim / numHeads;
 	const int total = batch * tokens * embedDim;
+	if(total <= 0){
+		return;
+	}
 	constexpr int blockSize = 256;
-	const int numBlocks = DivCeil(total, blockSize);
-	if(numBlocks > 0 && numBlocks <= 65535){
-		PackColumnsToHeadsKernel<<<numBlocks, blockSize>>>(input, output, batch, tokens, numHeads, headDim);
-		cudaError_t err = cudaGetLastError();
-		if(err != cudaSuccess){ printf("PackColumnsToHeads error: %s\n", cudaGetErrorString(err)); }
-	} else{ printf("PackColumnsToHeads: Invalid grid size %d\n", numBlocks); }
+	const int gridSize = std::min(65535, std::max(1, DivCeil(total, blockSize)));
+	PackColumnsToHeadsKernel<<<gridSize, blockSize>>>(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, numHeads, headDim);
+	cudaError_t err = cudaGetLastError();
+	if(err != cudaSuccess){ printf("PackColumnsToHeads error: %s\n", cudaGetErrorString(err)); }
 }
-__global__ void PackHeadsToColumnsKernel(const __half* __restrict__ input, __half* __restrict__ output, int B, int T, int H, int D){
-	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-	const int total = B * T * H * D;
-	if(idx >= total) return;
-	// Compute indices
-	const int d = idx % D;
-	int tmp = idx / D;
-	const int t = tmp % T;
-	tmp /= T;
-	const int h = tmp % H;
-	const int b = tmp / H;
-	const int embedDim = H * D;
-	const int col = b * T + t;
-	const int row = h * D + d;
-	// Bounds checking
-	const size_t outIdx = static_cast<size_t>(row) + col * embedDim;
-	const size_t maxIdx = static_cast<size_t>(B) * T * embedDim;
-	if(outIdx < maxIdx){ output[outIdx] = input[idx]; }
+void PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half* inputV,
+	__half* outputQ, __half* outputK, __half* outputV,
+	int batch, int tokens, int embedDim, int numHeads){
+	LaunchPackColumnsToHeadsKernel(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, embedDim, numHeads);
 }
-void PackHeadsToColumns(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads){
+void PackColumnsToHeads(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads){
 	if(!input || !output){
-		printf("PackHeadsToColumns: Null pointer(s)\n");
+		printf("PackColumnsToHeads: Null pointer(s)\n");
+		return;
+	}
+	LaunchPackColumnsToHeadsKernel(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
+}
+__global__ void PackHeadsToColumnsKernel(const __half* __restrict__ inputQ, const __half* __restrict__ inputK,
+	const __half* __restrict__ inputV,
+	__half* __restrict__ outputQ, __half* __restrict__ outputK,
+	__half* __restrict__ outputV,
+	int B, int T, int H, int D){
+	const int total = B * T * H * D;
+	const int embedDim = H * D;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += blockDim.x * gridDim.x){
+		const int d = idx % D;
+		int tmp = idx / D;
+		const int t = tmp % T;
+		tmp /= T;
+		const int h = tmp % H;
+		const int b = tmp / H;
+		const int col = b * T + t;
+		const int row = h * D + d;
+		const size_t outIdx = static_cast<size_t>(row) + static_cast<size_t>(col) * embedDim;
+		if(inputQ && outputQ){ outputQ[outIdx] = inputQ[idx]; }
+		if(inputK && outputK){ outputK[outIdx] = inputK[idx]; }
+		if(inputV && outputV){ outputV[outIdx] = inputV[idx]; }
+	}
+}
+static void LaunchPackHeadsToColumnsKernel(const __half* inputQ, const __half* inputK, const __half* inputV,
+	__half* outputQ, __half* outputK, __half* outputV,
+	int batch, int tokens, int embedDim, int numHeads){
+	if((inputQ && !outputQ) || (inputK && !outputK) || (inputV && !outputV) || (!inputQ && outputQ) || (!inputK && outputK) || (!inputV && outputV)){
+		printf("PackHeadsToColumns: Mismatched input/output pointers\n");
+		return;
+	}
+	if(!inputQ && !inputK && !inputV){
+		printf("PackHeadsToColumns: No input tensors provided\n");
 		return;
 	}
 	if(numHeads <= 0 || numHeads > 128){
@@ -936,11 +968,24 @@ void PackHeadsToColumns(const __half* input, __half* output, int batch, int toke
 	}
 	const int headDim = embedDim / numHeads;
 	const int total = batch * tokens * embedDim;
+	if(total <= 0){
+		return;
+	}
 	constexpr int blockSize = 256;
-	const int numBlocks = DivCeil(total, blockSize);
-	if(numBlocks > 0 && numBlocks <= 65535){
-		PackHeadsToColumnsKernel<<<numBlocks, blockSize>>>(input, output, batch, tokens, numHeads, headDim);
-		cudaError_t err = cudaGetLastError();
-		if(err != cudaSuccess){ printf("PackHeadsToColumns error: %s\n", cudaGetErrorString(err)); }
-	} else{ printf("PackHeadsToColumns: Invalid grid size %d\n", numBlocks); }
+	const int gridSize = std::min(65535, std::max(1, DivCeil(total, blockSize)));
+	PackHeadsToColumnsKernel<<<gridSize, blockSize>>>(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, numHeads, headDim);
+	cudaError_t err = cudaGetLastError();
+	if(err != cudaSuccess){ printf("PackHeadsToColumns error: %s\n", cudaGetErrorString(err)); }
+}
+void PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half* inputV,
+	__half* outputQ, __half* outputK, __half* outputV,
+	int batch, int tokens, int embedDim, int numHeads){
+	LaunchPackHeadsToColumnsKernel(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, embedDim, numHeads);
+}
+void PackHeadsToColumns(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads){
+	if(!input || !output){
+		printf("PackHeadsToColumns: Null pointer(s)\n");
+		return;
+	}
+	LaunchPackHeadsToColumnsKernel(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
 }
