@@ -234,6 +234,11 @@
     <ClInclude Include="TokensToSpatialLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="reduce_kernel_utils.cuh" />
+    <ClInclude Include="cuda_type_utils.cuh" />
+    <ClInclude Include="layernorm_kernels.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="CudaStuff.cu" />
@@ -246,5 +251,6 @@
     <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="AttentionPool.cu" />
+    <CudaCompile Include="layernorm_kernels.cu" />
   </ItemGroup>
 </Project>

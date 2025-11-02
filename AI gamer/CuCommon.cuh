@@ -69,8 +69,8 @@ void GELUForward(const __half* dataIn, __half* dataOut, int size, cudaStream_t s
 void GELUBackward(__half* grad, const __half* dataIn, int size, cudaStream_t stream = nullptr);
 void AsinhForward(const __half* dataIn, __half* dataOut, int size, float alpha, cudaStream_t stream = nullptr);
 void AsinhBackward(__half* grad, const __half* activated, int size, float alpha, cudaStream_t stream = nullptr);
-void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW);
-void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW);
+void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW, bool spatialMode);
+void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW, bool spatialMode);
 bool IsnanHalf(const __half* data, int size);
 void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale);
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);

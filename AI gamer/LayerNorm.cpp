@@ -2,20 +2,22 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <vector>
-LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train) : batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width){
+LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train, const bool spatialMode)
+	: batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width), spatialMode_(spatialMode){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_*outHW_;
+	normSize_ = spatialMode_ ? batchSize_*outHW_ : batchSize_;
 	const auto paramSizeBytes = outC_*sizeof(float);
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&gamma_, paramSizeBytes);
 	CUDAMallocZero(&beta_, paramSizeBytes);
-	CUDAMallocZero(&mean_, batchSize_*sizeof(float));
-	CUDAMallocZero(&variance_, batchSize_*sizeof(float));
+	CUDAMallocZero(&mean_, normSize_*sizeof(float));
+	CUDAMallocZero(&variance_, normSize_*sizeof(float));
 	const std::vector<float> gammaInit(outC_, 1.0f);
 	checkCUDA(cudaMemcpy(gamma_, gammaInit.data(), paramSizeBytes, cudaMemcpyHostToDevice));
 	if(train){
-		workspaceSize_ = 2*batchSize_*sizeof(float);
+		workspaceSize_ = 2*normSize_*sizeof(float);
 		CUDAMallocZero(&workspace_, workspaceSize_);
 		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&gradGamma_, paramSizeBytes);
@@ -45,11 +47,11 @@ LayerNorm::~LayerNorm(){
 }
 __half* LayerNorm::Forward(__half* data){
 	inData_ = data;
-	LayerNormForward(outData_, data, gamma_, beta_, mean_, variance_, batchSize_, outC_, outHW_);
+	LayerNormForward(outData_, data, gamma_, beta_, mean_, variance_, batchSize_, outC_, outHW_, spatialMode_);
 	return outData_;
 }
 __half* LayerNorm::Backward(__half* grad){
-	LayerNormBackward(outGrad_, grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, workspace_, workspaceSize_, batchSize_, outC_, outHW_);
+	LayerNormBackward(outGrad_, grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, variance_, workspace_, workspaceSize_, batchSize_, outC_, outHW_, spatialMode_);
 	return outGrad_;
 }
 void LayerNorm::UpdateParameters(const float learningRate){
