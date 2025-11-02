@@ -386,7 +386,7 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 					std::cerr << "Failed to read input states at index " << i << " from file: " << *record.fileName << "\n";
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData + i * stateSize), stateSize)){ std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n"; }
+				if(!file.read(reinterpret_cast<char*>(batch->stateData + i*stateSize), stateSize)){ std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n"; }
 			} catch(const std::exception&){}
 		});
 	}
@@ -402,7 +402,7 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
 			const auto& record = states[randomIndex];
 			batch->inputStates[1] = record->inputState;
-			if(batch->stateData && record->stateData){ std::memcpy(batch->stateData + 1 * stateSize, record->stateData, stateSize); } else{ std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << "\n"; }
+			if(batch->stateData && record->stateData){ std::memcpy(batch->stateData + 1*stateSize, record->stateData, stateSize); } else{ std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << "\n"; }
 		});
 	}
 }

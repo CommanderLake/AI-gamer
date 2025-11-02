@@ -80,6 +80,8 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
 void AddPerTokenEmbedding(__half* output, const __half* embed, int batch, int tokens, int embedDim);
+void ApplyTanhInPlace(__half* data, int count);
+void ApplyTanhBackward(__half* grad, const __half* activations, int count);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void ScaleArrayHalf(__half* data, size_t count, float scale);
@@ -92,7 +94,8 @@ void PackHeadsToColumns(const __half* input, __half* output, int batch, int toke
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 int ConvertSmVer2Cores(int major, int minor);
-size_t DivCeil(size_t a, size_t b);
+template<class Ta, class Tb>
+Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }
 void GetLaunchConfigGridStride(size_t n, size_t& blocks, size_t& tpb);
 void InitCUDA();
 void WeightInit(__half* weights, int elementCount, int fanIn, int fanOut, WeightInitMethod method);

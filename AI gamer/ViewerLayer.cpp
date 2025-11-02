@@ -6,11 +6,11 @@ ViewerLayer::ViewerLayer(int dataSize, const int channels, const int patchHeight
 	layerName_ = windowTitle_.c_str();
 	viewer_ = new Viewer();
 	gridH_ = (inC_ + gridW_ - 1) / gridW_;
-	mosaicDimW_ = inW_ * gridW_;
-	mosaicDimH_ = inH_ * gridH_;
+	mosaicDimW_ = inW_*gridW_;
+	mosaicDimH_ = inH_*gridH_;
 	viewer_->InitializeWindow(mosaicDimW_, mosaicDimH_, windowTitle_.c_str());
 	mosaicH_ = static_cast<unsigned char*>(_mm_malloc(mosaicDimW_*mosaicDimH_, 64));
-	CUDAMallocZero(&mosaicD_, mosaicDimW_ * mosaicDimH_);
+	CUDAMallocZero(&mosaicD_, mosaicDimW_*mosaicDimH_);
 }
 ViewerLayer::~ViewerLayer(){
 	cudaFree(mosaicD_);

@@ -24,7 +24,7 @@ namespace{
 		const float delta = x - data.mean;
 		data.mean += delta / data.count;
 		const float delta2 = x - data.mean;
-		data.m2 += delta * delta2;
+		data.m2 += delta*delta2;
 		return data;
 	}
 	__device__ __forceinline__ WelfordData WelfordCombine(WelfordData a, const WelfordData& b){
@@ -32,8 +32,8 @@ namespace{
 		if(a.count == 0.0f){ return b; }
 		const float delta = b.mean - a.mean;
 		const float count = a.count + b.count;
-		a.mean += delta * (b.count / count);
-		a.m2 += b.m2 + delta * delta * (a.count * b.count) / count;
+		a.mean += delta*(b.count / count);
+		a.m2 += b.m2 + delta*delta*(a.count*b.count) / count;
 		a.count = count;
 		return a;
 	}
@@ -72,8 +72,8 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* _
 	const int warpsPerBlock = (blockDim.x + 31) >> 5;
 	extern __shared__ unsigned char smem[];
 	auto* warpBuffer = reinterpret_cast<WelfordData*>(smem);
-	const int stride = C * HW;
-	const __half* xn = x + n * stride;
+	const int stride = C*HW;
+	const __half* xn = x + n*stride;
 	WelfordData data{0.0f, 0.0f, 0.0f};
 	for(int i = tid; i < stride; i += blockDim.x){ data = WelfordUpdate(data, __half2float(xn[i])); }
 	data = WarpReduceWelford(data);
@@ -93,19 +93,19 @@ __global__ void ComputeMeanVarianceKernel(const __half* __restrict__ x, float* _
 __global__ void LayerNormForwardKernel(__half* __restrict__ y, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ b, const float* __restrict__ mean, const float* __restrict__ var, int N, int C, int HW){
 	const int n = blockIdx.y;
 	if(n >= N) return;
-	const int stride = C * HW;
-	const int base = n * stride;
+	const int stride = C*HW;
+	const int base = n*stride;
 	const float m = mean[n];
 	const float varSafe = fmaxf(var[n], 0.0f);
 	const float invStd = rsqrtf(varSafe + EPSILON_F);
 	const int totalTiles = (stride + blockDim.x - 1) / blockDim.x;
 	for(int tile = blockIdx.x; tile < totalTiles; tile += gridDim.x){
-		const int localIdx = tile * blockDim.x + threadIdx.x;
+		const int localIdx = tile*blockDim.x + threadIdx.x;
 		if(localIdx < stride){
 			const int c = localIdx / HW;
 			const int idx = base + localIdx;
 			const float v = __half2float(x[idx]);
-			const float norm = (v - m) * invStd;
+			const float norm = (v - m)*invStd;
 			// Use texture cache for parameter loads
 			const float gamma = __ldg(g + c);
 			const float beta = __ldg(b + c);
@@ -123,10 +123,10 @@ void LayerNormForward(__half* y, const __half* x, const float* g, const float* b
 		fprintf(stderr, "LayerNormForward: Invalid dimensions N=%d, C=%d, HW=%d\n", N, C, HW);
 		return;
 	}
-	const int stride = C * HW;
+	const int stride = C*HW;
 	const int threads = SelectLayerNormThreads(stride);
 	const int warpsPerBlock = (threads + 31) / 32;
-	const size_t smemSize = warpsPerBlock * sizeof(WelfordData);
+	const size_t smemSize = warpsPerBlock*sizeof(WelfordData);
 	// Check shared memory limit
 	int maxSmem;
 	cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0);
@@ -160,12 +160,12 @@ __global__ void GradGammaBetaKernel(const __half* __restrict__ dy, const __half*
 		const float varSafe = fmaxf(__ldg(var + n), 0.0f);
 		const float invStd = rsqrtf(varSafe + EPSILON_F);
 		const float m = __ldg(mean + n);
-		const int base = n * C * HW + cid * HW;
+		const int base = n*C*HW + cid*HW;
 		for(int i = tid; i < HW; i += blockDim.x){
 			const int idx = base + i;
 			const float dyv = __half2float(dy[idx]);
 			const float xv = __half2float(x[idx]);
-			const float xnorm = (xv - m) * invStd;
+			const float xnorm = (xv - m)*invStd;
 			threadData.x = fmaf(xnorm, dyv, threadData.x);
 			threadData.y += dyv;
 		}
@@ -197,8 +197,8 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 	const float varSafe = fmaxf(var[n], 0.0f);
 	const float invStd = rsqrtf(varSafe + EPSILON_F);
 	const float m = mean[n];
-	const int stride = C * HW;
-	const int base = n * stride;
+	const int stride = C*HW;
+	const int base = n*stride;
 	PairData threadData{0.0f, 0.0f};
 	for(int i = tid; i < stride; i += blockDim.x){
 		const int c = i / HW;
@@ -206,8 +206,8 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 		const float dyv = __half2float(dy[idx]);
 		const float xv = __half2float(x[idx]);
 		const float gamma = __ldg(g + c);
-		const float dy_g = dyv * gamma;
-		const float xnorm = (xv - m) * invStd;
+		const float dy_g = dyv*gamma;
+		const float xnorm = (xv - m)*invStd;
 		threadData.x += dy_g;
 		threadData.y = fmaf(dy_g, xnorm, threadData.y);
 	}
@@ -229,8 +229,8 @@ __global__ void ComputeStatsKernel(const __half* __restrict__ dy, const __half* 
 __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ d1, const float* __restrict__ d2, const float* __restrict__ mean, const float* __restrict__ var, int N, int C, int HW){
 	const int n = blockIdx.y;
 	if(n >= N) return;
-	const int stride = C * HW;
-	const int base = n * stride;
+	const int stride = C*HW;
+	const int base = n*stride;
 	const float m = mean[n];
 	const float varSafe = fmaxf(var[n], 0.0f);
 	const float invStd = rsqrtf(varSafe + EPSILON_F);
@@ -239,15 +239,15 @@ __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restric
 	const float d2n = d2[n];
 	const int totalTiles = (stride + blockDim.x - 1) / blockDim.x;
 	for(int tile = blockIdx.x; tile < totalTiles; tile += gridDim.x){
-		const int localIdx = tile * blockDim.x + threadIdx.x;
+		const int localIdx = tile*blockDim.x + threadIdx.x;
 		if(localIdx < stride){
 			const int c = localIdx / HW;
 			const int idx = base + localIdx;
 			const float dyv = __half2float(dy[idx]);
 			const float xv = __half2float(x[idx]);
-			const float xnorm = (xv - m) * invStd;
+			const float xnorm = (xv - m)*invStd;
 			const float gi = __ldg(g + c);
-			float dxv = gi * invStd * (dyv - d1n * invM - xnorm * d2n * invM);
+			float dxv = gi*invStd*(dyv - d1n*invM - xnorm*d2n*invM);
 			dxv = fmaxf(fminf(dxv, LN_GRAD_CLIP), -LN_GRAD_CLIP);
 			dx[idx] = __float2half(dxv);
 		}
@@ -262,20 +262,20 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 		fprintf(stderr, "LayerNormBackward: Invalid dimensions N=%d, C=%d, HW=%d\n", N, C, HW);
 		return;
 	}
-	const size_t required_size = 2 * N * sizeof(float);
+	const size_t required_size = 2*N*sizeof(float);
 	if(workspaceSize < required_size){
 		fprintf(stderr, "LayerNormBackward: Insufficient workspace (need %zu, got %zu)\n", required_size, workspaceSize);
 		return;
 	}
 	const auto d1 = static_cast<float*>(workspace);
 	float* d2 = d1 + N;
-	checkCUDA(cudaMemset(dG, 0, C * sizeof(float)));
-	checkCUDA(cudaMemset(dB, 0, C * sizeof(float)));
-	checkCUDA(cudaMemset(d1, 0, N * sizeof(float)));
-	checkCUDA(cudaMemset(d2, 0, N * sizeof(float)));
+	checkCUDA(cudaMemset(dG, 0, C*sizeof(float)));
+	checkCUDA(cudaMemset(dB, 0, C*sizeof(float)));
+	checkCUDA(cudaMemset(d1, 0, N*sizeof(float)));
+	checkCUDA(cudaMemset(d2, 0, N*sizeof(float)));
 	const int gradTpb = SelectLayerNormThreads(HW);
 	const int gradWarps = DivCeil(gradTpb, 32);
-	const size_t gradSmemSize = gradWarps * sizeof(PairData);
+	const size_t gradSmemSize = gradWarps*sizeof(PairData);
 	int maxSmem;
 	cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0);
 	if(gradSmemSize > maxSmem){
@@ -283,11 +283,11 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 		return;
 	}
 	const int rowsPerBlock = max(1, min(4096 / max(HW, 1), N));
-	int gradGridY = min(DivCeil(N, rowsPerBlock), 65535ull);
+	int gradGridY = min(DivCeil(N, rowsPerBlock), 65535);
 	gradGridY = max(1, min(gradGridY, N));
 	size_t targetBlocks = DivCeil(GS, static_cast<size_t>(gradWarps));
 	if(targetBlocks == 0){ targetBlocks = 1; }
-	const size_t currentBlocks = static_cast<size_t>(C) * static_cast<size_t>(gradGridY);
+	const size_t currentBlocks = static_cast<size_t>(C)*static_cast<size_t>(gradGridY);
 	if(currentBlocks < targetBlocks){
 		size_t desiredGridY = DivCeil(targetBlocks, static_cast<size_t>(C));
 		const size_t maxGridY = min(static_cast<size_t>(N), static_cast<size_t>(65535));
@@ -300,7 +300,7 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	checkCUDA(cudaGetLastError());
 	ComputeStatsKernel<<<N, gradTpb, gradSmemSize>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
 	checkCUDA(cudaGetLastError());
-	const int stride = C * HW;
+	const int stride = C*HW;
 	const int tpb = SelectLayerNormThreads(stride);
 	const int tiles = (stride + tpb - 1) / tpb;
 	const int gridX = min(tiles, 65535);
@@ -308,4 +308,4 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	InputGradKernel<<<grid, tpb>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);
 	checkCUDA(cudaGetLastError());
 }
-size_t LayerNormBackwardWorkspaceSize(int N){ return 2 * N * sizeof(float); }
+size_t LayerNormBackwardWorkspaceSize(int N){ return 2*N*sizeof(float); }

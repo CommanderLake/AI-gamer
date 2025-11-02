@@ -152,7 +152,7 @@ void AsinhForward(const half* x, half* y, int size, float alpha, cudaStream_t st
 	checkCUDA(cudaGetLastError());
 }
 __global__ void AsinhBackwardKernel(half* __restrict__ grad, const half* __restrict__ y, int size, float alpha){
-	const int stride = blockDim.x * gridDim.x;
+	const int stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		float deriv = 1.0f/coshf(__half2float(y[idx]));
 		deriv *= 1.0f/alpha;

@@ -125,8 +125,6 @@ void Infer::Step(){
 			PauseInfer();
 			std::cerr << "Capture resolution mismatch\n";
 		}
-		//BlockShiftHalf(sequenceHalf_ + nn_->stateSize_, -nn_->stateSize_, nn_->seqLength_);
-		//ConvertByteToHalf(frame, sequenceHalf_ + (nn_->seqLength_ - 1)*nn_->stateSize_, nn_->stateSize_, true);
 		ConvertByteToHalf(frame, frameHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(frameHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchSize_);

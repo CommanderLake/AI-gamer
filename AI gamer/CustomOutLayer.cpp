@@ -6,8 +6,8 @@
 #include "AsinhLayer.h"
 #include "Dropout.h"
 #include "LayerNorm.h"
-CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int seqLength, const int tokens, const int embedDim, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
-	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), seqLength_(seqLength), inC_(embedDim), tokens_(tokens), embedDim_(embedDim), fullFeatureSize_(tokens*embedDim), gradAccumLength_(gradAccumLength){
+CustomOutLayer::CustomOutLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) :
+	cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), inC_(embedDim), tokens_(tokens), embedDim_(embedDim), fullFeatureSize_(tokens*embedDim), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;

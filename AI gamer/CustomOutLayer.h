@@ -4,7 +4,7 @@
 #include <vector>
 class CustomOutLayer : public Layer{
 public:
-	CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int seqLength, int tokens, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	CustomOutLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength);
 	~CustomOutLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -19,7 +19,7 @@ public:
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
 	cudnnTensorDescriptor_t inDesc_;
-	int batchSize_, seqLength_, inC_;
+	int batchSize_, inC_;
 	int tokens_;
 	int embedDim_;
 	int fullFeatureSize_;
