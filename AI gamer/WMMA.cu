@@ -16,13 +16,13 @@ namespace{
 	constexpr int kSharedMemPad = 8;
 	constexpr float SOFTMAX_FTZ_THRESHOLD = -12.0f;
 	constexpr float SOFTMAX_MAX_INPUT = 20.0f;
-	constexpr size_t kMaxSharedMemory = 98304; // 96KB typical max
+	constexpr size_t kMaxSharedMemory = 98304;
 	constexpr int kMinTokens = 1;
 	constexpr int kMaxTokens = 8192;
 	constexpr int kMaxHeadDim = 512;
 	constexpr int kWarpSize = 32;
 	constexpr int kTileSize = 16;
-	constexpr int kDefaultThreads = 128;
+	constexpr int kDefaultThreads = 512;
 	// Helper for ceiling division
 	__host__ __device__ inline int DivCeil(int a, int b){ return (a + b - 1) / b; }
 	// Get optimal tile columns based on token count
@@ -90,11 +90,25 @@ namespace{
 		for(int offset = 16; offset > 0; offset /= 2){ val = fmaxf(val, __shfl_xor_sync(0xffffffff, val, offset)); }
 		return val;
 	}
-	// Safe memory access helper
-	__device__ __forceinline__ bool IsValidIndex(int idx, int max){ return idx >= 0 && idx < max; }
-	__device__ __forceinline__ __half SafeLoad(const __half* ptr, int idx, int maxIdx){ return (idx >= 0 && idx < maxIdx) ? ptr[idx] : __float2half(0.0f); }
-	__device__ __forceinline__ void SafeStore(__half* ptr, int idx, int maxIdx, __half value){ if(idx >= 0 && idx < maxIdx) ptr[idx] = value; }
-	__device__ __forceinline__ void SafeStoreFloat(float* ptr, int idx, int maxIdx, float value){ if(idx >= 0 && idx < maxIdx) ptr[idx] = value; }
+	__device__ __forceinline__ void ReduceStoreTile16(const float* tileAccum, int tileStride, int warpCount, int paddedTileElements, __half* __restrict__ dest, size_t destBaseOffset, int rowBase, int colBase, int rowLimit, int colLimit, int rowStride, size_t totalElements, float scale = 1.0f){
+#pragma unroll 4
+		for(int idx = threadIdx.x; idx < 16 * 16; idx += blockDim.x){
+			const int r = idx / 16;
+			const int c = idx % 16;
+			float sum = 0.0f;
+#pragma unroll
+			for(int w = 0; w < warpCount; ++w){
+				const size_t tileOffset = static_cast<size_t>(w) * static_cast<size_t>(paddedTileElements) + static_cast<size_t>(r) * tileStride + c;
+				sum += tileAccum[tileOffset];
+			}
+			const int globalRow = rowBase + r;
+			const int globalCol = colBase + c;
+			if(globalRow < rowLimit && globalCol < colLimit){
+				const size_t destIdx = destBaseOffset + static_cast<size_t>(globalRow) * rowStride + globalCol;
+				if(destIdx < totalElements){ dest[destIdx] = __float2half(sum * scale); }
+			}
+		}
+	}
 }
 // ============================================================================
 // FORWARD KERNEL
@@ -673,20 +687,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 		store_matrix_sync(scoreTiles + warpId*paddedTileElements, warpAcc, tileStride, wmma::mem_row_major);
 		__syncthreads();
 		// Reduce and store dQ
-#pragma unroll 4
-		for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
-			const int r = idx / 16;
-			const int c = idx % 16;
-			float sum = 0.0f;
-#pragma unroll
-			for(int w = 0; w < numWarps; ++w){ sum += scoreTiles[w*paddedTileElements + r*tileStride + c]; }
-			const int globalRow = rowStart + r;
-			const int globalCol = dBlock*16 + c;
-			if(globalRow < tokens && globalCol < headDim){
-				const size_t dqIdx = embOffset + globalRow*headDim + globalCol;
-				if(dqIdx < totalEmbElements){ dQ[dqIdx] = __float2half(sum*scale); }
-			}
-		}
+		ReduceStoreTile16(scoreTiles, tileStride, numWarps, paddedTileElements, dQ, embOffset, rowStart, dBlock*16, tokens, headDim, headDim, totalEmbElements, scale);
 		__syncthreads();
 	}
 }
@@ -786,20 +787,7 @@ __global__ void ComputeDVKernel(const __half* __restrict__ attention, const __ha
 		store_matrix_sync(accumStore + warpId*paddedTileElements, warpAcc, tileStride, wmma::mem_row_major);
 		__syncthreads();
 		// Reduce and store dV
-#pragma unroll 4
-		for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
-			const int r = idx / 16;
-			const int c = idx % 16;
-			float sum = 0.0f;
-#pragma unroll
-			for(int w = 0; w < numWarps; ++w){ sum += accumStore[w*paddedTileElements + r*tileStride + c]; }
-			const int globalRow = keyStart + r;
-			const int globalCol = dBlock*16 + c;
-			if(globalRow < tokens && globalCol < headDim){
-				const size_t dvIdx = embOffset + globalRow*headDim + globalCol;
-				if(dvIdx < totalEmbElements){ dV[dvIdx] = __float2half(sum); }
-			}
-		}
+		ReduceStoreTile16(accumStore, tileStride, numWarps, paddedTileElements, dV, embOffset, keyStart, dBlock*16, tokens, headDim, headDim, totalEmbElements);
 		__syncthreads();
 	}
 }
@@ -900,20 +888,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 		store_matrix_sync(accumStore + warpId*paddedTileElements, warpAcc, tileStride, wmma::mem_row_major);
 		__syncthreads();
 		// Reduce and store dK
-#pragma unroll 4
-		for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
-			const int r = idx / 16;
-			const int c = idx % 16;
-			float sum = 0.0f;
-#pragma unroll
-			for(int w = 0; w < numWarps; ++w){ sum += accumStore[w*paddedTileElements + r*tileStride + c]; }
-			const int globalRow = keyStart + r;
-			const int globalCol = dBlock*16 + c;
-			if(globalRow < tokens && globalCol < headDim){
-				const size_t dkIdx = embOffset + globalRow*headDim + globalCol;
-				if(dkIdx < totalEmbElements){ dK[dkIdx] = __float2half(sum*scale); }
-			}
-		}
+		ReduceStoreTile16(accumStore, tileStride, numWarps, paddedTileElements, dK, embOffset, keyStart, dBlock*16, tokens, headDim, headDim, totalEmbElements, scale);
 		__syncthreads();
 	}
 }

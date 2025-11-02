@@ -113,16 +113,13 @@
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="ConvScale.h" />
     <ClInclude Include="CuCommon.cuh" />
-    <ClInclude Include="cuda_type_utils.cuh" />
     <ClInclude Include="CustomOutLayer.h" />
     <ClInclude Include="GELULayer.h" />
     <ClInclude Include="GlobalPoolLayer.h" />
     <ClInclude Include="LayerNorm.h" />
-    <ClInclude Include="layernorm_kernels.h" />
     <ClInclude Include="MHALayer.h" />
     <ClInclude Include="PatchEmbedLayer.h" />
     <ClInclude Include="PoolLayer.h" />
-    <ClInclude Include="reduce_kernel_utils.cuh" />
     <ClInclude Include="ResConvLayer.h" />
     <ClInclude Include="Dropout.h" />
     <ClInclude Include="Infer.h" />
@@ -192,7 +189,6 @@
     <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="LayerNorm.cu" />
-    <CudaCompile Include="layernorm_kernels.cu" />
     <CudaCompile Include="Loss.cu" />
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />

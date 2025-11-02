@@ -57,9 +57,9 @@ namespace{
 		return value;
 	}
 	int SelectLayerNormThreads(const int elements){
-		int threads = BS;
+		int threads = 32;
 		while(threads < elements && threads < 512) threads <<= 1;
-		if(elements < BS){ threads = BS; }
+		if(elements < 32){ threads = 32; }
 		return threads;
 	}
 }
@@ -477,7 +477,7 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 		checkCUDA(cudaGetLastError());
 		const int stride = C*HW;
 		const int tpb = SelectLayerNormThreads(stride);
-		const int tiles = (stride + tpb - 1) / tpb;
+		const int tiles = DivCeil(stride, tpb);
 		const int gridX = min(max(tiles, 1), 65535);
 		dim3 grid(gridX, N, 1);
 		InputGradSpatialKernel<<<grid, tpb>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);
@@ -510,7 +510,7 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 		checkCUDA(cudaGetLastError());
 		const int stride = C*HW;
 		const int tpb = SelectLayerNormThreads(stride);
-		const int tiles = (stride + tpb - 1) / tpb;
+		const int tiles = DivCeil(stride, tpb);
 		const int gridX = min(tiles, 65535);
 		dim3 grid(gridX, N, 1);
 		InputGradKernel<<<grid, tpb>>>(dx, dy, x, g, d1, d2, mean, var, N, C, HW);
