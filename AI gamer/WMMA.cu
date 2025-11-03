@@ -22,7 +22,7 @@ namespace{
 	constexpr int kMaxHeadDim = 512;
 	constexpr int kWarpSize = 32;
 	constexpr int kTileSize = 16;
-	constexpr int kDefaultThreads = 512;
+	constexpr int kDefaultThreads = 256;
 	// Helper for ceiling division
 	__host__ __device__ inline int DivCeil(int a, int b){ return (a + b - 1) / b; }
 	// Get optimal tile columns based on token count
@@ -298,6 +298,55 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	for(int tileStart = 0; tileStart < tokens; tileStart += tileCols){
 		const int remaining = (tokens - tileStart < tileCols) ? (tokens - tileStart) : tileCols;
 		if(remaining <= 0) break;
+		// Recompute the logits for this tile so they are resident in shared memory.
+		for(int colBlock = 0; colBlock < remaining; colBlock += 16*numWarps){
+			const int remainingCols = (remaining - colBlock < 16*numWarps) ? (remaining - colBlock) : (16*numWarps);
+			const int activeWarps = (remainingCols + 15) / 16;
+			if(activeWarps <= 0 || activeWarps > numWarps) continue;
+			wmma::fragment<wmma::accumulator, 16, 16, 16, float> warpScores;
+			if(warpId < activeWarps){ fill_fragment(warpScores, 0.0f); }
+			for(int kBlock = 0; kBlock < qBlocks; kBlock++){
+				if(kBlock*16 >= headDim) break;
+				const int rowPairs = 8;
+				const int vectorsPerWarp = 16*rowPairs;
+				const int totalVectors = vectorsPerWarp*activeWarps;
+				for(int vec = threadIdx.x; vec < totalVectors; vec += blockDim.x){
+					const int warpLocal = vec / vectorsPerWarp;
+					const int warpOffset = vec % vectorsPerWarp;
+					const int col = warpOffset / rowPairs;
+					const int pair = warpOffset % rowPairs;
+					const int row = pair*2;
+					const int localCol = warpLocal*16 + col;
+					const int globalCol = tileStart + colBlock + localCol;
+					const int baseIdx = warpLocal*tileStride*16 + col*tileStride + row;
+					__half first = __float2half(0.0f);
+					__half second = __float2half(0.0f);
+					const bool validCol = (warpLocal < activeWarps) && (localCol < remainingCols) && (globalCol < tokens);
+					if(validCol){
+						const int globalRow0 = kBlock*16 + row;
+						const int globalRow1 = globalRow0 + 1;
+						if(globalRow0 < headDim){
+							const size_t idx0 = batchHeadOffset + static_cast<size_t>(globalCol)*headDim + globalRow0;
+							if(idx0 < totalElements){ first = K[idx0]; }
+						}
+						if(globalRow1 < headDim){
+							const size_t idx1 = batchHeadOffset + static_cast<size_t>(globalCol)*headDim + globalRow1;
+							if(idx1 < totalElements){ second = K[idx1]; }
+						}
+					}
+					reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
+				}
+				__syncthreads();
+				if(warpId < activeWarps){
+					load_matrix_sync(q_frag, qShared + kBlock*16, qStride);
+					load_matrix_sync(k_frag, warpTiles + warpId*tileStride*16, tileStride);
+					mma_sync(warpScores, q_frag, k_frag, warpScores);
+				}
+				__syncthreads();
+			}
+			if(warpId < activeWarps){ store_matrix_sync(scoresTile + colBlock + warpId*16, warpScores, tileCols, wmma::mem_row_major); }
+		}
+		__syncthreads();
 		// Apply softmax normalization
 #pragma unroll 4
 		for(int row = warpId; row < 16; row += numWarps){
