@@ -30,7 +30,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedHeight_ = sharedH;
 	sharedWidth_ = sharedW;
 	sharedOutC_ = trunkC_*sharedHeight_*sharedWidth_;
-	constexpr auto outC = 4096;
+	constexpr auto outC = 1024;
 	checkCUDNN(cudnnCreateTensorDescriptor(&neckDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(neckDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC, 1, 1));
 	sharedLayers_.push_back(new FCLayer(cublas_, batchSize_, sharedOutC_, outC, "Spatial-neck FC", train_, weightDecay_, gradAccumLength_, Xavier, true));
