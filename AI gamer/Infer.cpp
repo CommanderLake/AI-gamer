@@ -70,7 +70,7 @@ void Infer::ProcessOutput(const float* predictions){
 	INPUT inputs[20] = {};
 	int inputIndex = 0;
 	for(int i = 0; i < 11; ++i){
-		const bool pressed = predictions[i] > 0.0f;
+		const bool pressed = predictions[i] > -0.1f;
 		inputs[inputIndex].type = INPUT_KEYBOARD;
 		inputs[inputIndex].ki.wScan = keyMap[i];
 		inputs[inputIndex].ki.dwFlags = KEYEVENTF_SCANCODE;
@@ -79,7 +79,7 @@ void Infer::ProcessOutput(const float* predictions){
 		}
 		inputIndex++;
 	}
-	if(predictions[11] > 0.0f){
+	if(predictions[11] > -0.1f){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
 		inputIndex++;
@@ -88,7 +88,7 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_LEFTUP;
 		inputIndex++;
 	}
-	if(predictions[12] > 0.0f){
+	if(predictions[12] > -0.1f){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
 		inputIndex++;
@@ -97,7 +97,7 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
 		inputIndex++;
 	}
-	if(predictions[13] > 0.0f){
+	if(predictions[13] > -0.1f){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN;
 		inputIndex++;
