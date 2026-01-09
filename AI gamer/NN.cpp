@@ -9,7 +9,7 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(4), gradAccumLength_(20){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	int netWidth = w;
 	int netHeight = h;
@@ -29,12 +29,12 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.01f;
-	constexpr auto patchSize = 10;
+	constexpr auto patchSize = 20;
 	constexpr auto embedH = 16;
-	constexpr auto embedW = 24;
+	constexpr auto embedW = 16;
 	constexpr auto embedSize = embedH*embedW;
 	constexpr auto ffDim = embedSize*4;
-	constexpr int numHeads = 6;
+	constexpr int numHeads = 8;
 	constexpr int numEncoders = 12;
 	const int patchRows = DivCeil(netHeight, patchSize);
 	const int patchCols = DivCeil(netWidth, patchSize);

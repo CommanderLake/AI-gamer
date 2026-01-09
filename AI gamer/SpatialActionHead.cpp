@@ -26,7 +26,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, trunkC_, 3, 1, 1, &sharedH, &sharedW, 1, "Spatial Conv 1", train_, weightDecay_, gradAccumLength_, Xavier));
 	sharedLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, trunkC_, sharedH, sharedW, "Spatial BN 1", train_, gradAccumLength_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, trunkC_, sharedH, sharedW, "Spatial GELU 1"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, trunkC_, sharedH, sharedW, "Spatial Drop 1", train_));
+	sharedLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, trunkC_, sharedH, sharedW, "Spatial Drop 1", train_));
 	sharedHeight_ = sharedH;
 	sharedWidth_ = sharedW;
 	sharedOutC_ = trunkC_*sharedHeight_*sharedWidth_;
@@ -36,7 +36,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	sharedLayers_.push_back(new FCLayer(cublas_, batchSize_, sharedOutC_, outC, "Spatial-neck FC", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	sharedLayers_.push_back(new LayerNorm(batchSize_, outC, 1, 1, "Spatial-neck LN", train_));
 	sharedLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Spatial-neck GELU"));
-	sharedLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, outC, 1, 1, "Spatial-neck Drop", train_));
+	sharedLayers_.push_back(new Dropout(cudnn_, 0.4f, batchSize_, outC, 1, 1, "Spatial-neck Drop", train_));
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, outC, NUM_BUTS_, "Buttons FC", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, outC, outC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new GELULayer(batchSize_, outC, 1, 1, "Axes GELU"));
