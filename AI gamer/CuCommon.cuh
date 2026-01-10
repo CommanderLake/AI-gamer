@@ -80,8 +80,8 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
 void AddPerTokenEmbedding(__half* output, const __half* embed, int batch, int tokens, int embedDim);
-void ApplyTanhInPlace(__half* data, int count);
-void ApplyTanhBackward(__half* grad, const __half* activations, int count);
+void TanhInPlace(__half* data, int size);
+void TanhBackward(__half* grad, const __half* activations, int size);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
 void ScaleArrayHalf(__half* data, size_t count, float scale);

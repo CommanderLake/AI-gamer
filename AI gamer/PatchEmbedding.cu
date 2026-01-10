@@ -153,41 +153,10 @@ __global__ void AddPerTokenEmbeddingKernel(__half* output, const __half* embed, 
 	output[idx] = __float2half(sum);
 }
 void AddPerTokenEmbedding(__half* output, const __half* embed, int batch, int tokens, int embedDim){
-	if(!output || !embed || batch <= 0 || tokens <= 0 || embedDim <= 0) return;
 	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
 	if(blocks == 0 || tpb == 0) return;
 	AddPerTokenEmbeddingKernel<<<blocks, tpb>>>(output, embed, batch, tokens, embedDim);
-	checkCUDA(cudaGetLastError());
-}
-__global__ void TanhHalfKernel(__half* data, int count){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx >= count) return;
-	const float val = tanhf(__half2float(data[idx]));
-	data[idx] = __float2half(val);
-}
-void ApplyTanhInPlace(__half* data, int count){
-	if(!data || count <= 0) return;
-	const int bs = 256;
-	const int blocks = DivCeil(count, bs);
-	if(blocks <= 0) return;
-	TanhHalfKernel<<<blocks, bs>>>(data, count);
-	checkCUDA(cudaGetLastError());
-}
-__global__ void TanhBackwardHalfKernel(__half* grad, const __half* activations, int count){
-	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	if(idx >= count) return;
-	const float act = __half2float(activations[idx]);
-	const float g = __half2float(grad[idx]);
-	const float derivative = 1.0f - act*act;
-	grad[idx] = __float2half(g*derivative);
-}
-void ApplyTanhBackward(__half* grad, const __half* activations, int count){
-	if(!grad || !activations || count <= 0) return;
-	const int bs = 256;
-	const int blocks = DivCeil(count, bs);
-	if(blocks <= 0) return;
-	TanhBackwardHalfKernel<<<blocks, bs>>>(grad, activations, count);
 	checkCUDA(cudaGetLastError());
 }

@@ -81,7 +81,7 @@ __half* PatchEmbedLayer::Forward(__half* data){
 	checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, batchSize_*numPatches_, patchDim_, &alpha_, weights_, CUDA_R_16F, embedDim_, patchBuffer_, CUDA_R_16F, patchDim_, &beta0_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	if(offsetDim_ > 0){
 		checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_N, offsetDim_, batchSize_*numPatches_, patchDim_, &alpha_, offsetWeights_, CUDA_R_16F, offsetDim_, patchBuffer_, CUDA_R_16F, patchDim_, &beta0_, offsetActivations_, CUDA_R_16F, offsetDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-		ApplyTanhInPlace(offsetActivations_, batchSize_*numPatches_*offsetDim_);
+		TanhInPlace(offsetActivations_, batchSize_*numPatches_*offsetDim_);
 		checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, batchSize_*numPatches_, offsetDim_, &alpha_, offsetEmbedWeights_, CUDA_R_16F, embedDim_, offsetActivations_, CUDA_R_16F, offsetDim_, &beta1_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	}
 	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, posDesc_, posEmbed_, &alpha_, outDesc_, outData_));
@@ -95,7 +95,7 @@ __half* PatchEmbedLayer::Backward(__half* grad){
 			cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, offsetDim_, batchSize_*numPatches_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, offsetActivations_, CUDA_R_16F, offsetDim_, betaWeights, gradOffsetEmbedWeights_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP
 			));
 		checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_T, CUBLAS_OP_N, offsetDim_, batchSize_*numPatches_, embedDim_, &alpha_, offsetEmbedWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &beta0_, offsetGrad_, CUDA_R_16F, offsetDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-		ApplyTanhBackward(offsetGrad_, offsetActivations_, batchSize_*numPatches_*offsetDim_);
+		TanhBackward(offsetGrad_, offsetActivations_, batchSize_*numPatches_*offsetDim_);
 		checkCUBLAS(
 			cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_T, offsetDim_, patchDim_, batchSize_*numPatches_, &alphaWeights_, offsetGrad_, CUDA_R_16F, offsetDim_, patchBuffer_, CUDA_R_16F, patchDim_, betaWeights, gradOffsetWeights_, CUDA_R_16F, offsetDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	}

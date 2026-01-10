@@ -165,3 +165,32 @@ void AsinhBackward(half* grad, const half* activated, int size, float alpha, cud
 	AsinhBackwardKernel<<<blocks, threads, 0, stream>>>(grad, activated, size, alpha);
 	checkCUDA(cudaGetLastError());
 }
+// ==================== Tanh ====================
+__global__ void TanhHalfKernel(__half* data, int size){
+	const int stride = blockDim.x*gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
+		const float val = tanhf(__half2float(data[idx]));
+		data[idx] = __float2half(val);
+	}
+}
+void TanhInPlace(__half* data, int size){
+	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
+	GetLaunchConfigGridStride(size, blocks, threads);
+	TanhHalfKernel<<<blocks, threads>>>(data, size);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void TanhBackwardHalfKernel(__half* grad, const __half* activations, int size){
+	const int stride = blockDim.x*gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
+		const float act = __half2float(activations[idx]);
+		const float g = __half2float(grad[idx]);
+		const float derivative = 1.0f - act*act;
+		grad[idx] = __float2half(g*derivative);
+	}
+}
+void TanhBackward(__half* grad, const __half* activations, int size){
+	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
+	GetLaunchConfigGridStride(size, blocks, threads);
+	TanhBackwardHalfKernel<<<blocks, threads>>>(grad, activations, size);
+	checkCUDA(cudaGetLastError());
+}
