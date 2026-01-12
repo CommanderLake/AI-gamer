@@ -44,7 +44,7 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 		std::cout << " NaN in predictions\n";
 		return -1;
 	}
-	Loss2(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchSize_, &lossButs_, &lossAxes_);
+	LossStats(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchSize_, &lossButs_, &lossAxes_);
 	if(smoothLoss){
 		constexpr float smoothing = 0.99f;
 		emaLossButs_ = smoothing*emaLossButs_ + (1.0f - smoothing)*lossButs_;
@@ -55,7 +55,7 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 	}
 	std::cout << "\rLR: " << lr << " Batch " << (batchIndex + 1) << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_;
 	if(lr == 0.0f) return 0;
-	SplitGradient(dGradient_, dPredictions, dTargetBatchFloat, 8.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
+	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 8.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
 	if(IsnanHalf(nn->Backward(dGradient_), nn->stateSize_*nn->batchSize_)){
 		std::cout << " NaN in gradient\n";
 		return -1;

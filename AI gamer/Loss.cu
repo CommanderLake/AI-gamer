@@ -37,7 +37,7 @@ __device__ inline float BceWithLogitsLoss(const float logit, const float target)
 	const float negAbs = -fabsf(logit);
 	return maxPart - logit*target + log1pf(expf(negAbs));
 }
-__global__ void Loss2Kernel(const __half* predictions, const float* targets, const int size, const int numKeys, const int numCtrls){
+__global__ void LossStatsKernel(const __half* predictions, const float* targets, const int size, const int numKeys, const int numCtrls){
 	extern __shared__ float sdata[];
 	const int tid = threadIdx.x;
 	int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -70,13 +70,13 @@ __global__ void Loss2Kernel(const __half* predictions, const float* targets, con
 		atomicAdd(&dLossMouse, sdata[blockDim.x]);
 	}
 }
-void Loss2(const __half* dPredictions, const float* dTargets, const int numButs, const int numCtrls, const int batchSize, float* butLoss, float* axesLoss){
+void LossStats(const __half* dPredictions, const float* dTargets, const int numButs, const int numCtrls, const int batchSize, float* butLoss, float* axesLoss){
 	constexpr auto zero = 0.0f;
 	const auto size = numCtrls*batchSize;
 	cudaMemcpyToSymbol(dLossKeys, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	cudaMemcpyToSymbol(dLossMouse, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	auto gridSize = DivCeil(size, BS);
-	Loss2Kernel<<<gridSize, BS, 2*BS*sizeof(float)>>>(dPredictions, dTargets, size, numButs, numCtrls);
+	LossStatsKernel<<<gridSize, BS, 2*BS*sizeof(float)>>>(dPredictions, dTargets, size, numButs, numCtrls);
 	checkCUDA(cudaGetLastError());
 	cudaMemcpyFromSymbol(butLoss, dLossKeys, sizeof(float));
 	cudaMemcpyFromSymbol(axesLoss, dLossMouse, sizeof(float));

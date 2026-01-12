@@ -37,7 +37,7 @@ __device__ inline float Sigmoidf(const float x){
 	const float z = __expf(x);
 	return z / (1.0f + z);
 }
-__global__ void SplitGradKernel(__half* gradients, const __half* predictions, const float* targets, const float clip, const int numCtrls, const int numButs, const int batchSize, const int size){
+__global__ void LossBackpropKernel(__half* gradients, const __half* predictions, const float* targets, const float clip, const int numCtrls, const int numButs, const int batchSize, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
 		const int batchId = idx / numCtrls;
@@ -53,9 +53,9 @@ __global__ void SplitGradKernel(__half* gradients, const __half* predictions, co
 		}
 	}
 }
-void SplitGradient(__half* dGradient, const __half* dPredictions, const float* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
+void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
 	auto gridSize = DivCeil(size, BS);
-	SplitGradKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
+	LossBackpropKernel<<<gridSize, BS>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
 	checkCUDA(cudaGetLastError());
 }
 __global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
