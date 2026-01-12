@@ -18,10 +18,9 @@ public:
 	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnn_;
 	cublasHandle_t cublas_;
-	cudnnTensorDescriptor_t neckDesc_;
 	int batchSize_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
-	int spatialHeight_, spatialWidth_;
+	int spatialHeight_, spatialWidth_, spatialSize_;
 	float weightDecay_;
 	int gradAccumLength_;
 	const float one_ = 1.0f;

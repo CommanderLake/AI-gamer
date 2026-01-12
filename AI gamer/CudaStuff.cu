@@ -135,17 +135,28 @@ void ScaleArrayHalf(__half* data, const size_t count, const float scale){
 	ScaleHalfKernel<<<blocks, bs>>>(data, count, scale);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void AddBiasKernel(__half* output, const __half* bias, const int channels, const int batch){
+__global__ void AddBiasKernel(__half* output, const __half* bias, const int channels, const int batchSize){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
-	const int total = channels*batch;
+	const int total = channels*batchSize;
 	if(idx >= total){ return; }
 	const int c = idx % channels;
 	output[idx] = output[idx] + bias[c];
 }
-void AddBias(__half* output, const __half* bias, const int channels, const int batch){
+void AddBias(__half* output, const __half* bias, const int channels, const int batchSize){
 	constexpr int bs = 256;
-	const auto blocks = DivCeil(channels*batch, bs);
-	AddBiasKernel<<<blocks, bs>>>(output, bias, channels, batch);
+	const auto blocks = DivCeil(channels*batchSize, bs);
+	AddBiasKernel<<<blocks, bs>>>(output, bias, channels, batchSize);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void AddTensorKernel(__half alpha, __half* A, __half beta, const __half* B, const int size){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx >= size){ return; }
+	A[idx] = __hfma(alpha, A[idx], __hfma(beta, B[idx], 0));
+}
+void AddTensor(float alpha, __half* A, float beta, const __half* B, const int size){
+	constexpr int bs = 256;
+	const auto blocks = DivCeil(size, bs);
+	AddTensorKernel<<<blocks, bs>>>(__half(alpha), A, __half(beta), B, size);
 	checkCUDA(cudaGetLastError());
 }
 __global__ void AccumulateBiasGradKernel(const __half* grad, __half* gradBias, const int channels, const int batch, const float scale, const bool reset){
