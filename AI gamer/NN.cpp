@@ -31,7 +31,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto wd = 0.01f;
 	constexpr auto patchSize = 20;
 	constexpr auto embedH = 16;
-	constexpr auto embedW = 32;
+	constexpr auto embedW = 16;
 	constexpr auto embedSize = embedH*embedW;
 	constexpr auto ffDim = embedSize*4;
 	constexpr int numHeads = 8;
@@ -54,7 +54,6 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	layers_.push_back(new LayerNorm(batchSize_*nTokens, embedSize, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedSize, "SpatialActionHead", train, wd, gradAccumLength_));
-	//layers_.push_back(new CustomOutLayer(cudnn_, cublas_, batchSize_, tokensWithCls, embedSize, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());

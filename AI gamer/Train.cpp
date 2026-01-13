@@ -19,20 +19,20 @@ void Train::Free(){
 	cudaFree(dStateBatchHalf);
 	cudaFree(dStateBatchBytes);
 }
-float GetLearningRate(size_t epoch, size_t batch, size_t epochBatchCount){
-	constexpr float baseLr = 0.00001f;
-	constexpr float minLr = 0.0000001f;
-	const size_t warmupSteps = epochBatchCount*1;
-	const size_t totalSteps = epochBatchCount*10;
-	const size_t currentStep = epoch*epochBatchCount + batch;
+float GetLearningRate(const int epoch, const int batch, const int epochBatchCount, const int epochs){
+	constexpr auto baseLr = 0.00002f;
+	constexpr auto minLr = 0.0000001f;
+	const auto warmupSteps = epochBatchCount*1;
+	const auto totalSteps = epochBatchCount*epochs;
+	const auto currentStep = epoch*epochBatchCount + batch;
 	if(currentStep < warmupSteps){ return baseLr*static_cast<float>(currentStep) / static_cast<float>(warmupSteps); }
-	const float progress = static_cast<float>(currentStep - warmupSteps) / static_cast<float>(totalSteps - warmupSteps);
-	const float cosineDecay = 0.5f*(1.0f + cosf(3.14159f*progress));
+	const auto progress = static_cast<float>(currentStep - warmupSteps) / static_cast<float>(totalSteps - warmupSteps);
+	const auto cosineDecay = 0.5f*(1.0f + cosf(3.14159f*progress));
 	return minLr + (baseLr - minLr)*cosineDecay;
 }
-int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const float lr, const std::size_t batchIndex, const std::size_t epochBatchCount){
-	for(size_t i = 0; i < nn->batchSize_; ++i){
-		for(int j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1); }
+int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const float lr, const int batchIndex, const int epochBatchCount){
+	for(auto i = 0; i < nn->batchSize_; ++i){
+		for(auto j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1); }
 		hTargetBatchFloat[i*NUM_CTRLS_ + 14] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX) / AXIS_SCALE_);
 		hTargetBatchFloat[i*NUM_CTRLS_ + 15] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY) / AXIS_SCALE_);
 	}
@@ -90,13 +90,13 @@ void Train::TrainModel(const int width, const int height){
 	bool stopTraining = false;
 	const auto epochBatchCount = trainRecordIndices.size() / nn->batchSize_;
 	const auto epochBatchCountVal = valRecordIndices.size() / nn->batchSize_;
-	for(size_t epoch = 0; epoch < epochs; ++epoch){
+	for(auto epoch = 0; epoch < epochs; ++epoch){
 		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nEpoch: " << epoch << "\n";
-		for(size_t batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
+		for(auto batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
 			threadPool.WaitAll();
 			fetchBatch(false);
-			const float lr = GetLearningRate(epoch, batch, epochBatchCount);
+			const float lr = GetLearningRate(epoch, batch, epochBatchCount, epochs);
 			const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
 			if(result == -1){ stopTraining = true; }
 		}
@@ -111,7 +111,7 @@ void Train::TrainModel(const int width, const int height){
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
 		fetchBatch(true);
-		for(size_t batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
+		for(auto batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
 			threadPool.WaitAll();
 			fetchBatch(true);
 			const auto result = TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);

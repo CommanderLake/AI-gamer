@@ -20,22 +20,23 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	int sharedH = patchRows_;
 	int sharedW = patchCols_;
-	const auto spatialC = embedSize_;// RoundUp(embedSize_/2, 16);
+	const auto spatialC = embedSize_;
 	spatialLayers_.push_back(new TokensToSpatialLayer(batchSize_, nTokens_, embedSize_, patchRows_, patchCols_, "TokensToSpatialLayer", train_));
 	spatialLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, spatialC, 3, 1, 1, &sharedH, &sharedW, 1, "Spatial Conv 1", train_, weightDecay_, gradAccumLength_, Xavier));
 	spatialLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, spatialC, sharedH, sharedW, "Spatial BN 1", train_, gradAccumLength_));
 	spatialLayers_.push_back(new GELULayer(batchSize_, spatialC, sharedH, sharedW, "Spatial GELU 1"));
-	spatialLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, spatialC, sharedH, sharedW, "Spatial Drop 1", train_));
 	spatialHeight_ = sharedH;
 	spatialWidth_ = sharedW;
 	spatialSize_ = spatialC*spatialHeight_*spatialWidth_;
-	constexpr auto hiddenC = 4096;
+	constexpr auto hiddenC = 1024;
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, spatialSize_, hiddenC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Buttons GELU"));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, hiddenC, 1, 1, "Buttons Drop", train_));
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, spatialSize_, hiddenC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, hiddenC, 1, 1, "Axes Drop", train_));
+	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
 	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 SpatialActionHead::~SpatialActionHead(){
