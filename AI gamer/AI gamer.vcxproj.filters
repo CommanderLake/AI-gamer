@@ -60,9 +60,6 @@
     <ClCompile Include="ResConvLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="CustomOutLayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ResFCLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -171,9 +168,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ResConvLayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="CustomOutLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ResFCLayer.h">
