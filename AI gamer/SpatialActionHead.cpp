@@ -6,7 +6,6 @@
 #include "GELULayer.h"
 #include "Dropout.h"
 #include "FCLayer.h"
-#include "AsinhLayer.h"
 #include "TokensToSpatialLayer.h"
 #include "ViewerLayer.h"
 #undef min
@@ -37,7 +36,6 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	axisLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Axes GELU"));
 	axisLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, hiddenC, 1, 1, "Axes Drop", train_));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
-	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 SpatialActionHead::~SpatialActionHead(){
 	cudaFree(predictions_);
