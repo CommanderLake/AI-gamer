@@ -45,6 +45,9 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 	float sumMouse = 0.0f;
 	const int numAxisOutputs = numCtrls - numKeys;
 	const int numAxes = numAxisOutputs / 2;
+	constexpr float kLogSigmaMin = -5.0f;
+	constexpr float kLogSigmaMax = 2.0f;
+	constexpr float kLogSigmaL2 = 0.01f;
 	while(idx < size){
 		const float pred = __half2float(predictions[idx]);
 		const float target = targets[idx];
@@ -56,10 +59,11 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 			const int axisOffset = idx - (batchId*numCtrls + numKeys);
 			if(axisOffset < numAxes){
 				const float mu = pred;
-				const float logSigma = __half2float(predictions[idx + numAxes]);
+				float logSigma = __half2float(predictions[idx + numAxes]);
+				logSigma = fmaxf(kLogSigmaMin, fminf(kLogSigmaMax, logSigma));
 				const float diff = mu - target;
 				const float invVar = expf(-2.0f*logSigma);
-				sumMouse += 0.5f*diff*diff*invVar + logSigma;
+				sumMouse += 0.5f*diff*diff*invVar + logSigma + kLogSigmaL2*logSigma*logSigma;
 			}
 		}
 		idx += gridDim.x*blockDim.x;

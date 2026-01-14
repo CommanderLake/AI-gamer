@@ -27,7 +27,7 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	spatialHeight_ = sharedH;
 	spatialWidth_ = sharedW;
 	spatialSize_ = spatialC*spatialHeight_*spatialWidth_;
-	constexpr auto hiddenC = 1024;
+	constexpr auto hiddenC = 4096;
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, spatialSize_, hiddenC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Buttons GELU"));
 	buttonLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, hiddenC, 1, 1, "Buttons Drop", train_));
