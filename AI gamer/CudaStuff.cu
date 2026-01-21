@@ -48,8 +48,25 @@ __global__ void LossBackpropKernel(__half* gradients, const __half* predictions,
 			const float prob = Sigmoidf(logit);
 			gradients[batchId*numButs + ctrlId] = __float2half(fmaxf(-clip, fminf(clip, prob - target)));
 		} else{
-			const float pred = __half2float(predictions[idx]);
-			gradients[numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs)] = __float2half(fmaxf(-clip, fminf(clip, pred - target)));
+			const int axisId = ctrlId - numButs;
+			const int numAxisOutputs = numCtrls - numButs;
+			const int numAxes = numAxisOutputs / 2;
+			constexpr float kLogSigmaMin = -5.0f;
+			constexpr float kLogSigmaMax = 2.0f;
+			constexpr float kLogSigmaL2 = 0.01f;
+			if(axisId < numAxes){
+				const float mu = __half2float(predictions[idx]);
+				float logSigma = __half2float(predictions[idx + numAxes]);
+				logSigma = fmaxf(kLogSigmaMin, fminf(kLogSigmaMax, logSigma));
+				const float diff = mu - target;
+				const float invVar = expf(-2.0f*logSigma);
+				const float gradMu = fmaxf(-clip, fminf(clip, diff*invVar));
+				const float gradLogSigmaRaw = 1.0f - diff*diff*invVar + 2.0f*kLogSigmaL2*logSigma;
+				const float gradLogSigma = fmaxf(-clip, fminf(clip, gradLogSigmaRaw));
+				const int axisBase = numButs*batchSize + batchId*numAxisOutputs;
+				gradients[axisBase + axisId] = __float2half(gradMu);
+				gradients[axisBase + axisId + numAxes] = __float2half(gradLogSigma);
+			}
 		}
 	}
 }

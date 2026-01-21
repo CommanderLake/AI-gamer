@@ -20,7 +20,7 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(const int epoch, const int batch, const int epochBatchCount, const int epochs){
-	constexpr auto baseLr = 0.00002f;
+	constexpr auto baseLr = 0.00001f;
 	constexpr auto minLr = 0.0000001f;
 	const auto warmupSteps = epochBatchCount*1;
 	const auto totalSteps = epochBatchCount*epochs;
@@ -33,8 +33,11 @@ float GetLearningRate(const int epoch, const int batch, const int epochBatchCoun
 int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const float lr, const int batchIndex, const int epochBatchCount){
 	for(auto i = 0; i < nn->batchSize_; ++i){
 		for(auto j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1); }
-		hTargetBatchFloat[i*NUM_CTRLS_ + 14] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX) / AXIS_SCALE_);
-		hTargetBatchFloat[i*NUM_CTRLS_ + 15] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY) / AXIS_SCALE_);
+		const auto axisBase = i*NUM_CTRLS_ + NUM_BUTS_;
+		hTargetBatchFloat[axisBase] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX) / AXIS_SCALE_);
+		hTargetBatchFloat[axisBase + 1] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY) / AXIS_SCALE_);
+		hTargetBatchFloat[axisBase + 2] = 0.0f;
+		hTargetBatchFloat[axisBase + 3] = 0.0f;
 	}
 	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, nn->stateSize_*nn->batchSize_, cudaMemcpyHostToDevice));
 	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, nn->stateSize_*nn->batchSize_, true);
