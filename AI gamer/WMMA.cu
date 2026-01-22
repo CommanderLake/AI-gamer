@@ -113,7 +113,7 @@ namespace{
 // ============================================================================
 // FORWARD KERNEL
 // ============================================================================
-__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, int batchSize, int tokens, int headDim, int heads, int tileCols){
+__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ attnMask, const float* __restrict__ relPosBias, const int* __restrict__ relPosIndex, const int biasSize, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -196,6 +196,10 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	__syncthreads();
 	const size_t attentionOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
 	const size_t maxAttentionIdx = static_cast<size_t>(batchSize)*heads*tokens*tokens;
+	const float* maskBase = attnMask ? attnMask + static_cast<size_t>(batch)*tokens*tokens : nullptr;
+	(void)relPosBias;
+	(void)relPosIndex;
+	(void)biasSize;
 	// Process K tiles - compute QK^T
 	for(int tileStart = 0; tileStart < tokens; tileStart += tileCols){
 		const int remaining = (tokens - tileStart < tileCols) ? (tokens - tileStart) : tileCols;
@@ -251,6 +255,25 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			if(warpId < activeWarps){ store_matrix_sync(scoresTile + colBlock + warpId*16, warpScores, tileCols, wmma::mem_row_major); }
 		}
 		__syncthreads();
+		if(maskBase || (biasBase && relPosIndex)){
+			for(int idx = threadIdx.x; idx < 16*remaining; idx += blockDim.x){
+				const int row = idx / remaining;
+				const int col = idx % remaining;
+				const int globalRow = rowBlock*16 + row;
+				const int globalCol = tileStart + col;
+				if(globalRow < tokens && globalCol < tokens){
+					const size_t maskIdx = static_cast<size_t>(globalRow)*tokens + globalCol;
+					float acc = 0.0f;
+					if(maskBase){ acc += maskBase[maskIdx]; }
+					if(biasBase && relPosIndex){
+						const int biasIdx = relPosIndex[maskIdx];
+						if(biasIdx >= 0 && biasIdx < biasSize){ acc += biasBase[biasIdx]; }
+					}
+					scoresTile[row*tileCols + col] += acc;
+				}
+			}
+			__syncthreads();
+		}
 		// Compute softmax statistics
 #pragma unroll 4
 		for(int row = warpId; row < 16; row += numWarps){
@@ -347,6 +370,25 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			if(warpId < activeWarps){ store_matrix_sync(scoresTile + colBlock + warpId*16, warpScores, tileCols, wmma::mem_row_major); }
 		}
 		__syncthreads();
+		if(maskBase || (biasBase && relPosIndex)){
+			for(int idx = threadIdx.x; idx < 16*remaining; idx += blockDim.x){
+				const int row = idx / remaining;
+				const int col = idx % remaining;
+				const int globalRow = rowBlock*16 + row;
+				const int globalCol = tileStart + col;
+				if(globalRow < tokens && globalCol < tokens){
+					const size_t maskIdx = static_cast<size_t>(globalRow)*tokens + globalCol;
+					float acc = 0.0f;
+					if(maskBase){ acc += maskBase[maskIdx]; }
+					if(biasBase && relPosIndex){
+						const int biasIdx = relPosIndex[maskIdx];
+						if(biasIdx >= 0 && biasIdx < biasSize){ acc += biasBase[biasIdx]; }
+					}
+					scoresTile[row*tileCols + col] += acc;
+				}
+			}
+			__syncthreads();
+		}
 		// Apply softmax normalization
 #pragma unroll 4
 		for(int row = warpId; row < 16; row += numWarps){
@@ -457,7 +499,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 // ============================================================================
 // BACKWARD KERNELS
 // ============================================================================
-__global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const __half* __restrict__ attention, float* __restrict__ dAtt, __half* __restrict__ dQ, int batchSize, int tokens, int headDim, int heads, int tileCols){
+__global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const __half* __restrict__ attention, const float* __restrict__ attnMask, const float* __restrict__ relPosBias, const int* __restrict__ relPosIndex, const int biasSize, float* __restrict__ dAtt, __half* __restrict__ dQ, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -466,6 +508,8 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 	const size_t batchHead = static_cast<size_t>(batch)*heads + head;
 	const size_t embOffset = batchHead*tokens*headDim;
 	const size_t attOffset = batchHead*tokens*tokens;
+	const float* maskBase = attnMask ? attnMask + static_cast<size_t>(batch)*tokens*tokens : nullptr;
+	const float* biasBase = relPosBias ? relPosBias + static_cast<size_t>(head)*biasSize : nullptr;
 	const size_t totalEmbElements = static_cast<size_t>(batchSize)*heads*tokens*headDim;
 	const size_t totalAttElements = static_cast<size_t>(batchSize)*heads*tokens*tokens;
 	const int numKeyBlocks = (tokens + 15) / 16;
@@ -599,7 +643,11 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 				const int globalCol = tileStart + colBlock + warpLocal*16 + c;
 				if(globalRow < tokens && globalCol < tokens && warpLocal*16 + c < remainingCols){
 					const size_t attIdx = attOffset + globalRow*tokens + globalCol;
-					if(attIdx < totalAttElements){ dAtt[attIdx] = scoreTiles[warpLocal*paddedTileElements + r*tileStride + c]; }
+					if(attIdx < totalAttElements){
+						float val = scoreTiles[warpLocal*paddedTileElements + r*tileStride + c];
+						if(maskBase && maskBase[attIdx] < 0.0f){ val = 0.0f; }
+						dAtt[attIdx] = val;
+					}
 				}
 			}
 			__syncthreads();
@@ -620,11 +668,12 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 						if(globalCol < tokens){
 							const size_t attIdx = attOffset + globalRow*tokens + globalCol;
 							if(attIdx < totalAttElements){
-								const float rawVal = tile[c];
-								const float attVal = __half2float(attention[attIdx]);
-								accum += rawVal*attVal;
-							}
+							const float rawVal = tile[c];
+							float attVal = __half2float(attention[attIdx]);
+							if(maskBase && maskBase[attIdx] < 0.0f){ attVal = 0.0f; }
+							accum += rawVal*attVal;
 						}
+					}
 					}
 				}
 				accum = WarpReduceSum(accum);
@@ -653,13 +702,14 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 				if(globalRow < tokens && globalCol < tokens && warpLocal*16 + c < remainingCols){
 					const size_t attIdx = attOffset + globalRow*tokens + globalCol;
 					if(attIdx < totalAttElements){
-						const float rawVal = dAtt[attIdx];
-						const float attVal = __half2float(attention[attIdx]);
-						const float gradVal = attVal*(rawVal - rowSums[r]);
-						dAtt[attIdx] = gradVal;
-					}
+					const float rawVal = dAtt[attIdx];
+					float attVal = __half2float(attention[attIdx]);
+					if(maskBase && maskBase[attIdx] < 0.0f){ attVal = 0.0f; }
+					const float gradVal = attVal*(rawVal - rowSums[r]);
+					dAtt[attIdx] = maskBase && maskBase[attIdx] < 0.0f ? 0.0f : gradVal;
 				}
 			}
+		}
 		}
 		__syncthreads();
 	}
@@ -740,7 +790,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 		__syncthreads();
 	}
 }
-__global__ void ComputeDVKernel(const __half* __restrict__ attention, const __half* __restrict__ dOut, __half* __restrict__ dV, int batchSize, int tokens, int headDim, int heads){
+__global__ void ComputeDVKernel(const __half* __restrict__ attention, const float* __restrict__ attnMask, const __half* __restrict__ dOut, __half* __restrict__ dV, int batchSize, int tokens, int headDim, int heads){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int keyBlock = blockIdx.x;
@@ -749,6 +799,7 @@ __global__ void ComputeDVKernel(const __half* __restrict__ attention, const __ha
 	const size_t batchHead = static_cast<size_t>(batch)*heads + head;
 	const size_t embOffset = batchHead*tokens*headDim;
 	const size_t attOffset = batchHead*tokens*tokens;
+	const float* maskBase = attnMask ? attnMask + static_cast<size_t>(batch)*tokens*tokens : nullptr;
 	const size_t totalEmbElements = static_cast<size_t>(batchSize)*heads*tokens*headDim;
 	const size_t totalAttElements = static_cast<size_t>(batchSize)*heads*tokens*tokens;
 	const int numRowBlocks = (tokens + 15) / 16;
@@ -788,11 +839,17 @@ __global__ void ComputeDVKernel(const __half* __restrict__ attention, const __ha
 					const int globalQuery1 = queryBase + r1;
 					if(globalQuery0 < tokens){
 						const size_t attIdx0 = attOffset + static_cast<size_t>(globalQuery0)*tokens + globalKey;
-						if(attIdx0 < totalAttElements){ h0 = attention[attIdx0]; }
+						if(attIdx0 < totalAttElements){
+							h0 = attention[attIdx0];
+							if(maskBase && maskBase[attIdx0] < 0.0f){ h0 = zeroHalf; }
+						}
 					}
 					if(r1 < 16 && globalQuery1 < tokens){
 						const size_t attIdx1 = attOffset + static_cast<size_t>(globalQuery1)*tokens + globalKey;
-						if(attIdx1 < totalAttElements){ h1 = attention[attIdx1]; }
+						if(attIdx1 < totalAttElements){
+							h1 = attention[attIdx1];
+							if(maskBase && maskBase[attIdx1] < 0.0f){ h1 = zeroHalf; }
+						}
 					}
 				}
 				__half* tileBase = attTile + c*tileStride + r0;
@@ -944,7 +1001,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 // ============================================================================
 // WRAPPER FUNCTIONS
 // ============================================================================
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, int batchSize, int tokens, int headDim, int heads){
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attnMask, const float* relPosBias, const int* relPosIndex, const int biasSize, const int batchSize, const int tokens, const int headDim, const int heads){
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
 		printf("WmmaAttention: Invalid dimensions, aborting\n");
@@ -969,10 +1026,10 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 		return;
 	}
 	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, batchSize, tokens, headDim, heads, tileCols);
+	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attnMask, relPosBias, relPosIndex, biasSize, batchSize, tokens, headDim, heads, tileCols);
 	checkCUDA(cudaGetLastError());
 }
-void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){
+void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, const float* attnMask, const float* relPosBias, const int* relPosIndex, const int biasSize, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){
 	if(!Q || !K || !V || !dOut || !Att || !dQ || !dK || !dV || !dAttWorkspace){
 		printf("WmmaAttentionBackward: Null pointer(s) provided\n");
 		return;
@@ -1013,13 +1070,13 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	cudaFuncSetAttribute(ComputeDKKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
 	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 	// Launch kernels
-	ComputeDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
+	ComputeDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, attnMask, relPosBias, relPosIndex, biasSize, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
 	cudaError_t err = cudaGetLastError();
 	if(err != cudaSuccess){
 		printf("WmmaAttentionBackward dAtt+dQ error: %s\n", cudaGetErrorString(err));
 		return;
 	}
-	ComputeDVKernel<<<gridKV, block, smemKV>>>(Att, dOut, dV, batchSize, tokens, headDim, heads);
+	ComputeDVKernel<<<gridKV, block, smemKV>>>(Att, attnMask, dOut, dV, batchSize, tokens, headDim, heads);
 	err = cudaGetLastError();
 	if(err != cudaSuccess){
 		printf("WmmaAttentionBackward dV error: %s\n", cudaGetErrorString(err));

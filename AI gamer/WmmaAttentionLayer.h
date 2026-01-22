@@ -17,6 +17,9 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void SetAttentionMask(const float* mask);
+	void SetRelativePositionBias(const float* bias, const int* relPosIndex, int biasSize);
+	void AccumulateRelPosBiasGrad(float* gradBias, const int* relPosIndex, int biasSize, float scale) const;
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	int batchSize_, tokens_, embedDim_, numHeads_;
@@ -42,4 +45,8 @@ public:
 	float weightDecay_;
 	float alphaWeights_ = 1.0f;
 	int accumCount_ = 0;
+	const float* attentionMask_ = nullptr;
+	const float* relPosBias_ = nullptr;
+	const int* relPosIndex_ = nullptr;
+	int relPosBiasSize_ = 0;
 };

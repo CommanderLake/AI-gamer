@@ -74,8 +74,16 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 bool IsnanHalf(const __half* data, int size);
 void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale);
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, int batchSize, int tokens, int headDim, int heads);
-void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attnMask, const float* relPosBias, const int* relPosIndex, int biasSize, int batchSize, int tokens, int headDim, int heads);
+void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, const float* attnMask, const float* relPosBias, const int* relPosIndex, int biasSize, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
+void ShiftTokens2d(const __half* input, __half* output, int batch, int height, int width, int channels, int shiftY, int shiftX);
+void WindowPartition(const __half* input, __half* output, int batch, int height, int width, int channels, int windowSize);
+void WindowReverse(const __half* input, __half* output, int batch, int height, int width, int channels, int windowSize);
+void ShiftWindowPartition(const __half* input, __half* output, int batch, int height, int width, int channels, int windowSize, int shiftY, int shiftX);
+void WindowReverseShift(const __half* input, __half* output, int batch, int height, int width, int channels, int windowSize, int shiftY, int shiftX);
+void PackTokens2x2(const __half* input, __half* output, int batch, int height, int width, int channels);
+void UnpackTokens2x2(const __half* input, __half* output, int batch, int height, int width, int channels);
+void AccumulateRelPosBiasGrad(const float* dAtt, const int* relPosIndex, float* gradBias, int batch, int heads, int tokens, int biasSize, float scale);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);

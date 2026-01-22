@@ -20,6 +20,310 @@ void BlockShiftHalf(__half* hPtr, const int shiftBy, const int blocksToShift){
 		}
 	}
 }
+__global__ void ShiftTokens2dKernel(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int shiftY, const int shiftX){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int total = batch*height*width*channels;
+	if(idx >= total) return;
+	const int c = idx % channels;
+	const int token = idx / channels;
+	const int x = token % width;
+	const int y = (token / width) % height;
+	const int b = token / (width*height);
+	const int srcY = (y + shiftY + height) % height;
+	const int srcX = (x + shiftX + width) % width;
+	const int srcToken = (b*height + srcY)*width + srcX;
+	output[idx] = input[srcToken*channels + c];
+}
+void ShiftTokens2d(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int shiftY, const int shiftX){
+	const int total = batch*height*width*channels;
+	const int gridSize = DivCeil(total, BS);
+	ShiftTokens2dKernel<<<gridSize, BS>>>(input, output, batch, height, width, channels, shiftY, shiftX);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void WindowPartitionKernel(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*channels;
+	if(idx >= total) return;
+	const int c = idx % channels;
+	const int token = (idx / channels) % windowTokens;
+	const int windowIndex = (idx / channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int srcX = windowX*windowSize + localX;
+	const int srcY = windowY*windowSize + localY;
+	const int srcToken = (b*height + srcY)*width + srcX;
+	output[idx] = input[srcToken*channels + c];
+}
+__global__ void WindowPartitionKernelHalf2(const __half2* input, __half2* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int half2Channels = channels / 2;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*half2Channels;
+	if(idx >= total) return;
+	const int c2 = idx % half2Channels;
+	const int token = (idx / half2Channels) % windowTokens;
+	const int windowIndex = (idx / half2Channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (half2Channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int srcX = windowX*windowSize + localX;
+	const int srcY = windowY*windowSize + localY;
+	const int srcToken = (b*height + srcY)*width + srcX;
+	output[idx] = input[srcToken*half2Channels + c2];
+}
+void WindowPartition(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize){
+	const int windowsPerRow = width / windowSize;
+	const int windowsPerCol = height / windowSize;
+	const int total = batch*windowsPerRow*windowsPerCol*windowSize*windowSize*channels;
+	const int gridSize = DivCeil(total, BS);
+	const bool useHalf2 = (channels % 2 == 0) && ((reinterpret_cast<uintptr_t>(input) % alignof(__half2)) == 0) && ((reinterpret_cast<uintptr_t>(output) % alignof(__half2)) == 0);
+	if(useHalf2){
+		const int totalHalf2 = total / 2;
+		const int gridHalf2 = DivCeil(totalHalf2, BS);
+		WindowPartitionKernelHalf2<<<gridHalf2, BS>>>(reinterpret_cast<const __half2*>(input), reinterpret_cast<__half2*>(output), batch, height, width, channels, windowSize, windowsPerRow);
+	} else{
+		WindowPartitionKernel<<<gridSize, BS>>>(input, output, batch, height, width, channels, windowSize, windowsPerRow);
+	}
+	checkCUDA(cudaGetLastError());
+}
+__global__ void WindowReverseKernel(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*channels;
+	if(idx >= total) return;
+	const int c = idx % channels;
+	const int token = (idx / channels) % windowTokens;
+	const int windowIndex = (idx / channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int dstX = windowX*windowSize + localX;
+	const int dstY = windowY*windowSize + localY;
+	const int dstToken = (b*height + dstY)*width + dstX;
+	output[dstToken*channels + c] = input[idx];
+}
+__global__ void WindowReverseKernelHalf2(const __half2* input, __half2* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int half2Channels = channels / 2;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*half2Channels;
+	if(idx >= total) return;
+	const int c2 = idx % half2Channels;
+	const int token = (idx / half2Channels) % windowTokens;
+	const int windowIndex = (idx / half2Channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (half2Channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int dstX = windowX*windowSize + localX;
+	const int dstY = windowY*windowSize + localY;
+	const int dstToken = (b*height + dstY)*width + dstX;
+	output[dstToken*half2Channels + c2] = input[idx];
+}
+void WindowReverse(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize){
+	const int windowsPerRow = width / windowSize;
+	const int windowsPerCol = height / windowSize;
+	const int total = batch*windowsPerRow*windowsPerCol*windowSize*windowSize*channels;
+	const int gridSize = DivCeil(total, BS);
+	const bool useHalf2 = (channels % 2 == 0) && ((reinterpret_cast<uintptr_t>(input) % alignof(__half2)) == 0) && ((reinterpret_cast<uintptr_t>(output) % alignof(__half2)) == 0);
+	if(useHalf2){
+		const int totalHalf2 = total / 2;
+		const int gridHalf2 = DivCeil(totalHalf2, BS);
+		WindowReverseKernelHalf2<<<gridHalf2, BS>>>(reinterpret_cast<const __half2*>(input), reinterpret_cast<__half2*>(output), batch, height, width, channels, windowSize, windowsPerRow);
+	} else{
+		WindowReverseKernel<<<gridSize, BS>>>(input, output, batch, height, width, channels, windowSize, windowsPerRow);
+	}
+	checkCUDA(cudaGetLastError());
+}
+__global__ void ShiftWindowPartitionKernel(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int shiftY, const int shiftX, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*channels;
+	if(idx >= total) return;
+	const int c = idx % channels;
+	const int token = (idx / channels) % windowTokens;
+	const int windowIndex = (idx / channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int dstX = windowX*windowSize + localX;
+	const int dstY = windowY*windowSize + localY;
+	const int srcY = (dstY + shiftY + height) % height;
+	const int srcX = (dstX + shiftX + width) % width;
+	const int srcToken = (b*height + srcY)*width + srcX;
+	output[idx] = input[srcToken*channels + c];
+}
+__global__ void ShiftWindowPartitionKernelHalf2(const __half2* input, __half2* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int shiftY, const int shiftX, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int half2Channels = channels / 2;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*half2Channels;
+	if(idx >= total) return;
+	const int c2 = idx % half2Channels;
+	const int token = (idx / half2Channels) % windowTokens;
+	const int windowIndex = (idx / half2Channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (half2Channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int dstX = windowX*windowSize + localX;
+	const int dstY = windowY*windowSize + localY;
+	const int srcY = (dstY + shiftY + height) % height;
+	const int srcX = (dstX + shiftX + width) % width;
+	const int srcToken = (b*height + srcY)*width + srcX;
+	output[idx] = input[srcToken*half2Channels + c2];
+}
+void ShiftWindowPartition(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int shiftY, const int shiftX){
+	const int windowsPerRow = width / windowSize;
+	const int windowsPerCol = height / windowSize;
+	const int total = batch*windowsPerRow*windowsPerCol*windowSize*windowSize*channels;
+	const int gridSize = DivCeil(total, BS);
+	const bool useHalf2 = (channels % 2 == 0) && ((reinterpret_cast<uintptr_t>(input) % alignof(__half2)) == 0) && ((reinterpret_cast<uintptr_t>(output) % alignof(__half2)) == 0);
+	if(useHalf2){
+		const int totalHalf2 = total / 2;
+		const int gridHalf2 = DivCeil(totalHalf2, BS);
+		ShiftWindowPartitionKernelHalf2<<<gridHalf2, BS>>>(reinterpret_cast<const __half2*>(input), reinterpret_cast<__half2*>(output), batch, height, width, channels, windowSize, shiftY, shiftX, windowsPerRow);
+	} else{
+		ShiftWindowPartitionKernel<<<gridSize, BS>>>(input, output, batch, height, width, channels, windowSize, shiftY, shiftX, windowsPerRow);
+	}
+	checkCUDA(cudaGetLastError());
+}
+__global__ void WindowReverseShiftKernel(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int shiftY, const int shiftX, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*channels;
+	if(idx >= total) return;
+	const int c = idx % channels;
+	const int token = (idx / channels) % windowTokens;
+	const int windowIndex = (idx / channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int srcX = windowX*windowSize + localX;
+	const int srcY = windowY*windowSize + localY;
+	const int dstY = (srcY + shiftY + height) % height;
+	const int dstX = (srcX + shiftX + width) % width;
+	const int dstToken = (b*height + dstY)*width + dstX;
+	output[dstToken*channels + c] = input[idx];
+}
+__global__ void WindowReverseShiftKernelHalf2(const __half2* input, __half2* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int shiftY, const int shiftX, const int windowsPerRow){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int half2Channels = channels / 2;
+	const int windowTokens = windowSize*windowSize;
+	const int total = batch*windowsPerRow*(height/windowSize)*windowTokens*half2Channels;
+	if(idx >= total) return;
+	const int c2 = idx % half2Channels;
+	const int token = (idx / half2Channels) % windowTokens;
+	const int windowIndex = (idx / half2Channels) / windowTokens % (windowsPerRow*(height/windowSize));
+	const int b = idx / (half2Channels*windowTokens*windowsPerRow*(height/windowSize));
+	const int localX = token % windowSize;
+	const int localY = token / windowSize;
+	const int windowX = windowIndex % windowsPerRow;
+	const int windowY = windowIndex / windowsPerRow;
+	const int srcX = windowX*windowSize + localX;
+	const int srcY = windowY*windowSize + localY;
+	const int dstY = (srcY + shiftY + height) % height;
+	const int dstX = (srcX + shiftX + width) % width;
+	const int dstToken = (b*height + dstY)*width + dstX;
+	output[dstToken*half2Channels + c2] = input[idx];
+}
+void WindowReverseShift(const __half* input, __half* output, const int batch, const int height, const int width, const int channels, const int windowSize, const int shiftY, const int shiftX){
+	const int windowsPerRow = width / windowSize;
+	const int windowsPerCol = height / windowSize;
+	const int total = batch*windowsPerRow*windowsPerCol*windowSize*windowSize*channels;
+	const int gridSize = DivCeil(total, BS);
+	const bool useHalf2 = (channels % 2 == 0) && ((reinterpret_cast<uintptr_t>(input) % alignof(__half2)) == 0) && ((reinterpret_cast<uintptr_t>(output) % alignof(__half2)) == 0);
+	if(useHalf2){
+		const int totalHalf2 = total / 2;
+		const int gridHalf2 = DivCeil(totalHalf2, BS);
+		WindowReverseShiftKernelHalf2<<<gridHalf2, BS>>>(reinterpret_cast<const __half2*>(input), reinterpret_cast<__half2*>(output), batch, height, width, channels, windowSize, shiftY, shiftX, windowsPerRow);
+	} else{
+		WindowReverseShiftKernel<<<gridSize, BS>>>(input, output, batch, height, width, channels, windowSize, shiftY, shiftX, windowsPerRow);
+	}
+	checkCUDA(cudaGetLastError());
+}
+__global__ void PackTokens2x2Kernel(const __half* input, __half* output, const int batch, const int height, const int width, const int channels){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int outHeight = height / 2;
+	const int outWidth = width / 2;
+	const int outTokens = outHeight * outWidth;
+	const int total = batch*outTokens*channels*4;
+	if(idx >= total) return;
+	const int c = idx % (channels * 4);
+	const int outToken = (idx / (channels * 4)) % outTokens;
+	const int b = idx / (channels * 4 * outTokens);
+	const int outX = outToken % outWidth;
+	const int outY = outToken / outWidth;
+	const int quad = c / channels;
+	const int cIn = c % channels;
+	const int inX = outX * 2 + (quad % 2);
+	const int inY = outY * 2 + (quad / 2);
+	const int inToken = (b * height + inY) * width + inX;
+	output[idx] = input[inToken * channels + cIn];
+}
+void PackTokens2x2(const __half* input, __half* output, const int batch, const int height, const int width, const int channels){
+	const int outHeight = height / 2;
+	const int outWidth = width / 2;
+	const int total = batch*outHeight*outWidth*channels*4;
+	const int gridSize = DivCeil(total, BS);
+	PackTokens2x2Kernel<<<gridSize, BS>>>(input, output, batch, height, width, channels);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void UnpackTokens2x2Kernel(const __half* input, __half* output, const int batch, const int height, const int width, const int channels){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int inTokens = height * width;
+	const int total = batch*inTokens*channels*4;
+	if(idx >= total) return;
+	const int c = idx % (channels * 4);
+	const int inToken = (idx / (channels * 4)) % inTokens;
+	const int b = idx / (channels * 4 * inTokens);
+	const int inX = inToken % width;
+	const int inY = inToken / width;
+	const int quad = c / channels;
+	const int cIn = c % channels;
+	const int outX = inX * 2 + (quad % 2);
+	const int outY = inY * 2 + (quad / 2);
+	const int outToken = (b * (height * 2) + outY) * (width * 2) + outX;
+	output[outToken * channels + cIn] = input[idx];
+}
+void UnpackTokens2x2(const __half* input, __half* output, const int batch, const int height, const int width, const int channels){
+	const int total = batch*height*width*channels*4;
+	const int gridSize = DivCeil(total, BS);
+	UnpackTokens2x2Kernel<<<gridSize, BS>>>(input, output, batch, height, width, channels);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void AccumulateRelPosBiasGradKernel(const float* dAtt, const int* relPosIndex, float* gradBias, const int batch, const int heads, const int tokens, const int biasSize, const float scale){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int total = batch*heads*tokens*tokens;
+	if(idx >= total) return;
+	const int token = idx % (tokens*tokens);
+	const int head = (idx / (tokens*tokens)) % heads;
+	const int biasIdx = relPosIndex[token];
+	if(biasIdx >= 0 && biasIdx < biasSize){
+		atomicAdd(&gradBias[head*biasSize + biasIdx], dAtt[idx]*scale);
+	}
+}
+void AccumulateRelPosBiasGrad(const float* dAtt, const int* relPosIndex, float* gradBias, const int batch, const int heads, const int tokens, const int biasSize, const float scale){
+	if(!dAtt || !relPosIndex || !gradBias) return;
+	const int total = batch*heads*tokens*tokens;
+	const int gridSize = DivCeil(total, BS);
+	AccumulateRelPosBiasGradKernel<<<gridSize, BS>>>(dAtt, relPosIndex, gradBias, batch, heads, tokens, biasSize, scale);
+	checkCUDA(cudaGetLastError());
+}
 __global__ void GradientKernel(__half* grads, const __half* predictions, const __half* targets, const float clip, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){ grads[idx] = __float2half(fmaxf(-clip, fminf(clip, __half2float(predictions[idx] - targets[idx])))); }

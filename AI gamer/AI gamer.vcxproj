@@ -138,11 +138,14 @@
     <ClInclude Include="NvDisplayCap.h" />
     <ClInclude Include="NvFBCLibrary.h" />
     <ClInclude Include="SigmoidLayer.h" />
+    <ClInclude Include="SwinUnetLayer.h" />
     <ClInclude Include="ThreadPool.h" />
     <ClInclude Include="Train.h" />
     <ClInclude Include="ViewerLayer.h" />
     <ClInclude Include="WeightInitMethod.h" />
+    <ClInclude Include="WindowAttentionLayer.h" />
     <ClInclude Include="WmmaAttentionLayer.h" />
+    <ClInclude Include="SwinBlockLayer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Activate.cpp" />
@@ -175,10 +178,13 @@
     <ClCompile Include="LeakyReLULayer.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
+    <ClCompile Include="SwinUnetLayer.cpp" />
     <ClCompile Include="ThreadPool.cpp" />
     <ClCompile Include="Train.cpp" />
     <ClCompile Include="ViewerLayer.cpp" />
     <ClCompile Include="WmmaAttentionLayer.cpp" />
+    <ClCompile Include="WindowAttentionLayer.cpp" />
+    <ClCompile Include="SwinBlockLayer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="Activations.cu" />
