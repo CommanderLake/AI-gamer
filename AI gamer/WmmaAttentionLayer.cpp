@@ -91,6 +91,9 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
+	const auto Q = workspace_;
+	const auto K = workspace_ + outNCHW_;
+	const auto V = workspace_ + 2*outNCHW_;
 	const auto attnOut = workspace_ + 3*outNCHW_;
 	const __half* attentionWeights = workspace_ + 4*outNCHW_;
 	constexpr int kMaxBatchChunk = 1024;
