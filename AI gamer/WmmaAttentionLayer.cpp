@@ -1,6 +1,7 @@
 #include "WmmaAttentionLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
+#include <algorithm>
 WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
 	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
@@ -81,28 +82,46 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	const auto V = workspace_ + 2*outNCHW_;
 	const auto attnOut = workspace_ + 3*outNCHW_;
 	const auto attentionWeights = workspace_ + 4*outNCHW_;
+	constexpr int kMaxBatchChunk = 1024;
 	inData_ = data;
 	const long long qkvStrideA = static_cast<long long>(embedDim_)*embedDim_;
 	const long long qkvStrideC = static_cast<long long>(outNCHW_);
 	checkCUBLAS(cublasGemmStridedBatchedEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, qWeights_, CUDA_R_16F, embedDim_, qkvStrideA, data, CUDA_R_16F, embedDim_, 0, &zero_, Q, CUDA_R_16F, embedDim_, qkvStrideC, 3, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	PackColumnsToHeads(Q, K, V, qPacked_, kPacked_, vPacked_, batchSize_, tokens_, embedDim_, numHeads_);
 	dQ = Q;
 	dK = K;
 	dV = V;
-	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, relPosBias_, relPosIndex_, relPosBiasSize_, batchSize_, tokens_, headDim_, numHeads_);
-	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
+	const size_t batchStride = static_cast<size_t>(tokens_)*embedDim_;
+	const size_t attnStride = static_cast<size_t>(numHeads_)*tokens_*tokens_;
+	for(int batchOffset = 0; batchOffset < batchSize_; batchOffset += kMaxBatchChunk){
+		const int batchChunk = std::min(kMaxBatchChunk, batchSize_ - batchOffset);
+		const size_t dataOffset = static_cast<size_t>(batchOffset) * batchStride;
+		const size_t attnOffset = static_cast<size_t>(batchOffset) * attnStride;
+		PackColumnsToHeads(Q + dataOffset, K + dataOffset, V + dataOffset, qPacked_ + dataOffset, kPacked_ + dataOffset, vPacked_ + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
+		const float* maskBase = attentionMask_ ? attentionMask_ + attnOffset : nullptr;
+		WmmaAttention(qPacked_ + dataOffset, kPacked_ + dataOffset, vPacked_ + dataOffset, attnOutPacked_ + dataOffset, train_ ? attentionWeights + attnOffset : nullptr, maskBase, relPosBias_, relPosIndex_, relPosBiasSize_, batchChunk, tokens_, headDim_, numHeads_);
+		PackHeadsToColumns(attnOutPacked_ + dataOffset, attnOut + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
+	}
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
 	const auto attnOut = workspace_ + 3*outNCHW_;
 	const __half* attentionWeights = workspace_ + 4*outNCHW_;
+	constexpr int kMaxBatchChunk = 1024;
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &zero_ : &one_;
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, betaWeights, gradOut_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &zero_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	PackColumnsToHeads(attnOut, attnOutPacked_, batchSize_, tokens_, embedDim_, numHeads_);
-	WmmaAttentionBackward(qPacked_, kPacked_, vPacked_, attnOutPacked_, attentionWeights, attentionMask_, relPosBias_, relPosIndex_, relPosBiasSize_, dQPacked_, dKPacked_, dVPacked_, attnGradWorkspace_, attnGradWorkspaceSize_, batchSize_, tokens_, headDim_, numHeads_);
-	PackHeadsToColumns(dQPacked_, dKPacked_, dVPacked_, dQ, dK, dV, batchSize_, tokens_, embedDim_, numHeads_);
+	const size_t batchStride = static_cast<size_t>(tokens_)*embedDim_;
+	const size_t attnStride = static_cast<size_t>(numHeads_)*tokens_*tokens_;
+	for(int batchOffset = 0; batchOffset < batchSize_; batchOffset += kMaxBatchChunk){
+		const int batchChunk = std::min(kMaxBatchChunk, batchSize_ - batchOffset);
+		const size_t dataOffset = static_cast<size_t>(batchOffset) * batchStride;
+		const size_t attnOffset = static_cast<size_t>(batchOffset) * attnStride;
+		PackColumnsToHeads(attnOut + dataOffset, attnOutPacked_ + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
+		const float* maskBase = attentionMask_ ? attentionMask_ + attnOffset : nullptr;
+		WmmaAttentionBackward(qPacked_ + dataOffset, kPacked_ + dataOffset, vPacked_ + dataOffset, attnOutPacked_ + dataOffset, attentionWeights + attnOffset, maskBase, relPosBias_, relPosIndex_, relPosBiasSize_, dQPacked_ + dataOffset, dKPacked_ + dataOffset, dVPacked_ + dataOffset, attnGradWorkspace_ + attnOffset, static_cast<size_t>(batchChunk) * attnStride, batchChunk, tokens_, headDim_, numHeads_);
+		PackHeadsToColumns(dQPacked_ + dataOffset, dKPacked_ + dataOffset, dVPacked_ + dataOffset, dQ + dataOffset, dK + dataOffset, dV + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
+	}
 	const long long dqdvdStrideA = static_cast<long long>(outNCHW_);
 	const long long dqdvdStrideC = static_cast<long long>(embedDim_)*embedDim_;
 	checkCUBLAS(cublasGemmStridedBatchedEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dQ, CUDA_R_16F, embedDim_, dqdvdStrideA, inData_, CUDA_R_16F, embedDim_, 0, betaWeights, gradQ_, CUDA_R_16F, embedDim_, dqdvdStrideC, 3, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
