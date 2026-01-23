@@ -18,10 +18,6 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	const auto attentionElems = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
 	CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + attentionElems*sizeof(__half));
-	CUDAMallocZero(&qPacked_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&kPacked_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&attnOutPacked_, outNCHW_*sizeof(__half));
 	if(train_){
 		WeightInit(qWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(kWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
@@ -44,9 +40,6 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 		CUDAMallocZero(&m_O_, projSize*sizeof(__half));
 		CUDAMallocZero(&v_O_, projSize*sizeof(__half));
 		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dQPacked_, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dKPacked_, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dVPacked_, outNCHW_*sizeof(__half));
 	}
 }
 WmmaAttentionLayer::~WmmaAttentionLayer(){
@@ -54,10 +47,6 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	cudaFree(oWeights_);
 	cudaFree(outData_);
 	cudaFree(workspace_);
-	cudaFree(qPacked_);
-	cudaFree(kPacked_);
-	cudaFree(vPacked_);
-	cudaFree(attnOutPacked_);
 	if(train_){
 		cudaFree(attnGradWorkspace_);
 		cudaFree(gradQkvBase_);
@@ -71,9 +60,6 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 		cudaFree(m_O_);
 		cudaFree(v_O_);
 		cudaFree(outGrad_);
-		cudaFree(dQPacked_);
-		cudaFree(dKPacked_);
-		cudaFree(dVPacked_);
 	}
 }
 __half* WmmaAttentionLayer::Forward(__half* data){
@@ -92,14 +78,14 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	dV = V;
 	const size_t batchStride = static_cast<size_t>(tokens_)*embedDim_;
 	const size_t attnStride = static_cast<size_t>(numHeads_)*tokens_*tokens_;
+	const size_t maskStride = static_cast<size_t>(tokens_)*tokens_;
 	for(int batchOffset = 0; batchOffset < batchSize_; batchOffset += kMaxBatchChunk){
 		const int batchChunk = std::min(kMaxBatchChunk, batchSize_ - batchOffset);
 		const size_t dataOffset = static_cast<size_t>(batchOffset) * batchStride;
 		const size_t attnOffset = static_cast<size_t>(batchOffset) * attnStride;
-		PackColumnsToHeads(Q + dataOffset, K + dataOffset, V + dataOffset, qPacked_ + dataOffset, kPacked_ + dataOffset, vPacked_ + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
-		const float* maskBase = attentionMask_ ? attentionMask_ + attnOffset : nullptr;
-		WmmaAttention(qPacked_ + dataOffset, kPacked_ + dataOffset, vPacked_ + dataOffset, attnOutPacked_ + dataOffset, train_ ? attentionWeights + attnOffset : nullptr, maskBase, relPosBias_, relPosIndex_, relPosBiasSize_, batchChunk, tokens_, headDim_, numHeads_);
-		PackHeadsToColumns(attnOutPacked_ + dataOffset, attnOut + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
+		const size_t maskOffset = static_cast<size_t>(batchOffset) * maskStride;
+		const float* maskBase = attentionMask_ ? attentionMask_ + maskOffset : nullptr;
+		WmmaAttention(Q + dataOffset, K + dataOffset, V + dataOffset, attnOut + dataOffset, train_ ? attentionWeights + attnOffset : nullptr, maskBase, relPosBias_, relPosIndex_, relPosBiasSize_, batchChunk, tokens_, headDim_, numHeads_, embedDim_);
 	}
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outData_;
@@ -113,14 +99,14 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &zero_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	const size_t batchStride = static_cast<size_t>(tokens_)*embedDim_;
 	const size_t attnStride = static_cast<size_t>(numHeads_)*tokens_*tokens_;
+	const size_t maskStride = static_cast<size_t>(tokens_)*tokens_;
 	for(int batchOffset = 0; batchOffset < batchSize_; batchOffset += kMaxBatchChunk){
 		const int batchChunk = std::min(kMaxBatchChunk, batchSize_ - batchOffset);
 		const size_t dataOffset = static_cast<size_t>(batchOffset) * batchStride;
 		const size_t attnOffset = static_cast<size_t>(batchOffset) * attnStride;
-		PackColumnsToHeads(attnOut + dataOffset, attnOutPacked_ + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
-		const float* maskBase = attentionMask_ ? attentionMask_ + attnOffset : nullptr;
-		WmmaAttentionBackward(qPacked_ + dataOffset, kPacked_ + dataOffset, vPacked_ + dataOffset, attnOutPacked_ + dataOffset, attentionWeights + attnOffset, maskBase, relPosBias_, relPosIndex_, relPosBiasSize_, dQPacked_ + dataOffset, dKPacked_ + dataOffset, dVPacked_ + dataOffset, attnGradWorkspace_ + attnOffset, static_cast<size_t>(batchChunk) * attnStride, batchChunk, tokens_, headDim_, numHeads_);
-		PackHeadsToColumns(dQPacked_ + dataOffset, dKPacked_ + dataOffset, dVPacked_ + dataOffset, dQ + dataOffset, dK + dataOffset, dV + dataOffset, batchChunk, tokens_, embedDim_, numHeads_);
+		const size_t maskOffset = static_cast<size_t>(batchOffset) * maskStride;
+		const float* maskBase = attentionMask_ ? attentionMask_ + maskOffset : nullptr;
+		WmmaAttentionBackward(Q + dataOffset, K + dataOffset, V + dataOffset, attnOut + dataOffset, attentionWeights + attnOffset, maskBase, relPosBias_, relPosIndex_, relPosBiasSize_, dQ + dataOffset, dK + dataOffset, dV + dataOffset, attnGradWorkspace_ + attnOffset, static_cast<size_t>(batchChunk) * attnStride, batchChunk, tokens_, headDim_, numHeads_, embedDim_);
 	}
 	const long long dqdvdStrideA = static_cast<long long>(outNCHW_);
 	const long long dqdvdStrideC = static_cast<long long>(embedDim_)*embedDim_;

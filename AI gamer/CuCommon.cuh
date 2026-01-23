@@ -74,8 +74,8 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 bool IsnanHalf(const __half* data, int size);
 void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale);
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attnMask, const float* relPosBias, const int* relPosIndex, int biasSize, int batchSize, int tokens, int headDim, int heads);
-void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, const float* attnMask, const float* relPosBias, const int* relPosIndex, int biasSize, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attnMask, const float* relPosBias, const int* relPosIndex, int biasSize, int batchSize, int tokens, int headDim, int heads, int embedDim);
+void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, const float* attnMask, const float* relPosBias, const int* relPosIndex, int biasSize, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads, int embedDim);
 void ShiftTokens2d(const __half* input, __half* output, int batch, int height, int width, int channels, int shiftY, int shiftX);
 void WindowPartition(const __half* input, __half* output, int batch, int height, int width, int channels, int windowSize);
 void WindowReverse(const __half* input, __half* output, int batch, int height, int width, int channels, int windowSize);
