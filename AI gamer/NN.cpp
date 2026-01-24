@@ -30,7 +30,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.01f;
-	constexpr auto patchSize = 20;
+	constexpr auto patchSize = 10;
 	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
 	constexpr auto embedSize = embedH*embedW;
@@ -50,7 +50,8 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr int stageDepth0 = 3;
 	constexpr int stageDepth1 = 3;
 	constexpr int stageDepth2 = 3;
-	layers_.push_back(new SwinUnetLayer(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedSize, ffDim, numHeads, windowSize, shiftStride, stageDepth0, stageDepth1, stageDepth2, "SwinUnet", train, wd, gradAccumLength_));
+	constexpr int stageDepth3 = 3;
+	layers_.push_back(new SwinUnetLayer(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedSize, ffDim, numHeads, windowSize, shiftStride, stageDepth0, stageDepth1, stageDepth2, stageDepth3, "SwinUnet", train, wd, gradAccumLength_));
 	layers_.push_back(new LayerNorm(batchSize_*nTokens, embedSize, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedSize, "SpatialActionHead", train, wd, gradAccumLength_));
