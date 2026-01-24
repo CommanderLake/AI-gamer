@@ -15,11 +15,11 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 	}
 	layerName_ = layerName;
 	train_ = train;
-	tokens_ = patchRows_ * patchCols_;
+	tokens_ = patchRows_*patchCols_;
 	mergedRows_ = patchRows_ / 2;
 	mergedCols_ = patchCols_ / 2;
-	mergedTokens_ = mergedRows_ * mergedCols_;
-	if(mergedRows_ * 2 != patchRows_ || mergedCols_ * 2 != patchCols_ || tokens_ != patchRows_ * patchCols_){
+	mergedTokens_ = mergedRows_*mergedCols_;
+	if(mergedRows_*2 != patchRows_ || mergedCols_*2 != patchCols_ || tokens_ != patchRows_*patchCols_){
 		throw std::invalid_argument("SwinUnetLayer patch merging dimensions are inconsistent");
 	}
 	if(mergedRows_ % 2 != 0 || mergedCols_ % 2 != 0){
@@ -27,49 +27,49 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 	}
 	reducedRows_ = mergedRows_ / 2;
 	reducedCols_ = mergedCols_ / 2;
-	reducedTokens_ = reducedRows_ * reducedCols_;
-	if(reducedRows_ * 2 != mergedRows_ || reducedCols_ * 2 != mergedCols_){
+	reducedTokens_ = reducedRows_*reducedCols_;
+	if(reducedRows_*2 != mergedRows_ || reducedCols_*2 != mergedCols_){
 		throw std::invalid_argument("SwinUnetLayer second merge dimensions are inconsistent");
 	}
-	outNCHW_ = static_cast<size_t>(batchSize_) * tokens_ * embedDim_;
-	const int packedDim1 = embedDim_ * 4;
-	const int packedDim2 = embedDim_ * 8;
-	CUDAMallocZero(&mergePacked1_, static_cast<size_t>(batchSize_) * mergedTokens_ * packedDim1 * sizeof(__half));
-	CUDAMallocZero(&mergePacked1Grad_, static_cast<size_t>(batchSize_) * tokens_ * embedDim_ * sizeof(__half));
-	CUDAMallocZero(&mergePacked2_, static_cast<size_t>(batchSize_) * reducedTokens_ * packedDim2 * sizeof(__half));
-	CUDAMallocZero(&mergePacked2Grad_, static_cast<size_t>(batchSize_) * mergedTokens_ * (embedDim_ * 2) * sizeof(__half));
-	CUDAMallocZero(&expandPacked1Grad_, static_cast<size_t>(batchSize_) * mergedTokens_ * packedDim1 * sizeof(__half));
-	CUDAMallocZero(&expandPacked2Grad_, static_cast<size_t>(batchSize_) * reducedTokens_ * packedDim2 * sizeof(__half));
-	CUDAMallocZero(&expandedTokens1_, outNCHW_ * sizeof(__half));
-	CUDAMallocZero(&expandedTokens2_, static_cast<size_t>(batchSize_) * mergedTokens_ * (embedDim_ * 2) * sizeof(__half));
+	outNCHW_ = static_cast<size_t>(batchSize_)*tokens_*embedDim_;
+	const int packedDim1 = embedDim_*4;
+	const int packedDim2 = embedDim_*4;
+	CUDAMallocZero(&mergePacked1_, static_cast<size_t>(batchSize_)*mergedTokens_*packedDim1*sizeof(__half));
+	CUDAMallocZero(&mergePacked1Grad_, static_cast<size_t>(batchSize_)*tokens_*embedDim_*sizeof(__half));
+	CUDAMallocZero(&mergePacked2_, static_cast<size_t>(batchSize_)*reducedTokens_*packedDim2*sizeof(__half));
+	CUDAMallocZero(&mergePacked2Grad_, static_cast<size_t>(batchSize_)*mergedTokens_*embedDim_*sizeof(__half));
+	CUDAMallocZero(&expandPacked1Grad_, static_cast<size_t>(batchSize_)*mergedTokens_*packedDim1*sizeof(__half));
+	CUDAMallocZero(&expandPacked2Grad_, static_cast<size_t>(batchSize_)*reducedTokens_*packedDim2*sizeof(__half));
+	CUDAMallocZero(&expandedTokens1_, outNCHW_*sizeof(__half));
+	CUDAMallocZero(&expandedTokens2_, static_cast<size_t>(batchSize_)*mergedTokens_*embedDim_*sizeof(__half));
 
 	for(int i = 0; i < depth0_; ++i){
 		layerNames_.push_back("SwinUnetEnc0_" + std::to_string(i));
-		const int shiftSize = (i % 2 == 0) ? 0 : shiftStride_;
+		const int shiftSize = i % 2 == 0 ? 0 : shiftStride_;
 		enc0_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, tokens_, embedDim_, ffDim_, numHeads_, patchRows_, patchCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
 	}
-	mergeProj1_ = new FCLayer(cublasHandle_, batchSize_ * mergedTokens_, packedDim1, embedDim_ * 2, "SwinUnetMergeProj1", train_, weightDecay, gradAccumLength, Xavier);
+	mergeProj1_ = new FCLayer(cublasHandle_, batchSize_*mergedTokens_, packedDim1, embedDim_, "SwinUnetMergeProj1", train_, weightDecay, gradAccumLength, Xavier);
 	for(int i = 0; i < depth1_; ++i){
 		layerNames_.push_back("SwinUnetEnc1_" + std::to_string(i));
-		const int shiftSize = (i % 2 == 0) ? 0 : shiftStride_;
-		enc1_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, mergedTokens_, embedDim_ * 2, ffDim_ * 2, numHeads_, mergedRows_, mergedCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
+		const int shiftSize = i % 2 == 0 ? 0 : shiftStride_;
+		enc1_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, mergedTokens_, embedDim_, ffDim_, numHeads_, mergedRows_, mergedCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
 	}
-	mergeProj2_ = new FCLayer(cublasHandle_, batchSize_ * reducedTokens_, packedDim2, embedDim_ * 4, "SwinUnetMergeProj2", train_, weightDecay, gradAccumLength, Xavier);
+	mergeProj2_ = new FCLayer(cublasHandle_, batchSize_*reducedTokens_, packedDim2, embedDim_, "SwinUnetMergeProj2", train_, weightDecay, gradAccumLength, Xavier);
 	for(int i = 0; i < depth2_; ++i){
 		layerNames_.push_back("SwinUnetEnc2_" + std::to_string(i));
-		const int shiftSize = (i % 2 == 0) ? 0 : shiftStride_;
-		enc2_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, reducedTokens_, embedDim_ * 4, ffDim_ * 4, numHeads_, reducedRows_, reducedCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
+		const int shiftSize = i % 2 == 0 ? 0 : shiftStride_;
+		enc2_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, reducedTokens_, embedDim_, ffDim_, numHeads_, reducedRows_, reducedCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
 	}
-	expandProj2_ = new FCLayer(cublasHandle_, batchSize_ * reducedTokens_, embedDim_ * 4, packedDim2, "SwinUnetExpandProj2", train_, weightDecay, gradAccumLength, Xavier);
+	expandProj2_ = new FCLayer(cublasHandle_, batchSize_*reducedTokens_, embedDim_, packedDim2, "SwinUnetExpandProj2", train_, weightDecay, gradAccumLength, Xavier);
 	for(int i = 0; i < depth3_; ++i){
 		layerNames_.push_back("SwinUnetDec1_" + std::to_string(i));
-		const int shiftSize = (i % 2 == 0) ? 0 : shiftStride_;
-		dec1_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, mergedTokens_, embedDim_ * 2, ffDim_ * 2, numHeads_, mergedRows_, mergedCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
+		const int shiftSize = i % 2 == 0 ? 0 : shiftStride_;
+		dec1_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, mergedTokens_, embedDim_, ffDim_, numHeads_, mergedRows_, mergedCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
 	}
-	expandProj1_ = new FCLayer(cublasHandle_, batchSize_ * mergedTokens_, embedDim_ * 2, packedDim1, "SwinUnetExpandProj1", train_, weightDecay, gradAccumLength, Xavier);
+	expandProj1_ = new FCLayer(cublasHandle_, batchSize_*mergedTokens_, embedDim_, packedDim1, "SwinUnetExpandProj1", train_, weightDecay, gradAccumLength, Xavier);
 	for(int i = 0; i < depth0_; ++i){
 		layerNames_.push_back("SwinUnetDec0_" + std::to_string(i));
-		const int shiftSize = (i % 2 == 0) ? 0 : shiftStride_;
+		const int shiftSize = i % 2 == 0 ? 0 : shiftStride_;
 		dec0_.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, tokens_, embedDim_, ffDim_, numHeads_, patchRows_, patchCols_, windowSize_, shiftSize, layerNames_.back().c_str(), train_, weightDecay, gradAccumLength));
 	}
 }
@@ -120,15 +120,15 @@ __half* SwinUnetLayer::Forward(__half* data){
 		data = layer->Forward(data);
 	}
 	skipBuffer1_ = data;
-	PackTokens2x2(data, mergePacked2_, batchSize_, mergedRows_, mergedCols_, embedDim_ * 2);
+	PackTokens2x2(data, mergePacked2_, batchSize_, mergedRows_, mergedCols_, embedDim_);
 	data = mergeProj2_->Forward(mergePacked2_);
 	for(const auto layer : enc2_){
 		data = layer->Forward(data);
 	}
 	auto* expandPacked2 = expandProj2_->Forward(data);
-	UnpackTokens2x2(expandPacked2, expandedTokens2_, batchSize_, reducedRows_, reducedCols_, embedDim_ * 2);
+	UnpackTokens2x2(expandPacked2, expandedTokens2_, batchSize_, reducedRows_, reducedCols_, embedDim_);
 	if(skipBuffer1_){
-		AddTensor(1.0f, expandedTokens2_, 1.0f, skipBuffer1_, static_cast<int>(static_cast<size_t>(batchSize_) * mergedTokens_ * (embedDim_ * 2)));
+		AddTensor(1.0f, expandedTokens2_, 1.0f, skipBuffer1_, static_cast<int>(static_cast<size_t>(batchSize_)*mergedTokens_*embedDim_));
 	}
 	data = expandedTokens2_;
 	for(const auto layer : dec1_){
@@ -157,16 +157,16 @@ __half* SwinUnetLayer::Backward(__half* grad){
 		grad = dec1_[i]->Backward(grad);
 	}
 	const auto* skipGrad1 = grad;
-	PackTokens2x2(grad, expandPacked2Grad_, batchSize_, mergedRows_, mergedCols_, embedDim_ * 2);
+	PackTokens2x2(grad, expandPacked2Grad_, batchSize_, mergedRows_, mergedCols_, embedDim_);
 	grad = expandProj2_->Backward(expandPacked2Grad_);
 	for(int i = static_cast<int>(enc2_.size()); --i >= 0; ){
 		grad = enc2_[i]->Backward(grad);
 	}
 	grad = mergeProj2_->Backward(grad);
-	UnpackTokens2x2(grad, mergePacked2Grad_, batchSize_, reducedRows_, reducedCols_, embedDim_ * 2);
+	UnpackTokens2x2(grad, mergePacked2Grad_, batchSize_, reducedRows_, reducedCols_, embedDim_);
 	grad = mergePacked2Grad_;
 	if(skipGrad1){
-		AddTensor(1.0f, grad, 1.0f, skipGrad1, static_cast<int>(static_cast<size_t>(batchSize_) * mergedTokens_ * (embedDim_ * 2)));
+		AddTensor(1.0f, grad, 1.0f, skipGrad1, static_cast<int>(static_cast<size_t>(batchSize_)*mergedTokens_*embedDim_));
 	}
 	for(int i = static_cast<int>(enc1_.size()); --i >= 0; ){
 		grad = enc1_[i]->Backward(grad);
