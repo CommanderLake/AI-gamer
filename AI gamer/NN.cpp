@@ -47,9 +47,9 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, 3, netHeight, netWidth, 3, "Input Viewer", true, 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchSize_, 3, netHeight, netWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Patch Embedding Viewer", true, 1.0f, false));
-	constexpr int stageDepth0 = 2;
-	constexpr int stageDepth1 = 2;
-	constexpr int stageDepth2 = 2;
+	constexpr int stageDepth0 = 3;
+	constexpr int stageDepth1 = 3;
+	constexpr int stageDepth2 = 3;
 	layers_.push_back(new SwinUnetLayer(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedSize, ffDim, numHeads, windowSize, shiftStride, stageDepth0, stageDepth1, stageDepth2, "SwinUnet", train, wd, gradAccumLength_));
 	layers_.push_back(new LayerNorm(batchSize_*nTokens, embedSize, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Encoders Output Viewer", true, 1.0f, false));
