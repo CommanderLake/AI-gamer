@@ -89,7 +89,7 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	dQ = Q;
 	dK = K;
 	dV = V;
-	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, batchSize_, tokens_, headDim_, numHeads_);
+	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, batchSize_, tokens_, headDim_, numHeads_);
 	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outData_;
@@ -189,3 +189,4 @@ size_t WmmaAttentionLayer::GetOptimizerStateSize(){
 	return 8*embedDim_*embedDim_*sizeof(__half) + sizeof(int);
 }
 void WmmaAttentionLayer::SetTrain(bool enable){ train_ = enable; }
+void WmmaAttentionLayer::SetAttentionMask(const float* attentionMask){ attentionMask_ = attentionMask; }

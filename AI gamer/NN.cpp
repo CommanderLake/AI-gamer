@@ -2,10 +2,11 @@
 #include "BatchNorm.h"
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
-#include "EncoderLayer.h"
 #include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
+#include "PatchMergingLayer.h"
 #include "SpatialActionHead.h"
+#include "SwinBlockLayer.h"
 #include "ViewerLayer.h"
 #undef min
 #undef max
@@ -32,24 +33,43 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto patchSize = 20;
 	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
-	constexpr auto embedSize = embedH*embedW;
-	constexpr auto ffDim = embedSize*4;
+	auto embedSize = embedH*embedW;
+	auto ffDim = embedSize*4;
 	constexpr int numHeads = 8;
 	constexpr int numEncoders = 8;
-	const int patchRows = DivCeil(netHeight, patchSize);
-	const int patchCols = DivCeil(netWidth, patchSize);
-	const auto nTokens = patchRows*patchCols;
+	constexpr int windowHeight = 4;
+	constexpr int windowWidth = 6;
+	constexpr int shiftHeight = windowHeight / 2;
+	constexpr int shiftWidth = windowWidth / 2;
+	auto patchRows = DivCeil(netHeight, patchSize);
+	auto patchCols = DivCeil(netWidth, patchSize);
+	auto nTokens = patchRows*patchCols;
 	constexpr bool enableViewerLayers = false;
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, 3, netHeight, netWidth, 3, "Input Viewer", true, 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchSize_, 3, netHeight, netWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Patch Embedding Viewer", true, 1.0f, false));
-	for(int i = 0; i < numEncoders; ++i){
-		auto name = "Encoder" + std::to_string(i);
-		layers_.push_back(new EncoderLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, ffDim, numHeads, _strdup(name.c_str()), train, wd, gradAccumLength_));
+	const int stage1Blocks = numEncoders / 2;
+	for(int i = 0; i < stage1Blocks; ++i){
+		auto name = "SwinBlock" + std::to_string(i);
+		const int blockShiftHeight = (i % 2 == 0) ? 0 : shiftHeight;
+		const int blockShiftWidth = (i % 2 == 0) ? 0 : shiftWidth;
+		layers_.push_back(new SwinBlockLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, ffDim, numHeads, patchRows, patchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, _strdup(name.c_str()), train, wd, gradAccumLength_, Xavier));
 		//if(enableViewerLayers){
 			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1)
 				//layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, name + " Output Viewer", 1.0f, false));
 		//}
+	}
+	layers_.push_back(new PatchMergingLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, patchRows, patchCols, "PatchMerge0", train, wd, gradAccumLength_, Xavier));
+	patchRows /= 2;
+	patchCols /= 2;
+	nTokens = patchRows*patchCols;
+	embedSize *= 2;
+	ffDim = embedSize*4;
+	for(int i = stage1Blocks; i < numEncoders; ++i){
+		auto name = "SwinBlock" + std::to_string(i);
+		const int blockShiftHeight = (i % 2 == 0) ? 0 : shiftHeight;
+		const int blockShiftWidth = (i % 2 == 0) ? 0 : shiftWidth;
+		layers_.push_back(new SwinBlockLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, ffDim, numHeads, patchRows, patchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, _strdup(name.c_str()), train, wd, gradAccumLength_, Xavier));
 	}
 	layers_.push_back(new LayerNorm(batchSize_*nTokens, embedSize, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Encoders Output Viewer", true, 1.0f, false));

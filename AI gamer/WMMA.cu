@@ -113,7 +113,7 @@ namespace{
 // ============================================================================
 // FORWARD KERNEL
 // ============================================================================
-__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, int batchSize, int tokens, int headDim, int heads, int tileCols){
+__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -196,6 +196,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	__syncthreads();
 	const size_t attentionOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
 	const size_t maxAttentionIdx = static_cast<size_t>(batchSize)*heads*tokens*tokens;
+	const size_t maskOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
 	// Process K tiles - compute QK^T
 	for(int tileStart = 0; tileStart < tokens; tileStart += tileCols){
 		const int remaining = (tokens - tileStart < tileCols) ? (tokens - tileStart) : tileCols;
@@ -251,6 +252,22 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			if(warpId < activeWarps){ store_matrix_sync(scoresTile + colBlock + warpId*16, warpScores, tileCols, wmma::mem_row_major); }
 		}
 		__syncthreads();
+		if(AttentionMask != nullptr){
+#pragma unroll 4
+			for(int row = warpId; row < 16; row += numWarps){
+				const int globalRow = rowBlock*16 + row;
+				if(globalRow >= tokens) continue;
+#pragma unroll 4
+				for(int col = laneId; col < remaining; col += 32){
+					const int globalCol = tileStart + col;
+					if(globalCol < tokens){
+						const size_t maskIdx = maskOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
+						scoresTile[row*tileCols + col] += AttentionMask[maskIdx];
+					}
+				}
+			}
+			__syncthreads();
+		}
 		// Compute softmax statistics
 #pragma unroll 4
 		for(int row = warpId; row < 16; row += numWarps){
@@ -347,6 +364,22 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			if(warpId < activeWarps){ store_matrix_sync(scoresTile + colBlock + warpId*16, warpScores, tileCols, wmma::mem_row_major); }
 		}
 		__syncthreads();
+		if(AttentionMask != nullptr){
+#pragma unroll 4
+			for(int row = warpId; row < 16; row += numWarps){
+				const int globalRow = rowBlock*16 + row;
+				if(globalRow >= tokens) continue;
+#pragma unroll 4
+				for(int col = laneId; col < remaining; col += 32){
+					const int globalCol = tileStart + col;
+					if(globalCol < tokens){
+						const size_t maskIdx = maskOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
+						scoresTile[row*tileCols + col] += AttentionMask[maskIdx];
+					}
+				}
+			}
+			__syncthreads();
+		}
 		// Apply softmax normalization
 #pragma unroll 4
 		for(int row = warpId; row < 16; row += numWarps){
@@ -944,7 +977,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 // ============================================================================
 // WRAPPER FUNCTIONS
 // ============================================================================
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, int batchSize, int tokens, int headDim, int heads){
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, int batchSize, int tokens, int headDim, int heads){
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
 		printf("WmmaAttention: Invalid dimensions, aborting\n");
@@ -969,7 +1002,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 		return;
 	}
 	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, batchSize, tokens, headDim, heads, tileCols);
+	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, batchSize, tokens, headDim, heads, tileCols);
 	checkCUDA(cudaGetLastError());
 }
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){

@@ -17,6 +17,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void SetAttentionMask(const float* attentionMask);
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	int batchSize_, tokens_, embedDim_, numHeads_;
@@ -35,6 +36,7 @@ public:
 	__half* workspace_;
 	float* attnGradWorkspace_ = nullptr;
 	size_t attnGradWorkspaceSize_ = 0;
+	const float* attentionMask_ = nullptr;
 	int gradAccumLength_;
 	int t_ = 1;
 	const float zero_ = 0.0f;

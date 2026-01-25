@@ -74,7 +74,7 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 bool IsnanHalf(const __half* data, int size);
 void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale);
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, int batchSize, int tokens, int headDim, int heads);
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, int batchSize, int tokens, int headDim, int heads);
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
@@ -92,8 +92,12 @@ void PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half
 void PackColumnsToHeads(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);
 void PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, int batch, int tokens, int embedDim, int numHeads);
 void PackHeadsToColumns(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);
+void PatchMerge(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
+void PatchUnmerge(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
+void TokensToWindows(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
+void WindowsToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
 int ConvertSmVer2Cores(int major, int minor);
 template<class Ta, class Tb>
 Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }

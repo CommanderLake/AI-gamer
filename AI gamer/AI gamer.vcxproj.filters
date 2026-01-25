@@ -102,7 +102,13 @@
     <ClCompile Include="EncoderLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SwinBlockLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PatchEmbedLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PatchMergingLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="GlobalPoolLayer.cpp">
@@ -209,8 +215,14 @@
     <ClInclude Include="EncoderLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SwinBlockLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="CuCommon.cuh" />
     <ClInclude Include="PatchEmbedLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PatchMergingLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="WeightInitMethod.h">
