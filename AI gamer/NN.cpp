@@ -30,15 +30,15 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	stateSize_ = inWidth_*inHeight_*3;
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.01f;
-	constexpr auto patchSize = 20;
+	constexpr auto patchSize = 10;
 	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
 	auto embedSize = embedH*embedW;
 	auto ffDim = embedSize*4;
 	constexpr int numHeads = 8;
 	constexpr int numEncoders = 8;
-	constexpr int windowHeight = 4;
-	constexpr int windowWidth = 6;
+	constexpr int windowHeight = 5;
+	constexpr int windowWidth = 8;
 	constexpr int shiftHeight = windowHeight / 2;
 	constexpr int shiftWidth = windowWidth / 2;
 	auto patchRows = DivCeil(netHeight, patchSize);
