@@ -19,6 +19,7 @@ namespace{
 	constexpr size_t kMaxSharedMemory = 98304;
 	constexpr int kMinTokens = 1;
 	constexpr int kMaxTokens = 8192;
+	constexpr int kMaxBatch = 4096;
 	constexpr int kMaxHeadDim = 512;
 	constexpr int kWarpSize = 32;
 	constexpr int kTileSize = 16;
@@ -39,8 +40,8 @@ namespace{
 	}
 	// Validate dimensions before kernel launch
 	__host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim, int heads, size_t& sharedMemRequired){
-		if(batchSize <= 0 || batchSize > 1024){
-			printf("Invalid batch size: %d (must be 1-1024)\n", batchSize);
+		if(batchSize <= 0 || batchSize > kMaxBatch){
+			printf("Invalid batch size: %d (must be 1-%d)\n", batchSize, kMaxBatch);
 			return false;
 		}
 		if(tokens < kMinTokens || tokens > kMaxTokens){
