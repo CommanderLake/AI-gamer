@@ -1107,7 +1107,7 @@ static void LaunchPackColumnsToHeadsKernel(const __half* inputQ, const __half* i
 		printf("PackColumnsToHeads: embedDim %d not divisible by numHeads %d\n", embedDim, numHeads);
 		return;
 	}
-	if(batch <= 0 || batch > 1024 || tokens <= 0 || tokens > kMaxTokens){
+	if(batch <= 0 || batch > kMaxBatch || tokens <= 0 || tokens > kMaxTokens){
 		printf("PackColumnsToHeads: Invalid dimensions B=%d, T=%d\n", batch, tokens);
 		return;
 	}
@@ -1175,7 +1175,7 @@ static void LaunchPackHeadsToColumnsKernel(const __half* inputQ, const __half* i
 		printf("PackHeadsToColumns: embedDim %d not divisible by numHeads %d\n", embedDim, numHeads);
 		return;
 	}
-	if(batch <= 0 || batch > 1024 || tokens <= 0 || tokens > kMaxTokens){
+	if(batch <= 0 || batch > kMaxBatch || tokens <= 0 || tokens > kMaxTokens){
 		printf("PackHeadsToColumns: Invalid dimensions B=%d, T=%d\n", batch, tokens);
 		return;
 	}
