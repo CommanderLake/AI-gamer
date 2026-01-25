@@ -92,6 +92,8 @@ void PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half
 void PackColumnsToHeads(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);
 void PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, int batch, int tokens, int embedDim, int numHeads);
 void PackHeadsToColumns(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);
+void PatchMerge(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
+void PatchUnmerge(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void TokensToWindows(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
