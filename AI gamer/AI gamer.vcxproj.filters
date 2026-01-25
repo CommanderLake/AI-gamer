@@ -102,6 +102,9 @@
     <ClCompile Include="EncoderLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SwinBlockLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PatchEmbedLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -207,6 +210,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="EncoderLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SwinBlockLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="CuCommon.cuh" />

@@ -127,6 +127,7 @@
     <ClInclude Include="ResFCLayer.h" />
     <ClInclude Include="EncoderLayer.h" />
     <ClInclude Include="SpatialActionHead.h" />
+    <ClInclude Include="SwinBlockLayer.h" />
     <ClInclude Include="TokensToSpatialLayer.h" />
     <ClInclude Include="TransposeLayer.h" />
     <ClInclude Include="SwishLayer.h" />
@@ -166,6 +167,7 @@
     <ClCompile Include="ResFCLayer.cpp" />
     <ClCompile Include="EncoderLayer.cpp" />
     <ClCompile Include="SpatialActionHead.cpp" />
+    <ClCompile Include="SwinBlockLayer.cpp" />
     <ClCompile Include="TokensToSpatialLayer.cpp" />
     <ClCompile Include="TransposeLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />

@@ -228,3 +228,65 @@ void SpatialToTokens(const __half* input, __half* output, int batch, int tokens,
 	SpatialToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
 	checkCUDA(cudaGetLastError());
 }
+__global__ void TokensToWindowsKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
+	if(idx >= total) return;
+	const int feature = idx % embedDim;
+	const int tokenIndex = idx / embedDim % tokens;
+	const int batchIndex = idx / (static_cast<size_t>(embedDim)*tokens);
+	const int row = tokenIndex / patchCols;
+	const int col = tokenIndex % patchCols;
+	const int shiftedRow = (row + shiftHeight) % patchRows;
+	const int shiftedCol = (col + shiftWidth) % patchCols;
+	const int windowRow = shiftedRow / windowHeight;
+	const int windowCol = shiftedCol / windowWidth;
+	const int windowsCols = patchCols / windowWidth;
+	const int windowIndex = windowRow*windowsCols + windowCol;
+	const int localRow = shiftedRow % windowHeight;
+	const int localCol = shiftedCol % windowWidth;
+	const int windowToken = localRow*windowWidth + localCol;
+	const int windowTokens = windowHeight*windowWidth;
+	const int windowCount = windowsCols*(patchRows / windowHeight);
+	const size_t outColumn = (static_cast<size_t>(batchIndex)*windowCount + windowIndex)*windowTokens + windowToken;
+	const size_t outIdx = outColumn*embedDim + feature;
+	output[outIdx] = input[idx];
+}
+void TokensToWindows(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth){
+	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
+	int bs = 256;
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
+	TokensToWindowsKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols, windowHeight, windowWidth, shiftHeight, shiftWidth);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void WindowsToTokensKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
+	if(idx >= total) return;
+	const int feature = idx % embedDim;
+	const int tokenIndex = idx / embedDim % tokens;
+	const int batchIndex = idx / (static_cast<size_t>(embedDim)*tokens);
+	const int row = tokenIndex / patchCols;
+	const int col = tokenIndex % patchCols;
+	const int shiftedRow = (row + shiftHeight) % patchRows;
+	const int shiftedCol = (col + shiftWidth) % patchCols;
+	const int windowRow = shiftedRow / windowHeight;
+	const int windowCol = shiftedCol / windowWidth;
+	const int windowsCols = patchCols / windowWidth;
+	const int windowIndex = windowRow*windowsCols + windowCol;
+	const int localRow = shiftedRow % windowHeight;
+	const int localCol = shiftedCol % windowWidth;
+	const int windowToken = localRow*windowWidth + localCol;
+	const int windowTokens = windowHeight*windowWidth;
+	const int windowCount = windowsCols*(patchRows / windowHeight);
+	const size_t inColumn = (static_cast<size_t>(batchIndex)*windowCount + windowIndex)*windowTokens + windowToken;
+	const size_t inIdx = inColumn*embedDim + feature;
+	output[idx] = input[inIdx];
+}
+void WindowsToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth){
+	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
+	int bs = 256;
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
+	WindowsToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols, windowHeight, windowWidth, shiftHeight, shiftWidth);
+	checkCUDA(cudaGetLastError());
+}

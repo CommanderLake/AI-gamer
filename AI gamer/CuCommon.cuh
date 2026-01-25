@@ -94,6 +94,8 @@ void PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half
 void PackHeadsToColumns(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);
 void TokensToSpatial(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
+void TokensToWindows(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
+void WindowsToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
 int ConvertSmVer2Cores(int major, int minor);
 template<class Ta, class Tb>
 Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }
