@@ -53,6 +53,7 @@ private:
 	__half* windowedInput_ = nullptr;
 	__half* windowedGrad_ = nullptr;
 	__half* tokenBuffer_ = nullptr;
+	float* attentionMask_ = nullptr;
 	cudnnTensorDescriptor_t outDesc_;
 	const float mixFwd_ = 1.0f;
 	const float mixBwd_ = 1.0f;
