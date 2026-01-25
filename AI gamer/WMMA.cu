@@ -196,7 +196,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	__syncthreads();
 	const size_t attentionOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
 	const size_t maxAttentionIdx = static_cast<size_t>(batchSize)*heads*tokens*tokens;
-	const size_t maskOffset = static_cast<size_t>(batch)*tokens*tokens;
+	const size_t maskOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
 	// Process K tiles - compute QK^T
 	for(int tileStart = 0; tileStart < tokens; tileStart += tileCols){
 		const int remaining = (tokens - tileStart < tileCols) ? (tokens - tileStart) : tileCols;
