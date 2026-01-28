@@ -23,7 +23,7 @@ namespace{
 	constexpr int kMaxHeadDim = 512;
 	constexpr int kWarpSize = 32;
 	constexpr int kTileSize = 16;
-	constexpr int kDefaultThreads = 16;
+	constexpr int kDefaultThreads = 128;
 	// Helper for ceiling division
 	__host__ __device__ inline int DivCeil(int a, int b){ return (a + b - 1)/b; }
 	// Get optimal tile columns based on token count
