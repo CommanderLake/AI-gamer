@@ -30,11 +30,11 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	constexpr auto hiddenC = 2048;
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, spatialSize_, hiddenC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Buttons GELU"));
-	buttonLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, hiddenC, 1, 1, "Buttons Drop", train_));
+	buttonLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, hiddenC, 1, 1, "Buttons Drop", train_));
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, spatialSize_, hiddenC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new Dropout(cudnn_, 0.3f, batchSize_, hiddenC, 1, 1, "Axes Drop", train_));
+	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, hiddenC, 1, 1, "Axes Drop", train_));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
 }
 SpatialActionHead::~SpatialActionHead(){
