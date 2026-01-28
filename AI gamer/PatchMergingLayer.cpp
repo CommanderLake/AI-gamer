@@ -7,17 +7,17 @@ PatchMergingLayer::PatchMergingLayer(const cudnnHandle_t cudnnHandle, const cubl
 									const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
 	layerName_ = layerName;
 	train_ = train;
-	if(tokens_ != patchRows_ * patchCols_){ throw std::invalid_argument("PatchMergingLayer tokens must match patch grid"); }
+	if(tokens_ != patchRows_*patchCols_){ throw std::invalid_argument("PatchMergingLayer tokens must match patch grid"); }
 	if(patchRows_ % 2 != 0 || patchCols_ % 2 != 0){ throw std::invalid_argument("PatchMergingLayer requires even patch rows/cols"); }
-	outTokens_ = (patchRows_ / 2) * (patchCols_ / 2);
-	outEmbedDim_ = embedDim_ * 2;
-	outNCHW_ = batchSize_ * outTokens_ * outEmbedDim_;
-	norm_ = new LayerNorm(batchSize_ * tokens_, embedDim_, 1, 1, "PatchMergeNorm", train);
-	reduction_ = new FCLayer(cublasHandle_, batchSize_ * outTokens_, embedDim_ * 4, outEmbedDim_, "PatchMergeLinear", train, weightDecay, gradAccumLength, weightInitMethod);
-	const size_t mergeElems = static_cast<size_t>(batchSize_) * outTokens_ * embedDim_ * 4;
-	CUDAMallocZero(&mergedData_, mergeElems * sizeof(__half));
-	CUDAMallocZero(&mergedGrad_, mergeElems * sizeof(__half));
-	CUDAMallocZero(&tokenGrad_, static_cast<size_t>(batchSize_) * tokens_ * embedDim_ * sizeof(__half));
+	outTokens_ = patchRows_/2*(patchCols_/2);
+	outEmbedDim_ = embedDim_*2;
+	outNCHW_ = batchSize_*outTokens_*outEmbedDim_;
+	norm_ = new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "PatchMergeNorm", train);
+	reduction_ = new FCLayer(cublasHandle_, batchSize_*outTokens_, embedDim_*4, outEmbedDim_, "PatchMergeLinear", train, weightDecay, gradAccumLength, weightInitMethod);
+	const size_t mergeElems = static_cast<size_t>(batchSize_)*outTokens_*embedDim_*4;
+	CUDAMallocZero(&mergedData_, mergeElems*sizeof(__half));
+	CUDAMallocZero(&mergedGrad_, mergeElems*sizeof(__half));
+	CUDAMallocZero(&tokenGrad_, static_cast<size_t>(batchSize_)*tokens_*embedDim_*sizeof(__half));
 }
 PatchMergingLayer::~PatchMergingLayer(){
 	delete norm_;

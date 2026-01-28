@@ -11,7 +11,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cubla
 	numPatches_ = patchRows_*patchCols_;
 	featureSize_ = embedDim_*numPatches_;
 	outNCHW_ = batchSize_*featureSize_;
-	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
+	alphaWeights_ = 1.0f/(batchSize_*numPatches_*gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&posDesc_));
