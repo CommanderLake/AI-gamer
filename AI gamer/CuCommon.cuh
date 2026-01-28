@@ -99,6 +99,10 @@ void TokensToSpatial(const __half* input, __half* output, int batch, int tokens,
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void TokensToWindows(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
 void WindowsToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
+void ResizeNearestNeighborForward(const __half* input, __half* output, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
+void ResizeNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
+void DropPathBuildMask(float* mask, int batch, float keepProb);
+void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch);
 int ConvertSmVer2Cores(int major, int minor);
 template<class Ta, class Tb>
 Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }

@@ -296,6 +296,87 @@ void SpatialToTokens(const __half* input, __half* output, int batch, int tokens,
 	SpatialToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols);
 	checkCUDA(cudaGetLastError());
 }
+__device__ inline void AtomicAddHalf(__half* address, __half val){
+#if __CUDA_ARCH__ >= 700
+	atomicAdd(address, val);
+#else
+	*address = __hadd(*address, val);
+#endif
+}
+__global__ void ResizeNearestNeighborForwardKernel(const __half* input, __half* output, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth, float scaleY, float scaleX){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batch)*channels*outHeight*outWidth;
+	if(idx >= total) return;
+	const int outX = idx % outWidth;
+	const int outY = idx/outWidth % outHeight;
+	const int channel = idx/(static_cast<size_t>(outWidth)*outHeight) % channels;
+	const int batchIndex = idx/(static_cast<size_t>(outWidth)*outHeight*channels);
+	const int inY = min(static_cast<int>((outY + 0.5f)*scaleY), inHeight - 1);
+	const int inX = min(static_cast<int>((outX + 0.5f)*scaleX), inWidth - 1);
+	const size_t inIdx = ((static_cast<size_t>(batchIndex)*channels + channel)*inHeight + inY)*inWidth + inX;
+	output[idx] = input[inIdx];
+}
+void ResizeNearestNeighborForward(const __half* input, __half* output, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth){
+	const size_t total = static_cast<size_t>(batch)*channels*outHeight*outWidth;
+	const int bs = 256;
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
+	const float scaleY = static_cast<float>(inHeight)/static_cast<float>(outHeight);
+	const float scaleX = static_cast<float>(inWidth)/static_cast<float>(outWidth);
+	ResizeNearestNeighborForwardKernel<<<blocks, bs>>>(input, output, batch, channels, inHeight, inWidth, outHeight, outWidth, scaleY, scaleX);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void ResizeNearestNeighborBackwardKernel(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth, float scaleY, float scaleX){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batch)*channels*outHeight*outWidth;
+	if(idx >= total) return;
+	const int outX = idx % outWidth;
+	const int outY = idx/outWidth % outHeight;
+	const int channel = idx/(static_cast<size_t>(outWidth)*outHeight) % channels;
+	const int batchIndex = idx/(static_cast<size_t>(outWidth)*outHeight*channels);
+	const int inY = min(static_cast<int>((outY + 0.5f)*scaleY), inHeight - 1);
+	const int inX = min(static_cast<int>((outX + 0.5f)*scaleX), inWidth - 1);
+	const size_t inIdx = ((static_cast<size_t>(batchIndex)*channels + channel)*inHeight + inY)*inWidth + inX;
+	AtomicAddHalf(&gradIn[inIdx], gradOut[idx]);
+}
+void ResizeNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth){
+	const size_t total = static_cast<size_t>(batch)*channels*outHeight*outWidth;
+	const int bs = 256;
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
+	const float scaleY = static_cast<float>(inHeight)/static_cast<float>(outHeight);
+	const float scaleX = static_cast<float>(inWidth)/static_cast<float>(outWidth);
+	ResizeNearestNeighborBackwardKernel<<<blocks, bs>>>(gradOut, gradIn, batch, channels, inHeight, inWidth, outHeight, outWidth, scaleY, scaleX);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void DropPathBuildMaskKernel(float* mask, int batch, float keepProb, float scale){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx >= batch) return;
+	const float value = mask[idx];
+	mask[idx] = value < keepProb ? scale : 0.0f;
+}
+void DropPathBuildMask(float* mask, int batch, float keepProb){
+	if(batch <= 0) return;
+	const int bs = 256;
+	const auto blocks = DivCeil(batch, bs);
+	const float scale = keepProb > 0.0f ? 1.0f/keepProb : 0.0f;
+	DropPathBuildMaskKernel<<<blocks, bs>>>(mask, batch, keepProb, scale);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void DropPathApplyKernel(__half* data, const float* mask, int batch, int elementsPerBatch){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batch) * elementsPerBatch;
+	if(idx >= total) return;
+	const int batchIndex = idx / elementsPerBatch;
+	const float scale = mask[batchIndex];
+	data[idx] = __float2half(__half2float(data[idx]) * scale);
+}
+void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch){
+	if(batch <= 0 || elementsPerBatch <= 0) return;
+	const size_t total = static_cast<size_t>(batch) * elementsPerBatch;
+	const int bs = 256;
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
+	DropPathApplyKernel<<<blocks, bs>>>(data, mask, batch, elementsPerBatch);
+	checkCUDA(cudaGetLastError());
+}
 __global__ void TokensToWindowsKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth){
 	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
 	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;

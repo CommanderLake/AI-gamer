@@ -9,10 +9,11 @@ class WmmaAttentionLayer;
 class FCLayer;
 class GELULayer;
 class Dropout;
+class DropPath;
 class SwinBlockLayer final : public Layer{
 public:
-	SwinBlockLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, const char* layerName, bool train, float weightDecay,
-					int gradAccumLength, WeightInitMethod weightInitMethod);
+	SwinBlockLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate,
+					const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~SwinBlockLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -45,11 +46,13 @@ private:
 	LayerNorm* norm1_;
 	WmmaAttentionLayer* attention_;
 	Dropout* attnDrop_;
+	DropPath* attnDropPath_;
 	LayerNorm* norm2_;
 	FCLayer* fc1_;
 	GELULayer* gelu_;
 	FCLayer* fc2_;
 	Dropout* ffDrop_;
+	DropPath* ffDropPath_;
 	__half* windowedInput_ = nullptr;
 	__half* windowedGrad_ = nullptr;
 	__half* tokens_ = nullptr;

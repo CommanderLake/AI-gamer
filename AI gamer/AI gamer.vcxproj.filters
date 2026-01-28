@@ -111,6 +111,9 @@
     <ClCompile Include="PatchMergingLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DropPath.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="GlobalPoolLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -121,6 +124,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="TokensToSpatialLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ResizeLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="OrthogonalInit.cpp">
@@ -140,10 +146,16 @@
     <ClInclude Include="ConvLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="DropPath.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="FCLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="BatchNorm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ResizeLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Activate.h">

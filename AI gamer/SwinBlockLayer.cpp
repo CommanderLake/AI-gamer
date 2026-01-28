@@ -1,6 +1,7 @@
 #include "SwinBlockLayer.h"
 #include "CuCommon.cuh"
 #include "Dropout.h"
+#include "DropPath.h"
 #include "FCLayer.h"
 #include "GELULayer.h"
 #include "LayerNorm.h"
@@ -9,7 +10,7 @@
 #include <cmath>
 #include <vector>
 SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth,
-								const int shiftHeight, const int shiftWidth, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize),
+								const int shiftHeight, const int shiftWidth, const float dropPathRate, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize),
 	nTokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
 	layerName_ = layerName;
 	train_ = train;
@@ -27,6 +28,8 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	layers_.push_back(attention_);
 	attnDrop_ = new Dropout(cudnnHandle_, 0.1f, batchSize_ * nTokens_, embedDim_, 1, 1, "SwinAttnDropout", train);
 	layers_.push_back(attnDrop_);
+	attnDropPath_ = new DropPath(dropPathRate, batchSize_, nTokens_ * embedDim_, "SwinAttnDropPath", train);
+	layers_.push_back(attnDropPath_);
 	norm2_ = new LayerNorm(batchSize_ * nTokens_, embedDim_, 1, 1, "SwinNorm2", train);
 	layers_.push_back(norm2_);
 	fc1_ = new FCLayer(cublasHandle_, batchSize_ * nTokens_, embedDim_, ffDim_, "SwinFC1", train, weightDecay, gradAccumLength, weightInitMethod);
@@ -37,6 +40,8 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	layers_.push_back(fc2_);
 	ffDrop_ = new Dropout(cudnnHandle_, 0.1f, batchSize_ * nTokens_, embedDim_, 1, 1, "SwinFfDropout", train);
 	layers_.push_back(ffDrop_);
+	ffDropPath_ = new DropPath(dropPathRate, batchSize_, nTokens_ * embedDim_, "SwinFfDropPath", train);
+	layers_.push_back(ffDropPath_);
 	{
 		std::vector<int> relPosIndex(windowTokens_ * windowTokens_, 0);
 		const int relWidth = 2*windowWidth_ - 1;
@@ -113,6 +118,7 @@ __half* SwinBlockLayer::Forward(__half* data){
 	data = attention_->Forward(windowedInput_);
 	WindowsToTokens(data, tokens_, batchSize_, nTokens_, embedDim_, patchRows_, patchCols_, windowHeight_, windowWidth_, shiftHeight_, shiftWidth_);
 	data = attnDrop_->Forward(tokens_);
+	data = attnDropPath_->Forward(data);
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual1, &mixFwd_, outDesc_, data));
 	const auto* residual2 = data;
 	data = norm2_->Forward(data);
@@ -120,12 +126,14 @@ __half* SwinBlockLayer::Forward(__half* data){
 	data = gelu_->Forward(data);
 	data = fc2_->Forward(data);
 	data = ffDrop_->Forward(data);
+	data = ffDropPath_->Forward(data);
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual2, &mixFwd_, outDesc_, data));
 	return data;
 }
 __half* SwinBlockLayer::Backward(__half* grad){
 	checkCUDA(cudaMemcpy(residualGrad_, grad, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
 	const auto* residual2 = residualGrad_;
+	grad = ffDropPath_->Backward(grad);
 	grad = ffDrop_->Backward(grad);
 	grad = fc2_->Backward(grad);
 	grad = gelu_->Backward(grad);
@@ -134,6 +142,7 @@ __half* SwinBlockLayer::Backward(__half* grad){
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual2, &mixBwd_, outDesc_, grad));
 	checkCUDA(cudaMemcpy(residualGrad_, grad, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
 	const auto* residual1 = residualGrad_;
+	grad = attnDropPath_->Backward(grad);
 	grad = attnDrop_->Backward(grad);
 	TokensToWindows(grad, windowedGrad_, batchSize_, nTokens_, embedDim_, patchRows_, patchCols_, windowHeight_, windowWidth_, shiftHeight_, shiftWidth_);
 	grad = attention_->Backward(windowedGrad_);

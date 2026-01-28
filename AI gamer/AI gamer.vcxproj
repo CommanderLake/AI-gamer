@@ -113,6 +113,7 @@
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="ConvScale.h" />
     <ClInclude Include="CuCommon.cuh" />
+    <ClInclude Include="DropPath.h" />
     <ClInclude Include="GELULayer.h" />
     <ClInclude Include="GlobalPoolLayer.h" />
     <ClInclude Include="LayerNorm.h" />
@@ -120,6 +121,7 @@
     <ClInclude Include="PatchEmbedLayer.h" />
     <ClInclude Include="PatchMergingLayer.h" />
     <ClInclude Include="PoolLayer.h" />
+    <ClInclude Include="ResizeLayer.h" />
     <ClInclude Include="ResConvLayer.h" />
     <ClInclude Include="Dropout.h" />
     <ClInclude Include="Infer.h" />
@@ -153,6 +155,7 @@
     <ClCompile Include="common.cpp" />
     <ClCompile Include="ConvLayer.cpp" />
     <ClCompile Include="ConvScale.cpp" />
+    <ClCompile Include="DropPath.cpp" />
     <ClCompile Include="GELULayer.cpp" />
     <ClCompile Include="GlobalPoolLayer.cpp" />
     <ClCompile Include="LayerNorm.cpp" />
@@ -162,6 +165,7 @@
     <ClCompile Include="PatchEmbedLayer.cpp" />
     <ClCompile Include="PatchMergingLayer.cpp" />
     <ClCompile Include="PoolLayer.cpp" />
+    <ClCompile Include="ResizeLayer.cpp" />
     <ClCompile Include="ResConvLayer.cpp" />
     <ClCompile Include="Dropout.cpp" />
     <ClCompile Include="Infer.cpp" />
