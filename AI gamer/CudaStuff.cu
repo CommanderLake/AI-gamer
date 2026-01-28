@@ -305,8 +305,8 @@ __global__ void TokensToWindowsKernel(const __half* input, __half* output, int b
 	const int batchIndex = idx/(static_cast<size_t>(embedDim)*tokens);
 	const int row = tokenIndex/patchCols;
 	const int col = tokenIndex % patchCols;
-	const int shiftedRow = (row + shiftHeight) % patchRows;
-	const int shiftedCol = (col + shiftWidth) % patchCols;
+	const int shiftedRow = (row - shiftHeight + patchRows) % patchRows;
+	const int shiftedCol = (col - shiftWidth + patchCols) % patchCols;
 	const int windowRow = shiftedRow/windowHeight;
 	const int windowCol = shiftedCol/windowWidth;
 	const int windowsCols = patchCols/windowWidth;
