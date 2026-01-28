@@ -28,7 +28,7 @@ private:
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	int batchSize_;
-	int tokens_;
+	int nTokens_;
 	int embedDim_;
 	int ffDim_;
 	int numHeads_;
@@ -52,7 +52,8 @@ private:
 	Dropout* ffDrop_;
 	__half* windowedInput_ = nullptr;
 	__half* windowedGrad_ = nullptr;
-	__half* tokenBuffer_ = nullptr;
+	__half* tokens_ = nullptr;
+	__half* residualGrad_ = nullptr;
 	float* attentionMask_ = nullptr;
 	cudnnTensorDescriptor_t outDesc_;
 	const float mixFwd_ = 1.0f;
