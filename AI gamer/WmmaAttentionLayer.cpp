@@ -1,6 +1,7 @@
 #include "WmmaAttentionLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
+#include <stdexcept>
 WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
 	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
@@ -57,6 +58,8 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	cudaFree(kPacked_);
 	cudaFree(vPacked_);
 	cudaFree(attnOutPacked_);
+	cudaFree(relPosBias_);
+	cudaFree(relPosIndex_);
 	if(train_){
 		cudaFree(attnGradWorkspace_);
 		cudaFree(gradQkvBase_);
@@ -73,6 +76,9 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 		cudaFree(dQPacked_);
 		cudaFree(dKPacked_);
 		cudaFree(dVPacked_);
+		cudaFree(gradRelPosBias_);
+		cudaFree(m_relPosBias_);
+		cudaFree(v_relPosBias_);
 	}
 }
 __half* WmmaAttentionLayer::Forward(__half* data){
@@ -89,7 +95,9 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	dQ = Q;
 	dK = K;
 	dV = V;
-	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, batchSize_, tokens_, headDim_, numHeads_);
+	const float* relPosBias = useRelPosBias_ ? relPosBias_ : nullptr;
+	const int* relPosIndex = useRelPosBias_ ? relPosIndex_ : nullptr;
+	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, relPosBias, relPosIndex, relPosSize_, batchSize_, tokens_, headDim_, numHeads_);
 	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outData_;
@@ -102,6 +110,14 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &zero_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	PackColumnsToHeads(attnOut, attnOutPacked_, batchSize_, tokens_, embedDim_, numHeads_);
 	WmmaAttentionBackward(qPacked_, kPacked_, vPacked_, attnOutPacked_, attentionWeights, dQPacked_, dKPacked_, dVPacked_, attnGradWorkspace_, attnGradWorkspaceSize_, batchSize_, tokens_, headDim_, numHeads_);
+	if(useRelPosBias_ && train_ && gradRelPosBias_ && relPosIndex_){
+		const bool resetGrad = (accumCount_ - 1) % gradAccumLength_ == 0;
+		if(resetGrad){
+			const size_t gradSizeBytes = static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float);
+			checkCUDA(cudaMemset(gradRelPosBias_, 0, gradSizeBytes));
+		}
+		AccumulateRelPosBiasGrad(attnGradWorkspace_, relPosIndex_, gradRelPosBias_, batchSize_, tokens_, numHeads_, relPosSize_, alphaWeights_);
+	}
 	PackHeadsToColumns(dQPacked_, dKPacked_, dVPacked_, dQ, dK, dV, batchSize_, tokens_, embedDim_, numHeads_);
 	const long long dqdvdStrideA = static_cast<long long>(outNCHW_);
 	const long long dqdvdStrideC = static_cast<long long>(embedDim_)*embedDim_;
@@ -117,6 +133,10 @@ void WmmaAttentionLayer::UpdateParameters(float lr){
 	AdamWHalf(kWeights_, gradK_, m_K_, v_K_, lr, t_, weightDecay_, embedDim_*embedDim_);
 	AdamWHalf(vWeights_, gradV_, m_V_, v_V_, lr, t_, weightDecay_, embedDim_*embedDim_);
 	AdamWHalf(oWeights_, gradOut_, m_O_, v_O_, lr, t_, weightDecay_, embedDim_*embedDim_);
+	if(useRelPosBias_ && train_ && relPosBias_){
+		const int biasElems = numHeads_ * relPosSize_;
+		AdamWFloat(relPosBias_, gradRelPosBias_, m_relPosBias_, v_relPosBias_, lr, t_, weightDecay_, biasElems);
+	}
 	++t_;
 }
 void WmmaAttentionLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
@@ -129,6 +149,11 @@ void WmmaAttentionLayer::SaveParameters(std::ofstream& file, unsigned char* buff
 	file.write(reinterpret_cast<char*>(buffer), paramSize);
 	cudaMemcpy(buffer, oWeights_, paramSize, cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<char*>(buffer), paramSize);
+	if(useRelPosBias_ && relPosBias_){
+		const size_t biasSize = static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float);
+		cudaMemcpy(buffer, relPosBias_, biasSize, cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<char*>(buffer), biasSize);
+	}
 }
 void WmmaAttentionLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	const size_t paramSize = embedDim_*embedDim_*sizeof(__half);
@@ -140,6 +165,11 @@ void WmmaAttentionLayer::LoadParameters(std::ifstream& file, unsigned char* buff
 	cudaMemcpy(vWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), paramSize);
 	cudaMemcpy(oWeights_, buffer, paramSize, cudaMemcpyHostToDevice);
+	if(useRelPosBias_ && relPosBias_){
+		const size_t biasSize = static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float);
+		file.read(reinterpret_cast<char*>(buffer), biasSize);
+		cudaMemcpy(relPosBias_, buffer, biasSize, cudaMemcpyHostToDevice);
+	}
 }
 void WmmaAttentionLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	if(!train_) return;
@@ -160,6 +190,13 @@ void WmmaAttentionLayer::SaveOptimizerState(std::ofstream& file, unsigned char* 
 	file.write(reinterpret_cast<char*>(buffer), stateSize);
 	cudaMemcpy(buffer, v_O_, stateSize, cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<char*>(buffer), stateSize);
+	if(useRelPosBias_ && relPosBias_){
+		const size_t biasSize = static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float);
+		cudaMemcpy(buffer, m_relPosBias_, biasSize, cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<char*>(buffer), biasSize);
+		cudaMemcpy(buffer, v_relPosBias_, biasSize, cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<char*>(buffer), biasSize);
+	}
 	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void WmmaAttentionLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
@@ -181,12 +218,41 @@ void WmmaAttentionLayer::LoadOptimizerState(std::ifstream& file, unsigned char* 
 	cudaMemcpy(v_V_, buffer, stateSize, cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), stateSize);
 	cudaMemcpy(v_O_, buffer, stateSize, cudaMemcpyHostToDevice);
+	if(useRelPosBias_ && relPosBias_){
+		const size_t biasSize = static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float);
+		file.read(reinterpret_cast<char*>(buffer), biasSize);
+		cudaMemcpy(m_relPosBias_, buffer, biasSize, cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), biasSize);
+		cudaMemcpy(v_relPosBias_, buffer, biasSize, cudaMemcpyHostToDevice);
+	}
 	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
-size_t WmmaAttentionLayer::GetParameterSize(){ return 4*embedDim_*embedDim_*sizeof(__half); }
+size_t WmmaAttentionLayer::GetParameterSize(){
+	size_t size = 4*embedDim_*embedDim_*sizeof(__half);
+	if(useRelPosBias_){ size += static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float); }
+	return size;
+}
 size_t WmmaAttentionLayer::GetOptimizerStateSize(){
 	if(!train_) return 0;
-	return 8*embedDim_*embedDim_*sizeof(__half) + sizeof(int);
+	size_t size = 8*embedDim_*embedDim_*sizeof(__half);
+	if(useRelPosBias_){ size += 2*static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float); }
+	return size + sizeof(int);
 }
 void WmmaAttentionLayer::SetTrain(bool enable){ train_ = enable; }
 void WmmaAttentionLayer::SetAttentionMask(const float* attentionMask){ attentionMask_ = attentionMask; }
+void WmmaAttentionLayer::InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex){
+	if(windowHeight <= 0 || windowWidth <= 0){ throw std::invalid_argument("InitRelativePositionBias invalid window size"); }
+	const size_t expectedSize = static_cast<size_t>(tokens_) * tokens_;
+	if(relPosIndex.size() != expectedSize){ throw std::invalid_argument("InitRelativePositionBias relPosIndex size mismatch"); }
+	relPosSize_ = (2*windowHeight - 1) * (2*windowWidth - 1);
+	const size_t biasElems = static_cast<size_t>(numHeads_) * relPosSize_;
+	if(relPosBias_ == nullptr){ CUDAMallocZero(&relPosBias_, biasElems * sizeof(float)); }
+	if(relPosIndex_ == nullptr){ CUDAMallocZero(&relPosIndex_, expectedSize * sizeof(int)); }
+	checkCUDA(cudaMemcpy(relPosIndex_, relPosIndex.data(), expectedSize * sizeof(int), cudaMemcpyHostToDevice));
+	if(train_){
+		if(gradRelPosBias_ == nullptr){ CUDAMallocZero(&gradRelPosBias_, biasElems * sizeof(float)); }
+		if(m_relPosBias_ == nullptr){ CUDAMallocZero(&m_relPosBias_, biasElems * sizeof(float)); }
+		if(v_relPosBias_ == nullptr){ CUDAMallocZero(&v_relPosBias_, biasElems * sizeof(float)); }
+	}
+	useRelPosBias_ = true;
+}

@@ -38,26 +38,30 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	ffDrop_ = new Dropout(cudnnHandle_, 0.1f, batchSize_ * tokens_, embedDim_, 1, 1, "SwinFfDropout", train);
 	layers_.push_back(ffDrop_);
 	{
-		const int windowsCols = patchCols_ / windowWidth_;
-		const size_t windowMaskSize = static_cast<size_t>(windowBatch_) * numHeads_ * windowTokens_ * windowTokens_;
-		std::vector<float> hostMask(windowMaskSize, 0.0f);
-		std::vector<int> tokenWindowIds(windowTokens_, 0);
-		std::vector<float> relBias(windowTokens_ * windowTokens_, 0.0f);
-		constexpr float maskValue = -1e4f;
+		std::vector<int> relPosIndex(windowTokens_ * windowTokens_, 0);
+		const int relWidth = 2*windowWidth_ - 1;
 		for(int i = 0; i < windowTokens_; ++i){
 			const int rowI = i / windowWidth_;
 			const int colI = i % windowWidth_;
 			for(int j = 0; j < windowTokens_; ++j){
 				const int rowJ = j / windowWidth_;
 				const int colJ = j % windowWidth_;
-				const int dy = rowI - rowJ;
-				const int dx = colI - colJ;
-				relBias[i * windowTokens_ + j] = -0.1f * static_cast<float>(std::abs(dy) + std::abs(dx));
+				const int dy = rowI - rowJ + windowHeight_ - 1;
+				const int dx = colI - colJ + windowWidth_ - 1;
+				relPosIndex[i * windowTokens_ + j] = dy * relWidth + dx;
 			}
 		}
-		for(int batch = 0; batch < batchSize_; ++batch){
-			for(int windowIndex = 0; windowIndex < windowCount_; ++windowIndex){
-				if(shiftHeight_ > 0 || shiftWidth_ > 0){
+		attention_->InitRelativePositionBias(windowHeight_, windowWidth_, relPosIndex);
+	}
+	{
+		const int windowsCols = patchCols_ / windowWidth_;
+		constexpr float maskValue = -1e4f;
+		if(shiftHeight_ > 0 || shiftWidth_ > 0){
+			const size_t windowMaskSize = static_cast<size_t>(windowBatch_) * numHeads_ * windowTokens_ * windowTokens_;
+			std::vector<float> hostMask(windowMaskSize, 0.0f);
+			std::vector<int> tokenWindowIds(windowTokens_, 0);
+			for(int batch = 0; batch < batchSize_; ++batch){
+				for(int windowIndex = 0; windowIndex < windowCount_; ++windowIndex){
 					const int windowRow = windowIndex / windowsCols;
 					const int windowCol = windowIndex % windowsCols;
 					for(int token = 0; token < windowTokens_; ++token){
@@ -71,21 +75,19 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 						const int origWindowCol = origCol / windowWidth_;
 						tokenWindowIds[token] = origWindowRow * windowsCols + origWindowCol;
 					}
-				}
-				for(int head = 0; head < numHeads_; ++head){
-					for(int i = 0; i < windowTokens_; ++i){
-						const size_t base = ((static_cast<size_t>(batch) * windowCount_ + windowIndex) * numHeads_ + head) * windowTokens_ * windowTokens_ + static_cast<size_t>(i) * windowTokens_;
-						for(int j = 0; j < windowTokens_; ++j){
-							float value = relBias[i * windowTokens_ + j];
-							if(shiftHeight_ > 0 || shiftWidth_ > 0){ if(tokenWindowIds[i] != tokenWindowIds[j]) value += maskValue; }
-							hostMask[base + j] = value;
+					for(int head = 0; head < numHeads_; ++head){
+						for(int i = 0; i < windowTokens_; ++i){
+							const size_t base = ((static_cast<size_t>(batch) * windowCount_ + windowIndex) * numHeads_ + head) * windowTokens_ * windowTokens_ + static_cast<size_t>(i) * windowTokens_;
+							for(int j = 0; j < windowTokens_; ++j){
+								if(tokenWindowIds[i] != tokenWindowIds[j]){ hostMask[base + j] = maskValue; }
+							}
 						}
 					}
 				}
 			}
+			CUDAMallocZero(&attentionMask_, windowMaskSize * sizeof(float));
+			checkCUDA(cudaMemcpy(attentionMask_, hostMask.data(), windowMaskSize*sizeof(float), cudaMemcpyHostToDevice));
 		}
-		CUDAMallocZero(&attentionMask_, windowMaskSize * sizeof(float));
-		checkCUDA(cudaMemcpy(attentionMask_, hostMask.data(), windowMaskSize*sizeof(float), cudaMemcpyHostToDevice));
 	}
 	attention_->SetAttentionMask(attentionMask_);
 	const size_t windowElems = static_cast<size_t>(windowBatch_) * windowTokens_ * embedDim_;

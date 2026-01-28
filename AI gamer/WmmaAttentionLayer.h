@@ -3,6 +3,7 @@
 #include "WeightInitMethod.h"
 #include <cublas_v2.h>
 #include <cudnn.h>
+#include <vector>
 class WmmaAttentionLayer final : public Layer{
 public:
 	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
@@ -18,6 +19,7 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	void SetAttentionMask(const float* attentionMask);
+	void InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex);
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
 	int batchSize_, tokens_, embedDim_, numHeads_;
@@ -37,6 +39,13 @@ public:
 	float* attnGradWorkspace_ = nullptr;
 	size_t attnGradWorkspaceSize_ = 0;
 	const float* attentionMask_ = nullptr;
+	float* relPosBias_ = nullptr;
+	float* gradRelPosBias_ = nullptr;
+	float* m_relPosBias_ = nullptr;
+	float* v_relPosBias_ = nullptr;
+	int* relPosIndex_ = nullptr;
+	int relPosSize_ = 0;
+	bool useRelPosBias_ = false;
 	int gradAccumLength_;
 	int t_ = 1;
 	const float zero_ = 0.0f;

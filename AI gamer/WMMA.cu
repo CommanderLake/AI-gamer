@@ -114,7 +114,7 @@ namespace{
 // ============================================================================
 // FORWARD KERNEL
 // ============================================================================
-__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask, int batchSize, int tokens, int headDim, int heads, int tileCols){
+__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask, const float* __restrict__ RelPosBias, const int* __restrict__ RelPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -198,6 +198,8 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	const size_t attentionOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
 	const size_t maxAttentionIdx = static_cast<size_t>(batchSize)*heads*tokens*tokens;
 	const size_t maskOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
+	const bool hasRelPosBias = (RelPosBias != nullptr && RelPosIndex != nullptr && relPosSize > 0);
+	const size_t relPosBase = static_cast<size_t>(head)*relPosSize;
 	// Process K tiles - compute QK^T
 	for(int tileStart = 0; tileStart < tokens; tileStart += tileCols){
 		const int remaining = (tokens - tileStart < tileCols) ? (tokens - tileStart) : tileCols;
@@ -264,6 +266,22 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 					if(globalCol < tokens){
 						const size_t maskIdx = maskOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
 						scoresTile[row*tileCols + col] += AttentionMask[maskIdx];
+					}
+				}
+			}
+			__syncthreads();
+		}
+		if(hasRelPosBias){
+#pragma unroll 4
+			for(int row = warpId; row < 16; row += numWarps){
+				const int globalRow = rowBlock*16 + row;
+				if(globalRow >= tokens) continue;
+#pragma unroll 4
+				for(int col = laneId; col < remaining; col += 32){
+					const int globalCol = tileStart + col;
+					if(globalCol < tokens){
+						const size_t relIdx = static_cast<size_t>(RelPosIndex[globalRow*tokens + globalCol]);
+						scoresTile[row*tileCols + col] += RelPosBias[relPosBase + relIdx];
 					}
 				}
 			}
@@ -376,6 +394,22 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 					if(globalCol < tokens){
 						const size_t maskIdx = maskOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
 						scoresTile[row*tileCols + col] += AttentionMask[maskIdx];
+					}
+				}
+			}
+			__syncthreads();
+		}
+		if(hasRelPosBias){
+#pragma unroll 4
+			for(int row = warpId; row < 16; row += numWarps){
+				const int globalRow = rowBlock*16 + row;
+				if(globalRow >= tokens) continue;
+#pragma unroll 4
+				for(int col = laneId; col < remaining; col += 32){
+					const int globalCol = tileStart + col;
+					if(globalCol < tokens){
+						const size_t relIdx = static_cast<size_t>(RelPosIndex[globalRow*tokens + globalCol]);
+						scoresTile[row*tileCols + col] += RelPosBias[relPosBase + relIdx];
 					}
 				}
 			}
@@ -978,7 +1012,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 // ============================================================================
 // WRAPPER FUNCTIONS
 // ============================================================================
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, int batchSize, int tokens, int headDim, int heads){
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads){
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
 		printf("WmmaAttention: Invalid dimensions, aborting\n");
@@ -1003,7 +1037,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 		return;
 	}
 	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, batchSize, tokens, headDim, heads, tileCols);
+	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols);
 	checkCUDA(cudaGetLastError());
 }
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){
@@ -1062,6 +1096,28 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	ComputeDKKernel<<<gridKV, block, smemKV>>>(dAttWorkspace, Q, dK, batchSize, tokens, headDim, heads);
 	err = cudaGetLastError();
 	if(err != cudaSuccess){ printf("WmmaAttentionBackward dK error: %s\n", cudaGetErrorString(err)); }
+}
+
+__global__ void RelPosBiasGradKernel(const float* __restrict__ dAtt, const int* __restrict__ relPosIndex, float* __restrict__ gradBias, int batchSize, int tokens, int heads, int relPosSize, float scale){
+	const size_t total = static_cast<size_t>(batchSize)*heads*tokens*tokens;
+	const size_t idx = static_cast<size_t>(blockIdx.x)*blockDim.x + threadIdx.x;
+	if(idx >= total) return;
+	const int col = static_cast<int>(idx % tokens);
+	const int row = static_cast<int>((idx / tokens) % tokens);
+	const int head = static_cast<int>((idx / (static_cast<size_t>(tokens)*tokens)) % heads);
+	const int relIdx = relPosIndex[row*tokens + col];
+	const size_t biasIdx = static_cast<size_t>(head)*relPosSize + relIdx;
+	atomicAdd(&gradBias[biasIdx], dAtt[idx]*scale);
+}
+
+void AccumulateRelPosBiasGrad(const float* dAtt, const int* relPosIndex, float* gradBias, int batchSize, int tokens, int heads, int relPosSize, float scale){
+	if(dAtt == nullptr || relPosIndex == nullptr || gradBias == nullptr) return;
+	const size_t total = static_cast<size_t>(batchSize)*heads*tokens*tokens;
+	if(total == 0 || relPosSize <= 0) return;
+	size_t blocks, tpb = 256;
+	GetLaunchConfigGridStride(total, blocks, tpb);
+	RelPosBiasGradKernel<<<blocks, tpb>>>(dAtt, relPosIndex, gradBias, batchSize, tokens, heads, relPosSize, scale);
+	checkCUDA(cudaGetLastError());
 }
 // ============================================================================
 // PACKING/UNPACKING UTILITIES
