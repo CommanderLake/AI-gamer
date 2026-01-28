@@ -7,7 +7,7 @@ FCLayer::FCLayer(const cublasHandle_t cublasHandle, const int batchSize, const i
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
-	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
+	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
 	weightCount_ = inC_*outC_;
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));

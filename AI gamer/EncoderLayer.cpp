@@ -73,7 +73,7 @@ __half* EncoderLayer::Backward(__half* grad){
 	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual1, &mixBwd_, outDesc_, grad));
 	return grad;
 }
-void EncoderLayer::UpdateParameters(const float learningRate){ for(const auto layer : layers_){ layer->UpdateParameters(learningRate); } }
+void EncoderLayer::UpdateParameters(const float lr){ for(const auto layer : layers_){ layer->UpdateParameters(lr); } }
 void EncoderLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){ for(const auto layer : layers_){ layer->SaveParameters(file, buffer); } }
 void EncoderLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){ for(const auto layer : layers_){ layer->LoadParameters(file, buffer); } }
 void EncoderLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){ for(const auto layer : layers_){ layer->SaveOptimizerState(file, buffer); } }

@@ -20,13 +20,13 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(const int epoch, const int batch, const int epochBatchCount, const int epochs){
-	constexpr auto baseLr = 0.00001f;
+	constexpr auto baseLr = 0.000005f;
 	constexpr auto minLr = 0.0000001f;
 	const auto warmupSteps = epochBatchCount*1;
 	const auto totalSteps = epochBatchCount*epochs;
 	const auto currentStep = epoch*epochBatchCount + batch;
-	if(currentStep < warmupSteps){ return baseLr*static_cast<float>(currentStep) / static_cast<float>(warmupSteps); }
-	const auto progress = static_cast<float>(currentStep - warmupSteps) / static_cast<float>(totalSteps - warmupSteps);
+	if(currentStep < warmupSteps){ return baseLr*static_cast<float>(currentStep)/static_cast<float>(warmupSteps); }
+	const auto progress = static_cast<float>(currentStep - warmupSteps)/static_cast<float>(totalSteps - warmupSteps);
 	const auto cosineDecay = 0.5f*(1.0f + cosf(3.14159f*progress));
 	return minLr + (baseLr - minLr)*cosineDecay;
 }
@@ -34,8 +34,8 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 	for(auto i = 0; i < nn->batchSize_; ++i){
 		for(auto j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->inputStates[i].keyStates >> j & 1); }
 		const auto axisBase = i*NUM_CTRLS_ + NUM_BUTS_;
-		hTargetBatchFloat[axisBase] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX) / AXIS_SCALE_);
-		hTargetBatchFloat[axisBase + 1] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY) / AXIS_SCALE_);
+		hTargetBatchFloat[axisBase] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX)/AXIS_SCALE_);
+		hTargetBatchFloat[axisBase + 1] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY)/AXIS_SCALE_);
 		hTargetBatchFloat[axisBase + 2] = 0.0f;
 		hTargetBatchFloat[axisBase + 3] = 0.0f;
 	}
@@ -91,8 +91,8 @@ void Train::TrainModel(const int width, const int height){
 	fetchBatch(false);
 	Allocate(nn->batchSize_, nn->stateSize_);
 	bool stopTraining = false;
-	const auto epochBatchCount = trainRecordIndices.size() / nn->batchSize_;
-	const auto epochBatchCountVal = valRecordIndices.size() / nn->batchSize_;
+	const auto epochBatchCount = trainRecordIndices.size()/nn->batchSize_;
+	const auto epochBatchCountVal = valRecordIndices.size()/nn->batchSize_;
 	for(auto epoch = 0; epoch < epochs; ++epoch){
 		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nEpoch: " << epoch << "\n";

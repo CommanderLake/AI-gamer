@@ -97,12 +97,12 @@ void InitCUDA(){
 	GS = warps*MP;
 	BS = TPM;
 	int TPB = maxTPB;
-	TPB = TPB / warps*warps;
+	TPB = TPB/warps*warps;
 	TPG = warps;
 	while(TPG*2 <= TPB && TPG < warps){ TPG *= 2; }
-	const int groups = TPB / TPG;
+	const int groups = TPB/TPG;
 	RPB = sqrt(groups);
-	CPB = groups / RPB;
+	CPB = groups/RPB;
 	while(RPB*CPB < groups){ if(RPB < CPB){ RPB++; } else{ CPB++; } }
 	curandCreateGenerator(&generator_, CURAND_RNG_PSEUDO_DEFAULT);
 	curandSetPseudoRandomGeneratorSeed(generator_, static_cast<unsigned long long>(time(nullptr)));
@@ -116,14 +116,14 @@ void WeightInit(__half* weights, const int elementCount, const int fanIn, const 
 	int cols;
 	if(fanIn > 0 && elementCount%fanIn == 0){
 		cols = fanIn;
-		rows = elementCount / fanIn;
+		rows = elementCount/fanIn;
 	} else if(fanOut > 0 && elementCount%fanOut == 0){
 		rows = fanOut;
-		cols = elementCount / fanOut;
+		cols = elementCount/fanOut;
 	} else{
 		cols = fanIn > 0 ? fanIn : (fanOut > 0 ? fanOut : elementCount);
 		if(cols <= 0){ cols = 1; }
-		rows = elementCount / cols;
+		rows = elementCount/cols;
 		if(rows <= 0 || rows*cols != elementCount){
 			rows = elementCount;
 			cols = 1;
@@ -134,6 +134,6 @@ void WeightInit(__half* weights, const int elementCount, const int fanIn, const 
 	//checkCUDA(cudaMalloc(&weightFloat, elementCount*sizeof(float)));
 	//const float factor = method == Xavier ? 1.0f : 2.0f;
 	//curandGenerateNormal(generator_, weightFloat, elementCount, 0.0f, 1.0f);
-	//ConvertFloatToHalfScale(weights, weightFloat, elementCount, sqrtf(factor / (fanIn + fanOut)));
+	//ConvertFloatToHalfScale(weights, weightFloat, elementCount, sqrtf(factor/(fanIn + fanOut)));
 	//cudaFree(weightFloat);
 }

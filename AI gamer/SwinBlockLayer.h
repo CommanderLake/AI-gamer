@@ -3,16 +3,16 @@
 #include "WeightInitMethod.h"
 #include <cublas_v2.h>
 #include <cudnn.h>
-
+#include <vector>
 class LayerNorm;
 class WmmaAttentionLayer;
 class FCLayer;
 class GELULayer;
 class Dropout;
-
 class SwinBlockLayer final : public Layer{
 public:
-	SwinBlockLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	SwinBlockLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, const char* layerName, bool train, float weightDecay,
+					int gradAccumLength, WeightInitMethod weightInitMethod);
 	~SwinBlockLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -24,7 +24,6 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-
 private:
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
@@ -42,6 +41,7 @@ private:
 	int windowTokens_;
 	int windowCount_;
 	int windowBatch_;
+	std::vector<Layer*> layers_;
 	LayerNorm* norm1_;
 	WmmaAttentionLayer* attention_;
 	Dropout* attnDrop_;

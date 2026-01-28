@@ -3,7 +3,7 @@
 GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, const char* layerName, bool train) : batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize){
 	layerName_ = layerName;
 	train_ = train;
-	invSqrtDim_ = 1.0f / std::sqrt(static_cast<float>(embedSize_));
+	invSqrtDim_ = 1.0f/std::sqrt(static_cast<float>(embedSize_));
 	outNCHW_ = batchSize_*embedSize_;
 	weightCount_ = embedSize_;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));

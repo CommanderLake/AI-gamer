@@ -26,7 +26,7 @@ namespace{
 		val = WarpReduceSum(val);
 		if(lane == 0){ shared[wid] = val; }
 		__syncthreads();
-		const int numWarps = (blockDim.x + warpSize - 1) / warpSize;
+		const int numWarps = (blockDim.x + warpSize - 1)/warpSize;
 		float blockVal = 0.0f;
 		if(wid == 0){
 			blockVal = lane < numWarps ? shared[lane] : 0.0f;
@@ -43,7 +43,7 @@ namespace{
 		val = WarpReduceMax(val);
 		if(lane == 0){ shared[wid] = val; }
 		__syncthreads();
-		const int numWarps = (blockDim.x + warpSize - 1) / warpSize;
+		const int numWarps = (blockDim.x + warpSize - 1)/warpSize;
 		float blockVal = -FLT_MAX;
 		if(wid == 0){
 			blockVal = lane < numWarps ? shared[lane] : -FLT_MAX;
@@ -91,7 +91,7 @@ __global__ void AttentionPoolSoftmaxKernel(float* scores, float* attnWeights, in
 	}
 	const float sum = BlockReduceSum(localSum);
 	__shared__ float sharedInvSum;
-	if(threadIdx.x == 0){ sharedInvSum = sum > 0.0f ? 1.0f / sum : 0.0f; }
+	if(threadIdx.x == 0){ sharedInvSum = sum > 0.0f ? 1.0f/sum : 0.0f; }
 	__syncthreads();
 	const float invSum = sharedInvSum;
 	for(int t = threadIdx.x; t < tokens; t += blockDim.x){ attnWeights[b*tokens + t] *= invSum; }
@@ -142,7 +142,7 @@ __global__ void AttentionPoolGradScoresKernel(float* gradScores, const float* gr
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	const int total = batchSize*tokens;
 	if(idx >= total){ return; }
-	const int b = idx / tokens;
+	const int b = idx/tokens;
 	gradScores[idx] = attnWeights[idx]*(gradWeights[idx] - batchSums[b]);
 }
 __global__ void AttentionPoolGradQueryKernel(const float* gradScores, const __half* input, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim){

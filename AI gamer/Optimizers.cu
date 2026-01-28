@@ -41,7 +41,7 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 	if(threadIdx.x == 0){
 		const float biasCorrection1 = 1.0f - powf(BETA1_F, t);
 		sBiasCorrection2 = 1.0f - powf(BETA2_F, t);
-		sLrT = lr / biasCorrection1;
+		sLrT = lr/biasCorrection1;
 		sBeta1Complement = 1.0f - BETA1_F;
 		sBeta3Complement = 1.0f - BETA2_F;
 	}
@@ -50,7 +50,7 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 	const int stride = blockDim.x*gridDim.x;
 	const float lrWeightDecay = lr*wd;
 #pragma unroll 4
-	for(int i = idx; i < n / 4; i += stride){
+	for(int i = idx; i < n/4; i += stride){
 		float4 params4 = reinterpret_cast<const float4*>(params)[i];
 		const float4 grads4 = reinterpret_cast<const float4*>(grads)[i];
 		const float4 m4 = reinterpret_cast<const float4*>(m)[i];
@@ -75,10 +75,10 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 		vNew.w = BETA2_F*v4.w + sBeta3Complement*gradClipped.w*gradClipped.w;
 		// Compute updates
 		float4 update;
-		update.x = sLrT*mNew.x / (sqrtf(vNew.x / sBiasCorrection2) + EPSILON_F);
-		update.y = sLrT*mNew.y / (sqrtf(vNew.y / sBiasCorrection2) + EPSILON_F);
-		update.z = sLrT*mNew.z / (sqrtf(vNew.z / sBiasCorrection2) + EPSILON_F);
-		update.w = sLrT*mNew.w / (sqrtf(vNew.w / sBiasCorrection2) + EPSILON_F);
+		update.x = sLrT*mNew.x/(sqrtf(vNew.x/sBiasCorrection2) + EPSILON_F);
+		update.y = sLrT*mNew.y/(sqrtf(vNew.y/sBiasCorrection2) + EPSILON_F);
+		update.z = sLrT*mNew.z/(sqrtf(vNew.z/sBiasCorrection2) + EPSILON_F);
+		update.w = sLrT*mNew.w/(sqrtf(vNew.w/sBiasCorrection2) + EPSILON_F);
 		// Apply updates
 		const float paramX = params4.x;
 		const float paramY = params4.y;
@@ -94,13 +94,13 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 		reinterpret_cast<float4*>(v)[i] = vNew;
 	}
 	// Handle remaining elements
-	const int remainStart = n / 4*4;
+	const int remainStart = n/4*4;
 	for(int i = remainStart + idx; i < n; i += stride){
 		const float grad = fmaxf(fminf(grads[i], CLIP), -CLIP);
 		const float mVal = BETA1_F*m[i] + sBeta1Complement*grad;
 		const float vVal = BETA2_F*v[i] + sBeta3Complement*grad*grad;
 		const float param = params[i];
-		const float update = sLrT*mVal / (sqrtf(vVal / sBiasCorrection2) + EPSILON_F);
+		const float update = sLrT*mVal/(sqrtf(vVal/sBiasCorrection2) + EPSILON_F);
 		params[i] = param - update - lrWeightDecay*param;
 		m[i] = mVal;
 		v[i] = vVal;
@@ -124,7 +124,7 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 	if(threadIdx.x == 0){
 		sBiasCorrection1 = 1.0f - powf(BETA1_F, t);
 		sBiasCorrection2 = 1.0f - powf(BETA2_F, t);
-		sLrT = lr / sBiasCorrection1;
+		sLrT = lr/sBiasCorrection1;
 		sBeta1Complement = 1.0f - BETA1_F;
 		sBeta3Complement = 1.0f - BETA2_F;
 		sLrWeightDecay = lr*wd;
@@ -134,7 +134,7 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 	const int stride = blockDim.x*gridDim.x;
 	// Process 4 half2 elements (8 total elements) at once
 #pragma unroll 4
-	for(int i = idx; i < n / 8; i += stride){
+	for(int i = idx; i < n/8; i += stride){
 		// Load 4 half2 pairs (8 elements)
 		const auto paramsPtr = reinterpret_cast<__half2*>(params + 8*i);
 		const auto gradsPtr = reinterpret_cast<const __half2*>(grads + 8*i);
@@ -172,11 +172,11 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 			vF2[j].y = BETA2_F*vF2[j].y + sBeta3Complement*gradsF2[j].y*gradsF2[j].y;
 			// Compute denominator
 			float2 denom;
-			denom.x = sqrtf(vF2[j].x / sBiasCorrection2) + EPSILON_F;
-			denom.y = sqrtf(vF2[j].y / sBiasCorrection2) + EPSILON_F;
+			denom.x = sqrtf(vF2[j].x/sBiasCorrection2) + EPSILON_F;
+			denom.y = sqrtf(vF2[j].y/sBiasCorrection2) + EPSILON_F;
 			// Update parameters
-			const float updateX = sLrT*mF2[j].x / denom.x;
-			const float updateY = sLrT*mF2[j].y / denom.y;
+			const float updateX = sLrT*mF2[j].x/denom.x;
+			const float updateY = sLrT*mF2[j].y/denom.y;
 			const float paramX = paramsF2[j].x;
 			const float paramY = paramsF2[j].y;
 			paramsF2[j].x = paramX - updateX - sLrWeightDecay*paramX;

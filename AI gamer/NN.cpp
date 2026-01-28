@@ -4,13 +4,12 @@
 #include "ConvLayer.h"
 #include "LayerNorm.h"
 #include "PatchEmbedLayer.h"
-#include "PatchMergingLayer.h"
 #include "SpatialActionHead.h"
 #include "SwinBlockLayer.h"
 #include "ViewerLayer.h"
 #undef min
 #undef max
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	int netWidth = w;
 	int netHeight = h;
@@ -35,12 +34,12 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto embedW = 16;
 	auto embedSize = embedH*embedW;
 	auto ffDim = embedSize*4;
-	constexpr int numHeads = 8;
-	constexpr int numEncoders = 8;
-	constexpr int windowHeight = 5;
+	constexpr int nHeads = 8;
+	constexpr int nEncoders = 8;
+	constexpr int windowHeight = 10;
 	constexpr int windowWidth = 8;
-	constexpr int shiftHeight = windowHeight / 2;
-	constexpr int shiftWidth = windowWidth / 2;
+	constexpr int shiftHeight = windowHeight/2;
+	constexpr int shiftWidth = windowWidth/2;
 	auto patchRows = DivCeil(netHeight, patchSize);
 	auto patchCols = DivCeil(netWidth, patchSize);
 	auto nTokens = patchRows*patchCols;
@@ -48,28 +47,11 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, 3, netHeight, netWidth, 3, "Input Viewer", true, 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchSize_, 3, netHeight, netWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Patch Embedding Viewer", true, 1.0f, false));
-	const int stage1Blocks = numEncoders / 2;
-	for(int i = 0; i < stage1Blocks; ++i){
+	for(int i = 0; i < nEncoders; ++i){
 		auto name = "SwinBlock" + std::to_string(i);
-		const int blockShiftHeight = (i % 2 == 0) ? 0 : shiftHeight;
-		const int blockShiftWidth = (i % 2 == 0) ? 0 : shiftWidth;
-		layers_.push_back(new SwinBlockLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, ffDim, numHeads, patchRows, patchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, _strdup(name.c_str()), train, wd, gradAccumLength_, Xavier));
-		//if(enableViewerLayers){
-			//if(i == 0 || i == numEncoders/2 || i == numEncoders-1)
-				//layers_.push_back(new ViewerLayer(nTokens, embedSqrt, embedSqrt, patchCols, name + " Output Viewer", 1.0f, false));
-		//}
-	}
-	layers_.push_back(new PatchMergingLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, patchRows, patchCols, "PatchMerge0", train, wd, gradAccumLength_, Xavier));
-	patchRows /= 2;
-	patchCols /= 2;
-	nTokens = patchRows*patchCols;
-	embedSize *= 2;
-	ffDim = embedSize*4;
-	for(int i = stage1Blocks; i < numEncoders; ++i){
-		auto name = "SwinBlock" + std::to_string(i);
-		const int blockShiftHeight = (i % 2 == 0) ? 0 : shiftHeight;
-		const int blockShiftWidth = (i % 2 == 0) ? 0 : shiftWidth;
-		layers_.push_back(new SwinBlockLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, ffDim, numHeads, patchRows, patchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, _strdup(name.c_str()), train, wd, gradAccumLength_, Xavier));
+		const int blockShiftHeight = i % 2 == 0 ? 0 : shiftHeight;
+		const int blockShiftWidth = i % 2 == 0 ? 0 : shiftWidth;
+		layers_.push_back(new SwinBlockLayer(cudnn_, cublas_, batchSize_, nTokens, embedSize, ffDim, nHeads, patchRows, patchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, _strdup(name.c_str()), train, wd, gradAccumLength_, Xavier));
 	}
 	layers_.push_back(new LayerNorm(batchSize_*nTokens, embedSize, 1, 1, "Post-encoder norm", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Encoders Output Viewer", true, 1.0f, false));
@@ -126,8 +108,8 @@ void NN::SaveModel(const std::string& filename){
 	if(file.is_open()){
 		unsigned char* buffer = nullptr;
 		checkCUDA(cudaMallocHost(&buffer, maxBufferSize_));
-		file.write(reinterpret_cast<const char*>(&inWidth_), sizeof(inWidth_));
-		file.write(reinterpret_cast<const char*>(&inHeight_), sizeof(inHeight_));
+		file.write(reinterpret_cast<const char*>(&inWidth_), sizeof inWidth_);
+		file.write(reinterpret_cast<const char*>(&inHeight_), sizeof inHeight_);
 		for(const auto& layer : layers_){
 			layer->SaveParameters(file, buffer);
 		}

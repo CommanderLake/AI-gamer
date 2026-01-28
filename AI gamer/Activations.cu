@@ -43,7 +43,7 @@ __global__ void SwishKernel(const half* __restrict__ dataIn, half* __restrict__ 
 	const int stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		const float val = __half2float(dataIn[idx]);
-		const float sigmoid = 1.0f / (1.0f + expf(-val));
+		const float sigmoid = 1.0f/(1.0f + expf(-val));
 		outData[idx] = __float2half(val*sigmoid);
 	}
 }
@@ -57,7 +57,7 @@ __global__ void SwishBackwardKernel(half* __restrict__ grad, const half* __restr
 	const int stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		const float val = __half2float(dataIn[idx]);
-		const float sigmoid = 1.0f / (1.0f + expf(-val));
+		const float sigmoid = 1.0f/(1.0f + expf(-val));
 		const float derivative = sigmoid*(1.0f + val*(1.0f - sigmoid));
 		grad[idx] = __float2half(__half2float(grad[idx])*derivative);
 	}
@@ -74,7 +74,7 @@ __global__ void SigmoidKernel(const half* __restrict__ dataIn, half* __restrict_
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
 		if(idx % numCtrls < numButs){
 			const float val = __half2float(dataIn[idx]);
-			dataOut[idx] = __float2half(1.0f / (1.0f + expf(-val)));
+			dataOut[idx] = __float2half(1.0f/(1.0f + expf(-val)));
 		}
 	}
 }
@@ -142,7 +142,7 @@ void GELUBackward(half* grad, const half* dataIn, const int size, cudaStream_t s
 __global__ void AsinhForwardKernel(const half* __restrict__ x, half* __restrict__ y, int size, float alpha){
 	const int stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
-		y[idx] = __float2half(asinhf(__half2float(x[idx]) / alpha));
+		y[idx] = __float2half(asinhf(__half2float(x[idx])/alpha));
 	}
 }
 void AsinhForward(const half* x, half* y, int size, float alpha, cudaStream_t stream){

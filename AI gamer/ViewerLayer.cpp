@@ -5,7 +5,7 @@ ViewerLayer::ViewerLayer(int dataSize, const int channels, const int patchHeight
 	outNCHW_ = dataSize;
 	layerName_ = windowTitle_.c_str();
 	viewer_ = new Viewer();
-	gridH_ = (inC_ + gridW_ - 1) / gridW_;
+	gridH_ = (inC_ + gridW_ - 1)/gridW_;
 	mosaicDimW_ = inW_*gridW_;
 	mosaicDimH_ = inH_*gridH_;
 	viewer_->InitializeWindow(mosaicDimW_, mosaicDimH_, windowTitle_.c_str());

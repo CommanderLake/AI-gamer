@@ -8,8 +8,8 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 	checkCUDNN(cudnnCreateAttnDescriptor(&attnDesc_));
 	checkCUDNN(cudnnCreateSeqDataDescriptor(&qkvDesc_));
 	checkCUDNN(cudnnCreateSeqDataDescriptor(&outDesc_));
-	const int dk = vectorSize_ / numHeads_;
-	const double smScaler = 1.0 / std::sqrt(static_cast<double>(dk));
+	const int dk = vectorSize_/numHeads_;
+	const double smScaler = 1.0/std::sqrt(static_cast<double>(dk));
 	checkCUDNN(cudnnSetAttnDescriptor(attnDesc_, CUDNN_ATTN_QUERYMAP_ONE_TO_ONE, numHeads_, smScaler, CUDNN_DATA_HALF, CUDNN_DATA_HALF, CUDNN_TENSOR_OP_MATH, nullptr, nullptr,
 		vectorSize_, // qSize
 		vectorSize_, // kSize
@@ -39,7 +39,7 @@ MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle
 			elems *= static_cast<size_t>(d[i]);
 		}
 		const int fanIn = d[ndims - 1];
-		const int fanOut = ndims > 1 ? static_cast<int>(elems / static_cast<size_t>(fanIn)) : fanIn;
+		const int fanOut = ndims > 1 ? static_cast<int>(elems/static_cast<size_t>(fanIn)) : fanIn;
 		WeightInit(static_cast<__half*>(addr), static_cast<int>(elems), fanIn, fanOut, Xavier);
 	};
 	initWeight(CUDNN_MH_ATTN_Q_WEIGHTS);

@@ -14,7 +14,7 @@ __global__ void MseLossKernel(const __half* predictions, const float* targets, i
 	}
 	sdata[tid] = diff;
 	__syncthreads();
-	for(int i = blockDim.x / 2; i > 0; i >>= 1){
+	for(int i = blockDim.x/2; i > 0; i >>= 1){
 		if(tid < i){ sdata[tid] += sdata[tid + i]; }
 		__syncthreads();
 	}
@@ -28,7 +28,7 @@ float MseLoss(const __half* dPredictions, const float* dTargets, int size){
 	checkCUDA(cudaGetLastError());
 	float h_loss;
 	cudaMemcpyFromSymbol(&h_loss, dLoss, sizeof(float));
-	return h_loss / size;
+	return h_loss/size;
 }
 __device__ float dLossKeys;
 __device__ float dLossMouse;
@@ -44,7 +44,7 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 	float sumKeys = 0.0f;
 	float sumMouse = 0.0f;
 	const int numAxisOutputs = numCtrls - numKeys;
-	const int numAxes = numAxisOutputs / 2;
+	const int numAxes = numAxisOutputs/2;
 	constexpr float kLogSigmaMin = -5.0f;
 	constexpr float kLogSigmaMax = 2.0f;
 	constexpr float kLogSigmaL2 = 0.01f;
@@ -55,7 +55,7 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 		if(isKey){
 			sumKeys += BceWithLogitsLoss(pred, target);
 		} else{
-			const int batchId = idx / numCtrls;
+			const int batchId = idx/numCtrls;
 			const int axisOffset = idx - (batchId*numCtrls + numKeys);
 			if(axisOffset < numAxes){
 				const float mu = pred;
@@ -71,7 +71,7 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 	sdata[tid] = sumKeys;
 	sdata[tid + blockDim.x] = sumMouse;
 	__syncthreads();
-	for(int s = blockDim.x / 2; s > 0; s >>= 1){
+	for(int s = blockDim.x/2; s > 0; s >>= 1){
 		if(tid < s){
 			sdata[tid] += sdata[tid + s];
 			sdata[tid + blockDim.x] += sdata[tid + blockDim.x + s];
@@ -86,7 +86,7 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 void LossStats(const __half* dPredictions, const float* dTargets, const int numButs, const int numCtrls, const int batchSize, float* butLoss, float* axesLoss){
 	constexpr auto zero = 0.0f;
 	const auto size = numCtrls*batchSize;
-	const auto numAxes = (numCtrls - numButs) / 2;
+	const auto numAxes = (numCtrls - numButs)/2;
 	cudaMemcpyToSymbol(dLossKeys, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	cudaMemcpyToSymbol(dLossMouse, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	auto gridSize = DivCeil(size, BS);

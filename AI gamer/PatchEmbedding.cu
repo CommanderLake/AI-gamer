@@ -3,11 +3,11 @@
 #include <device_launch_parameters.h>
 __global__ void ExtractPatchesKernelVec2(const __half* __restrict__ x, __half* __restrict__ y, int B, int C, int H, int W, int P){
 	const int kPatchArea = P*P;
-	const int PH = (H + P - 1) / P;
-	const int PW = (W + P - 1) / P;
+	const int PH = (H + P - 1)/P;
+	const int PW = (W + P - 1)/P;
 	const long patchDim = static_cast<long>(C)*kPatchArea;
 	const long total_elements = static_cast<long>(B)*PH*PW*patchDim;
-	const long total_vec2 = total_elements / 2;
+	const long total_vec2 = total_elements/2;
 	const long stride = static_cast<long>(blockDim.x)*gridDim.x;
 	for(long idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total_vec2; idx += stride){
 		__half2 vals = __float2half2_rn(0.0f);
@@ -15,15 +15,15 @@ __global__ void ExtractPatchesKernelVec2(const __half* __restrict__ x, __half* _
 		for(int i = 0; i < 2; i++){
 			long elem_idx = idx*2 + i;
 			if(elem_idx >= total_elements) break;
-			long patch = elem_idx / patchDim;
+			long patch = elem_idx/patchDim;
 			int inPatch = elem_idx - patch*patchDim;
-			int b = patch / (PH*PW);
+			int b = patch/(PH*PW);
 			int pp = patch - b*(PH*PW);
-			int pyPatch = pp / PW;
+			int pyPatch = pp/PW;
 			int pxPatch = pp - pyPatch*PW;
-			int c = inPatch / kPatchArea;
+			int c = inPatch/kPatchArea;
 			int rem = inPatch - c*kPatchArea;
-			int py = rem / P;
+			int py = rem/P;
 			int px = rem - py*P;
 			int srcY = pyPatch*P + py;
 			int srcX = pxPatch*P + px;
@@ -38,21 +38,21 @@ __global__ void ExtractPatchesKernelVec2(const __half* __restrict__ x, __half* _
 }
 __global__ void ExtractPatchesKernel(const __half* __restrict__ x, __half* __restrict__ y, int B, int C, int H, int W, int P){
 	const int kPatchArea = P*P;
-	const int PH = (H + P - 1) / P;
-	const int PW = (W + P - 1) / P;
+	const int PH = (H + P - 1)/P;
+	const int PW = (W + P - 1)/P;
 	const long patchDim = static_cast<long>(C)*kPatchArea;
 	const long total = static_cast<long>(B)*PH*PW*patchDim;
 	const long stride = static_cast<long>(blockDim.x)*gridDim.x;
 	for(long idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
-		long patch = idx / patchDim;
+		long patch = idx/patchDim;
 		int inPatch = idx - patch*patchDim;
-		int b = patch / (PH*PW);
+		int b = patch/(PH*PW);
 		int pp = patch - b*(PH*PW);
-		int pyPatch = pp / PW;
+		int pyPatch = pp/PW;
 		int pxPatch = pp - pyPatch*PW;
-		int c = inPatch / kPatchArea;
+		int c = inPatch/kPatchArea;
 		int rem = inPatch - c*kPatchArea;
-		int py = rem / P;
+		int py = rem/P;
 		int px = rem - py*P;
 		int srcY = pyPatch*P + py;
 		int srcX = pxPatch*P + px;
@@ -65,13 +65,13 @@ __global__ void ExtractPatchesKernel(const __half* __restrict__ x, __half* __res
 	}
 }
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P){
-	const int PH = (H + P - 1) / P;
-	const int PW = (W + P - 1) / P;
+	const int PH = (H + P - 1)/P;
+	const int PW = (W + P - 1)/P;
 	const size_t total = static_cast<size_t>(B)*PH*PW*C*P*P;
 	if(total == 0) return;
 	if(total % 2 == 0){
 		size_t blocks = 0, tpb = 0;
-		GetLaunchConfigGridStride(total / 2, blocks, tpb);
+		GetLaunchConfigGridStride(total/2, blocks, tpb);
 		if(blocks > 0 && tpb > 0) ExtractPatchesKernelVec2<<<blocks, tpb>>>(in, out, B, C, H, W, P);
 	} else{
 		size_t blocks = 0, tpb = 0;
@@ -82,21 +82,21 @@ void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, i
 }
 __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* __restrict__ dx, int B, int C, int H, int W, int P){
 	const int kPatchArea = P*P;
-	const int PH = (H + P - 1) / P;
-	const int PW = (W + P - 1) / P;
+	const int PH = (H + P - 1)/P;
+	const int PW = (W + P - 1)/P;
 	const long patchDim = static_cast<long>(C)*kPatchArea;
 	const long total = static_cast<long>(B)*PH*PW*patchDim;
 	const long stride = static_cast<long>(blockDim.x)*gridDim.x;
 	for(long idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
-		long patch = idx / patchDim;
+		long patch = idx/patchDim;
 		int inPatch = idx - patch*patchDim;
-		int b = patch / (PH*PW);
+		int b = patch/(PH*PW);
 		int pp = patch - b*(PH*PW);
-		int pyPatch = pp / PW;
+		int pyPatch = pp/PW;
 		int pxPatch = pp - pyPatch*PW;
-		int c = inPatch / kPatchArea;
+		int c = inPatch/kPatchArea;
 		int rem = inPatch - c*kPatchArea;
-		int py = rem / P;
+		int py = rem/P;
 		int px = rem - py*P;
 		int dstY = pyPatch*P + py;
 		int dstX = pxPatch*P + px;
@@ -107,8 +107,8 @@ __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* _
 }
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P){
 	checkCUDA(cudaMemset(dx, 0, B*C*H*W*sizeof(__half)));
-	const int PH = (H + P - 1) / P;
-	const int PW = (W + P - 1) / P;
+	const int PH = (H + P - 1)/P;
+	const int PW = (W + P - 1)/P;
 	const size_t total = static_cast<size_t>(B)*PH*PW*C*P*P;
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
@@ -119,7 +119,7 @@ __global__ void SumPositionalGradKernel(const __half* grad, __half* out, int B, 
 	const int total = C*P;
 	const int stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
-		const int c = idx / P;
+		const int c = idx/P;
 		const int p = idx - c*P;
 		float sum = 0.0f;
 		for(int b = 0; b < B; ++b){
@@ -147,7 +147,7 @@ __global__ void AddPerTokenEmbeddingKernel(__half* output, const __half* embed, 
 	const size_t total = static_cast<size_t>(batch)*tokens*embedDim;
 	if(idx >= total) return;
 	const int feature = idx % embedDim;
-	const size_t tokenIndex = idx / embedDim;
+	const size_t tokenIndex = idx/embedDim;
 	const int token = static_cast<int>(tokenIndex % tokens);
 	const float sum = __half2float(output[idx]) + __half2float(embed[token*embedDim + feature]);
 	output[idx] = __float2half(sum);

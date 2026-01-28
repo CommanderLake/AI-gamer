@@ -8,74 +8,72 @@
 #include <Windows.h>
 #undef min
 #undef max
-namespace{
-	std::filesystem::path GetIndexCachePath(const std::filesystem::path& dataPath){
-		auto cachePath = dataPath;
-		cachePath += ".idxcache";
-		return cachePath;
+std::filesystem::path GetIndexCachePath(const std::filesystem::path& dataPath){
+	auto cachePath = dataPath;
+	cachePath += ".idxcache";
+	return cachePath;
+}
+bool LoadIndexCache(const std::filesystem::path& cachePath, std::uintmax_t expectedFileSize, int* width, int* height, std::string* fileName, std::vector<RecordIndex>* index){
+	std::ifstream cache(cachePath, std::ios::binary | std::ios::in);
+	if(!cache.is_open()){ return false; }
+	std::uint64_t cachedSize = 0;
+	std::int32_t cachedWidth = 0;
+	std::int32_t cachedHeight = 0;
+	std::uint64_t recordCount = 0;
+	cache.read(reinterpret_cast<char*>(&cachedSize), sizeof(cachedSize));
+	cache.read(reinterpret_cast<char*>(&cachedWidth), sizeof(cachedWidth));
+	cache.read(reinterpret_cast<char*>(&cachedHeight), sizeof(cachedHeight));
+	cache.read(reinterpret_cast<char*>(&recordCount), sizeof(recordCount));
+	if(cache.fail()){
+		std::cerr << "Failed to read cache header from: " << cachePath << "\n";
+		return false;
 	}
-	bool LoadIndexCache(const std::filesystem::path& cachePath, std::uintmax_t expectedFileSize, int* width, int* height, std::string* fileName, std::vector<RecordIndex>* index){
-		std::ifstream cache(cachePath, std::ios::binary | std::ios::in);
-		if(!cache.is_open()){ return false; }
-		std::uint64_t cachedSize = 0;
-		std::int32_t cachedWidth = 0;
-		std::int32_t cachedHeight = 0;
-		std::uint64_t recordCount = 0;
-		cache.read(reinterpret_cast<char*>(&cachedSize), sizeof(cachedSize));
-		cache.read(reinterpret_cast<char*>(&cachedWidth), sizeof(cachedWidth));
-		cache.read(reinterpret_cast<char*>(&cachedHeight), sizeof(cachedHeight));
-		cache.read(reinterpret_cast<char*>(&recordCount), sizeof(recordCount));
+	if(cachedSize != expectedFileSize){
+		std::cerr << "Cache file size mismatch for: " << cachePath << " (expected " << expectedFileSize << ", cached " << cachedSize << ")\n";
+		return false;
+	}
+	if(recordCount > std::numeric_limits<std::size_t>::max()){
+		std::cerr << "Cache record count too large in: " << cachePath << "\n";
+		return false;
+	}
+	std::vector<std::uint64_t> positions((recordCount));
+	if(recordCount > 0U){
+		cache.read(reinterpret_cast<char*>(positions.data()), static_cast<std::streamsize>(recordCount*sizeof(std::uint64_t)));
 		if(cache.fail()){
-			std::cerr << "Failed to read cache header from: " << cachePath << "\n";
+			std::cerr << "Failed to read cache records from: " << cachePath << "\n";
 			return false;
 		}
-		if(cachedSize != expectedFileSize){
-			std::cerr << "Cache file size mismatch for: " << cachePath << " (expected " << expectedFileSize << ", cached " << cachedSize << ")\n";
-			return false;
-		}
-		if(recordCount > std::numeric_limits<std::size_t>::max()){
-			std::cerr << "Cache record count too large in: " << cachePath << "\n";
-			return false;
-		}
-		std::vector<std::uint64_t> positions((recordCount));
-		if(recordCount > 0U){
-			cache.read(reinterpret_cast<char*>(positions.data()), static_cast<std::streamsize>(recordCount*sizeof(std::uint64_t)));
-			if(cache.fail()){
-				std::cerr << "Failed to read cache records from: " << cachePath << "\n";
-				return false;
-			}
-		}
-		if(width){ *width = cachedWidth; }
-		if(height){ *height = cachedHeight; }
-		index->reserve(index->size() + positions.size());
-		for(std::uint64_t posValue : positions){
-			const std::streamoff offset = static_cast<std::streamoff>(posValue);
-			index->push_back({fileName, std::streampos(offset)});
-		}
-		std::cerr << "Loaded " << recordCount << " cached records for file: " << *fileName << std::endl;
-		return true;
 	}
-	void SaveIndexCache(const std::filesystem::path& cachePath, std::uintmax_t fileSize, int width, int height, const std::vector<std::uint64_t>& positions){
-		std::ofstream cache(cachePath, std::ios::binary | std::ios::trunc | std::ios::out);
-		if(!cache.is_open()){
-			std::cerr << "Failed to write index cache file: " << cachePath << "\n";
-			return;
-		}
-		const std::uint64_t size64 = fileSize;
-		const std::int32_t width32 = width;
-		const std::int32_t height32 = height;
-		const std::uint64_t recordCount = positions.size();
-		cache.write(reinterpret_cast<const char*>(&size64), sizeof(size64));
-		cache.write(reinterpret_cast<const char*>(&width32), sizeof(width32));
-		cache.write(reinterpret_cast<const char*>(&height32), sizeof(height32));
-		cache.write(reinterpret_cast<const char*>(&recordCount), sizeof(recordCount));
-		if(recordCount > 0U){ cache.write(reinterpret_cast<const char*>(positions.data()), static_cast<std::streamsize>(recordCount*sizeof(std::uint64_t))); }
-		if(cache.fail()){
-			std::cerr << "Failed to fully write index cache file: " << cachePath << "\n";
-			return;
-		}
-		std::cerr << "Saved " << recordCount << " records to index cache: " << cachePath << std::endl;
+	if(width){ *width = cachedWidth; }
+	if(height){ *height = cachedHeight; }
+	index->reserve(index->size() + positions.size());
+	for(std::uint64_t posValue : positions){
+		const std::streamoff offset = static_cast<std::streamoff>(posValue);
+		index->push_back({fileName, std::streampos(offset)});
 	}
+	std::cerr << "Loaded " << recordCount << " cached records for file: " << *fileName << std::endl;
+	return true;
+}
+void SaveIndexCache(const std::filesystem::path& cachePath, std::uintmax_t fileSize, int width, int height, const std::vector<std::uint64_t>& positions){
+	std::ofstream cache(cachePath, std::ios::binary | std::ios::trunc | std::ios::out);
+	if(!cache.is_open()){
+		std::cerr << "Failed to write index cache file: " << cachePath << "\n";
+		return;
+	}
+	const std::uint64_t size64 = fileSize;
+	const std::int32_t width32 = width;
+	const std::int32_t height32 = height;
+	const std::uint64_t recordCount = positions.size();
+	cache.write(reinterpret_cast<const char*>(&size64), sizeof(size64));
+	cache.write(reinterpret_cast<const char*>(&width32), sizeof(width32));
+	cache.write(reinterpret_cast<const char*>(&height32), sizeof(height32));
+	cache.write(reinterpret_cast<const char*>(&recordCount), sizeof(recordCount));
+	if(recordCount > 0U){ cache.write(reinterpret_cast<const char*>(positions.data()), static_cast<std::streamsize>(recordCount*sizeof(std::uint64_t))); }
+	if(cache.fail()){
+		std::cerr << "Failed to fully write index cache file: " << cachePath << "\n";
+		return;
+	}
+	std::cerr << "Saved " << recordCount << " records to index cache: " << cachePath << std::endl;
 }
 void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vector<RecordIndex>* index){
 	const std::filesystem::path dataPath(*fileName);
@@ -106,7 +104,7 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 	}
 	const auto stateSize = static_cast<std::uintmax_t>(*width)*static_cast<std::uintmax_t>(*height)*3U;
 	std::cerr << "State size calculated: " << stateSize << " bytes" << std::endl;
-	const auto recordSize = 12U + stateSize;
+	const auto recordSize = 12 + stateSize;
 	std::vector<std::uint64_t> recordPositions;
 	int fileRecordsCount = 0;
 	bool encounteredReadError = false;

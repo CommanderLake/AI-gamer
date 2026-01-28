@@ -5,9 +5,9 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
-	headDim_ = embedDim_ / numHeads_;
+	headDim_ = embedDim_/numHeads_;
 	outNCHW_ = batchSize_*tokens_*embedDim_;
-	alphaWeights_ = 1.0f / (batchSize_*gradAccumLength_);
+	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
 	const size_t projSize = embedDim_*embedDim_;
 	CUDAMallocZero(&qkvWeightsBase_, 3*projSize*sizeof(__half));
 	qWeights_ = qkvWeightsBase_;

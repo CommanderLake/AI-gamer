@@ -7,7 +7,7 @@ public:
 	~EncoderLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
-	void UpdateParameters(float learningRate) override;
+	void UpdateParameters(float lr) override;
 	void SaveParameters(std::ofstream& file, unsigned char* buffer) override;
 	void LoadParameters(std::ifstream& file, unsigned char* buffer) override;
 	void SaveOptimizerState(std::ofstream& file, unsigned char* buffer) override;
