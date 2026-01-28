@@ -46,13 +46,15 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	auto patchRows = DivCeil(scaledHeight, patchSize);
 	auto patchCols = DivCeil(scaledWidth, patchSize);
 	auto nTokens = patchRows*patchCols;
-	constexpr bool enableViewerLayers = true;
+	constexpr bool enableViewerLayers = false;
 	layers_.push_back(new ResizeLayer(batchSize_, 3, netHeight, netWidth, scaledHeight, scaledWidth, "Input Resize 256x256", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*3*scaledHeight*scaledWidth, 3, scaledHeight, scaledWidth, 3, "Input Viewer", true, 1.0f, false));
 	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
 	int embedDim = embedSize;
 	for(int stage = 0; stage < numMergeStages; ++stage){
-		if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedSize, nTokens, embedH, embedW, patchCols, "Swin Block In Viewer", true, 1.0f, false));
+		constexpr int embedTileH = embedH;
+		const int embedTileW = embedDim / embedTileH;
+		if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, embedTileH, embedTileW, patchCols, "Swin Block In Viewer", true, 1.0f, false));
 		const int stageHeads = baseHeads << stage;
 		const int windowHeight = std::min(baseWindowSize, patchRows);
 		const int windowWidth = std::min(baseWindowSize, patchCols);
