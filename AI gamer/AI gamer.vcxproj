@@ -118,6 +118,7 @@
     <ClInclude Include="GlobalPoolLayer.h" />
     <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="MHALayer.h" />
+    <ClInclude Include="MLPKBMHead.h" />
     <ClInclude Include="PatchEmbedLayer.h" />
     <ClInclude Include="PatchMergingLayer.h" />
     <ClInclude Include="PoolLayer.h" />
@@ -129,7 +130,6 @@
     <ClInclude Include="NN.h" />
     <ClInclude Include="ResFCLayer.h" />
     <ClInclude Include="EncoderLayer.h" />
-    <ClInclude Include="SpatialActionHead.h" />
     <ClInclude Include="SwinBlockLayer.h" />
     <ClInclude Include="TokensToSpatialLayer.h" />
     <ClInclude Include="TransposeLayer.h" />
@@ -160,6 +160,7 @@
     <ClCompile Include="GlobalPoolLayer.cpp" />
     <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="MHALayer.cpp" />
+    <ClCompile Include="MLPKBMHead.cpp" />
     <ClCompile Include="NvDisplayCap.cpp" />
     <ClCompile Include="OrthogonalInit.cpp" />
     <ClCompile Include="PatchEmbedLayer.cpp" />
@@ -173,7 +174,6 @@
     <ClCompile Include="NN.cpp" />
     <ClCompile Include="ResFCLayer.cpp" />
     <ClCompile Include="EncoderLayer.cpp" />
-    <ClCompile Include="SpatialActionHead.cpp" />
     <ClCompile Include="SwinBlockLayer.cpp" />
     <ClCompile Include="TokensToSpatialLayer.cpp" />
     <ClCompile Include="TransposeLayer.cpp" />
