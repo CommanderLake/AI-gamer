@@ -74,6 +74,9 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	}
 }
 NN::~NN(){
+	for(const auto* layer : layers_){
+		delete layer;
+	}
 	layers_.clear();
 }
 __half* NN::Forward(__half* data){

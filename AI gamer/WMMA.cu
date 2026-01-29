@@ -114,7 +114,7 @@ namespace{
 // ============================================================================
 // FORWARD KERNEL
 // ============================================================================
-__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask, const float* __restrict__ RelPosBias, const int* __restrict__ RelPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int tileCols){
+__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask, const float* __restrict__ RelPosBias, const int* __restrict__ RelPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int tileCols, int maskBatchSize, int maskHeads){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -197,7 +197,11 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 	__syncthreads();
 	const size_t attentionOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
 	const size_t maxAttentionIdx = static_cast<size_t>(batchSize)*heads*tokens*tokens;
-	const size_t maskOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
+	const int effectiveMaskBatchSize = maskBatchSize > 0 ? maskBatchSize : batchSize;
+	const int effectiveMaskHeads = maskHeads > 0 ? maskHeads : heads;
+	const int maskBatchIndex = batch % effectiveMaskBatchSize;
+	const int maskHeadIndex = head % effectiveMaskHeads;
+	const size_t maskOffset = (static_cast<size_t>(maskBatchIndex)*effectiveMaskHeads + maskHeadIndex)*tokens*tokens;
 	const bool hasRelPosBias = (RelPosBias != nullptr && RelPosIndex != nullptr && relPosSize > 0);
 	const size_t relPosBase = static_cast<size_t>(head)*relPosSize;
 	// Process K tiles - compute QK^T
@@ -1012,7 +1016,7 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 // ============================================================================
 // WRAPPER FUNCTIONS
 // ============================================================================
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads){
+void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int maskBatchSize, int maskHeads){
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
 		printf("WmmaAttention: Invalid dimensions, aborting\n");
@@ -1037,7 +1041,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 		return;
 	}
 	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols);
+	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols, maskBatchSize, maskHeads);
 	checkCUDA(cudaGetLastError());
 }
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads){

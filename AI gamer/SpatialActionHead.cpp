@@ -2,7 +2,6 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
-#include "BatchNorm.h"
 #include "GELULayer.h"
 #include "Dropout.h"
 #include "FCLayer.h"
@@ -21,8 +20,6 @@ SpatialActionHead::SpatialActionHead(const cudnnHandle_t cudnnHandle, const cubl
 	int sharedW = patchCols_;
 	const auto spatialC = embedSize_;
 	spatialLayers_.push_back(new TokensToSpatialLayer(batchSize_, nTokens_, embedSize_, patchRows_, patchCols_, "TokensToSpatialLayer", train_));
-	spatialLayers_.push_back(new ConvLayer(cudnn_, batchSize_, embedSize_, spatialC, 3, 1, 1, &sharedH, &sharedW, 1, "Spatial Conv 1", train_, weightDecay_, gradAccumLength_, Xavier));
-	spatialLayers_.push_back(new BatchNorm(cudnn_, CUDNN_BATCHNORM_SPATIAL, batchSize_, spatialC, sharedH, sharedW, "Spatial BN 1", train_, gradAccumLength_));
 	spatialLayers_.push_back(new GELULayer(batchSize_, spatialC, sharedH, sharedW, "Spatial GELU 1"));
 	spatialHeight_ = sharedH;
 	spatialWidth_ = sharedW;

@@ -18,7 +18,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-	void SetAttentionMask(const float* attentionMask);
+	void SetAttentionMask(const float* attentionMask, int maskBatchSize, int maskHeads);
 	void InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex);
 	cudnnHandle_t cudnnHandle_;
 	cublasHandle_t cublasHandle_;
@@ -39,6 +39,8 @@ public:
 	float* attnGradWorkspace_ = nullptr;
 	size_t attnGradWorkspaceSize_ = 0;
 	const float* attentionMask_ = nullptr;
+	int maskBatchSize_ = 0;
+	int maskHeads_ = 0;
 	float* relPosBias_ = nullptr;
 	float* gradRelPosBias_ = nullptr;
 	float* m_relPosBias_ = nullptr;

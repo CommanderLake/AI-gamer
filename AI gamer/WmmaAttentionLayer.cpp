@@ -97,7 +97,7 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	dV = V;
 	const float* relPosBias = useRelPosBias_ ? relPosBias_ : nullptr;
 	const int* relPosIndex = useRelPosBias_ ? relPosIndex_ : nullptr;
-	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, relPosBias, relPosIndex, relPosSize_, batchSize_, tokens_, headDim_, numHeads_);
+	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, relPosBias, relPosIndex, relPosSize_, batchSize_, tokens_, headDim_, numHeads_, maskBatchSize_, maskHeads_);
 	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
 	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	return outData_;
@@ -239,7 +239,11 @@ size_t WmmaAttentionLayer::GetOptimizerStateSize(){
 	return size + sizeof(int);
 }
 void WmmaAttentionLayer::SetTrain(bool enable){ train_ = enable; }
-void WmmaAttentionLayer::SetAttentionMask(const float* attentionMask){ attentionMask_ = attentionMask; }
+void WmmaAttentionLayer::SetAttentionMask(const float* attentionMask, const int maskBatchSize, const int maskHeads){
+	attentionMask_ = attentionMask;
+	maskBatchSize_ = maskBatchSize;
+	maskHeads_ = maskHeads;
+}
 void WmmaAttentionLayer::InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex){
 	if(windowHeight <= 0 || windowWidth <= 0){ throw std::invalid_argument("InitRelativePositionBias invalid window size"); }
 	const size_t expectedSize = static_cast<size_t>(tokens_) * tokens_;
