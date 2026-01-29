@@ -4,7 +4,7 @@
 #include "LayerNorm.h"
 #include <algorithm>
 
-PatchExpandingLayer::PatchExpandingLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, const char* layerName, const bool train,
+PatchExpandingLayer::PatchExpandingLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, std::string layerName, const bool train,
 	const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
 	layerName_ = layerName;
 	train_ = train;

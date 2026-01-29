@@ -2,7 +2,7 @@
 #include "Layer.h"
 class LayerNorm final : public Layer{
 public:
-	LayerNorm(int batchSize, int channels, int height, int width, const char* layerName, bool train, bool spatialMode = false);
+	LayerNorm(int batchSize, int channels, int height, int width, std::string layerName, bool train, bool spatialMode = false);
 	~LayerNorm() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

@@ -6,7 +6,7 @@
 class MultiHeadAttentionLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int timeSize, int vectorSize, int numHeads, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	MultiHeadAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int timeSize, int vectorSize, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~MultiHeadAttentionLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

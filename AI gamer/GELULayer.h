@@ -2,7 +2,7 @@
 #include "Layer.h"
 class GELULayer final : public Layer{
 public:
-	GELULayer(int batchSize, int channels, int height, int width, const char* layerName);
+	GELULayer(int batchSize, int channels, int height, int width, std::string layerName);
 	~GELULayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

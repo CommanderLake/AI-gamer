@@ -2,7 +2,7 @@
 #include "Layer.h"
 class SwishLayer final : public Layer{
 public:
-	explicit SwishLayer(int batchSize, int channels, int height, int width, const char* layerName);
+	explicit SwishLayer(int batchSize, int channels, int height, int width, std::string layerName);
 	~SwishLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

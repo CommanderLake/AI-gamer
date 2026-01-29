@@ -7,7 +7,7 @@ class LayerNorm;
 class FCLayer;
 class PatchMergingLayer final : public Layer{
 public:
-	PatchMergingLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int patchRows, int patchCols, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	PatchMergingLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int patchRows, int patchCols, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchMergingLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

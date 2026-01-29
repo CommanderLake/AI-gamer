@@ -5,7 +5,7 @@
 #include "BatchNorm.h"
 #include "GELULayer.h"
 #include "LayerNorm.h"
-ResFCLayer::ResFCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int hiddenC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength):
+ResFCLayer::ResFCLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int hiddenC, const int outC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength):
 	cudnnHandle_(cudnnHandle), batchSize_(batchSize), inC_(inC), hiddenC_(hiddenC), outC_(outC), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;

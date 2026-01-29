@@ -4,7 +4,7 @@
 #include "CuCommon.cuh"
 #include "BatchNorm.h"
 #include "ConvLayer.h"
-ResConvLayer::ResConvLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inC, const int outC, int *inHeight, int *inWidth, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength):
+ResConvLayer::ResConvLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inC, const int outC, int *inHeight, int *inWidth, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength):
 	cudnnHandle_(cudnnHandle), batchSize_(batchSize), outC_(outC), inC_(inC), inHeight_(*inHeight), inWidth_(*inWidth), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;

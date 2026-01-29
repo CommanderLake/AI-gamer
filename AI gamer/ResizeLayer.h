@@ -3,7 +3,7 @@
 
 class ResizeLayer final : public Layer{
 public:
-	ResizeLayer(int batchSize, int channels, int inHeight, int inWidth, int outHeight, int outWidth, const char* layerName, bool train);
+	ResizeLayer(int batchSize, int channels, int inHeight, int inWidth, int outHeight, int outWidth, std::string layerName, bool train);
 	~ResizeLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

@@ -2,7 +2,7 @@
 #include "Layer.h"
 class GlobalPoolLayer final : public Layer{
 public:
-	GlobalPoolLayer(int batchSize, int nTokens, int embedSize, const char* layerName, bool train);
+	GlobalPoolLayer(int batchSize, int nTokens, int embedSize, std::string layerName, bool train);
 	~GlobalPoolLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

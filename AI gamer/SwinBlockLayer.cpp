@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <vector>
 SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int nTokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth,
-	const int shiftHeight, const int shiftWidth, const float dropPathRate, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad,
+	const int shiftHeight, const int shiftWidth, const float dropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad,
 	__half* tokens, __half* residualGrad) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize),
 	nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
 	layerName_ = layerName;

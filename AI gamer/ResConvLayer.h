@@ -9,7 +9,7 @@
 #include "SwishLayer.h"
 class ResConvLayer : public Layer{
 public:
-	ResConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int outC, int *inHeight, int *inWidth, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	ResConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int outC, int *inHeight, int *inWidth, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~ResConvLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

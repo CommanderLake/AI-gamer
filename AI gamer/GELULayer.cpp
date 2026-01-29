@@ -1,6 +1,6 @@
 #include "GELULayer.h"
 #include "CuCommon.cuh"
-GELULayer::GELULayer(const int batchSize, const int channels, const int height, const int width, const char* layerName) : batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
+GELULayer::GELULayer(const int batchSize, const int channels, const int height, const int width, std::string layerName) : batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;
 	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
 	CUDAMallocZero(&dataOut_, outNCHW_*sizeof(__half));

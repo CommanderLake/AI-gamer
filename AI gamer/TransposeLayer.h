@@ -2,7 +2,7 @@
 #include "Layer.h"
 class TransposeLayer final : public Layer{
 public:
-	TransposeLayer(cudnnHandle_t cudnnHandle, int batchSize, int channels, int height, int width, cudnnTensorFormat_t inFormat, cudnnTensorFormat_t outFormat, const char* layerName);
+	TransposeLayer(cudnnHandle_t cudnnHandle, int batchSize, int channels, int height, int width, cudnnTensorFormat_t inFormat, cudnnTensorFormat_t outFormat, std::string layerName);
 	~TransposeLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

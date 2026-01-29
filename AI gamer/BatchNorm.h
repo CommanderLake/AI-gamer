@@ -4,7 +4,7 @@
 class BatchNorm final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	BatchNorm(cudnnHandle_t cudnnHandle, cudnnBatchNormMode_t bnMode, int batchSize, int channels, int height, int width, const char* layerName, bool train, int gradAccumLength);
+	BatchNorm(cudnnHandle_t cudnnHandle, cudnnBatchNormMode_t bnMode, int batchSize, int channels, int height, int width, std::string layerName, bool train, int gradAccumLength);
 	~BatchNorm() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <iostream>
-LSTMLayer::LSTMLayer(const cudnnHandle_t cudnnHandle, const int seqLength, const int numLayers, const int hiddenSize, const int batchSize, const int inC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
+LSTMLayer::LSTMLayer(const cudnnHandle_t cudnnHandle, const int seqLength, const int numLayers, const int hiddenSize, const int batchSize, const int inC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
 	cudnnHandle_(cudnnHandle), batchSize_(batchSize), seqLength_(seqLength), hiddenSize_(hiddenSize), inC_(inC), numLayers_(numLayers), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;

@@ -1,7 +1,7 @@
 #include "ConvLayer.h"
 #include "CuCommon.cuh"
 #include <iostream>
-ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
+ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
 	inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;

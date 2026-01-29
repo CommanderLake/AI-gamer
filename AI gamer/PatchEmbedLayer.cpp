@@ -1,7 +1,7 @@
 #include "PatchEmbedLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
-PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnn_(cudnnHandle),
+PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnn_(cudnnHandle),
 	cublas_(cublasHandle), batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;

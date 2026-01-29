@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <iostream>
-FCLayer::FCLayer(const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :
+FCLayer::FCLayer(const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :
 	cublasHandle_(cublasHandle), batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;

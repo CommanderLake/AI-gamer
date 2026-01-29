@@ -2,7 +2,7 @@
 #include "CuCommon.cuh"
 #include <stdexcept>
 
-DropPath::DropPath(const float dropRate, const int batchSize, const int elementsPerBatch, const char* layerName, const bool train)
+DropPath::DropPath(const float dropRate, const int batchSize, const int elementsPerBatch, std::string layerName, const bool train)
 	: dropRate_(dropRate),
 	  keepProb_(1.0f - dropRate),
 	  batchSize_(batchSize),

@@ -5,7 +5,7 @@
 #include <cuda_fp16.h>
 class SpatialActionHead final : public Layer{
 public:
-	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int patchRows, int patchCols, int embedSize, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int patchRows, int patchCols, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~SpatialActionHead() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

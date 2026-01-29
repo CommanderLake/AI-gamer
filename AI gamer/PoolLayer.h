@@ -2,7 +2,7 @@
 #include "Layer.h"
 class PoolLayer final : public Layer{
 public:
-	PoolLayer(cudnnHandle_t cudnnHandle, cudnnPoolingMode_t mode, int batchSize, int channels, int* height, int* width, int poolH, int poolW, int strideH, int strideW, const char* layerName, bool train);
+	PoolLayer(cudnnHandle_t cudnnHandle, cudnnPoolingMode_t mode, int batchSize, int channels, int* height, int* width, int poolH, int poolW, int strideH, int strideW, std::string layerName, bool train);
 	~PoolLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

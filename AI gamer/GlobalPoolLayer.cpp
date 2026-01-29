@@ -1,6 +1,6 @@
 #include "GlobalPoolLayer.h"
 #include "CuCommon.cuh"
-GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, const char* layerName, bool train) : batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize){
+GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, std::string layerName, bool train) : batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize){
 	layerName_ = layerName;
 	train_ = train;
 	invSqrtDim_ = 1.0f/std::sqrt(static_cast<float>(embedSize_));

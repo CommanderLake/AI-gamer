@@ -2,7 +2,7 @@
 #include "common.h"
 #include "CuCommon.cuh"
 #include <vector>
-BatchNorm::BatchNorm(const cudnnHandle_t cudnnHandle, const cudnnBatchNormMode_t bnMode, const int batchSize, const int channels, const int height, const int width, const char* layerName, const bool train, const int gradAccumLength): cudnnHandle_(cudnnHandle), bnMode_(bnMode),
+BatchNorm::BatchNorm(const cudnnHandle_t cudnnHandle, const cudnnBatchNormMode_t bnMode, const int batchSize, const int channels, const int height, const int width, std::string layerName, const bool train, const int gradAccumLength): cudnnHandle_(cudnnHandle), bnMode_(bnMode),
 	batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width), epsilon_(1e-6), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;

@@ -7,7 +7,7 @@
 #include "GELULayer.h"
 #include "Dropout.h"
 #include <algorithm>
-EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), gradAccumLength_(gradAccumLength){
+EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*tokens_*embedDim_;

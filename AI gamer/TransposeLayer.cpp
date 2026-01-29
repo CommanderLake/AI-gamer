@@ -1,7 +1,7 @@
 #include "TransposeLayer.h"
 #include "common.h"
 #include "CuCommon.cuh"
-TransposeLayer::TransposeLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int channels, const int height, const int width, const cudnnTensorFormat_t inFormat, const cudnnTensorFormat_t outFormat, const char* layerName): cudnnHandle_(cudnnHandle){
+TransposeLayer::TransposeLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int channels, const int height, const int width, const cudnnTensorFormat_t inFormat, const cudnnTensorFormat_t outFormat, std::string layerName): cudnnHandle_(cudnnHandle){
 	layerName_ = layerName;
 	outNCHW_ = batchSize*channels*height*width;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));

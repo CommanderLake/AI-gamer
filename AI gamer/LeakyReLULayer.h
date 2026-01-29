@@ -2,7 +2,7 @@
 #include "Layer.h"
 class LeakyReLU final : public Layer{
 public:
-	explicit LeakyReLU(int batchSize, int channels, int height, int width, const char* layerName);
+	explicit LeakyReLU(int batchSize, int channels, int height, int width, std::string layerName);
 	~LeakyReLU() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

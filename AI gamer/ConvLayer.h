@@ -5,7 +5,7 @@
 class ConvLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~ConvLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

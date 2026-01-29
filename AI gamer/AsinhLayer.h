@@ -2,7 +2,7 @@
 #include "Layer.h"
 class AsinhLayer : public Layer{
 public:
-	AsinhLayer(int batchSize, int channels, int height, int width, float alpha, const char* layerName);
+	AsinhLayer(int batchSize, int channels, int height, int width, float alpha, std::string layerName);
 	~AsinhLayer() override = default;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

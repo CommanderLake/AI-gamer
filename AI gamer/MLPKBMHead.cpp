@@ -8,7 +8,7 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-MLPKBMHead::MLPKBMHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int embedSize, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), embedSize_(embedSize), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+MLPKBMHead::MLPKBMHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int embedSize, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), embedSize_(embedSize), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;

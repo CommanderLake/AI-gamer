@@ -6,7 +6,7 @@
 class PatchEmbedLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, const char* layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	PatchEmbedLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchEmbedLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

@@ -8,7 +8,7 @@
 #include <vector>
 class ResFCLayer : public Layer{
 public:
-	ResFCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int hiddenC, int outC, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	ResFCLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int inC, int hiddenC, int outC, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~ResFCLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

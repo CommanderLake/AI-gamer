@@ -4,7 +4,7 @@
 #include <vector>
 class MLPKBMHead final : public Layer{
 public:
-	MLPKBMHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int embedSize, const char* layerName, bool train, float weightDecay, int gradAccumLength);
+	MLPKBMHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~MLPKBMHead() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
