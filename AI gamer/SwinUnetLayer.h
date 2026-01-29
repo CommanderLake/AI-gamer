@@ -25,6 +25,14 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 private:
+	struct SwinBlockWorkspace{
+		size_t windowBytes = 0;
+		size_t tokenBytes = 0;
+		__half* windowedInput = nullptr;
+		__half* windowedGrad = nullptr;
+		__half* tokens = nullptr;
+		__half* residualGrad = nullptr;
+	};
 	struct SkipConnection{
 		int elements = 0;
 		size_t bytes = 0;
@@ -61,4 +69,5 @@ private:
 	LayerNorm* postNorm_ = nullptr;
 	std::vector<EncoderStage> encoderStages_;
 	std::vector<DecoderStage> decoderStages_;
+	SwinBlockWorkspace blockWorkspace_;
 };

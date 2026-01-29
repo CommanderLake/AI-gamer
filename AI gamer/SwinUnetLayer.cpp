@@ -16,6 +16,47 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 	const int embedSize = embedH_ * embedW_;
 	const int patchRows = DivCeil(inHeight_, patchSize_);
 	const int patchCols = DivCeil(inWidth_, patchSize_);
+	{
+		size_t maxWindowElems = 0;
+		size_t maxTokenElems = 0;
+		auto updateWorkspaceSizes = [&](const int tokens, const int embedDim, const int patchRowsSize, const int patchColsSize, const int windowHeight, const int windowWidth){
+			const int windowTokens = windowHeight * windowWidth;
+			const int windowCount = (patchRowsSize / windowHeight) * (patchColsSize / windowWidth);
+			const int windowBatch = batchSize_ * windowCount;
+			const size_t windowElems = static_cast<size_t>(windowBatch) * windowTokens * embedDim;
+			const size_t tokenElems = static_cast<size_t>(batchSize_) * tokens * embedDim;
+			maxWindowElems = std::max(maxWindowElems, windowElems);
+			maxTokenElems = std::max(maxTokenElems, tokenElems);
+		};
+		int nTokensWorkspace = patchRows * patchCols;
+		int embedDimWorkspace = embedSize;
+		int currentPatchRows = patchRows;
+		int currentPatchCols = patchCols;
+		for(int stage = 0; stage < numStages_; ++stage){
+			const int windowHeight = std::min(baseWindowSize_, currentPatchRows);
+			const int windowWidth = std::min(baseWindowSize_, currentPatchCols);
+			updateWorkspaceSizes(nTokensWorkspace, embedDimWorkspace, currentPatchRows, currentPatchCols, windowHeight, windowWidth);
+			currentPatchRows /= 2;
+			currentPatchCols /= 2;
+			nTokensWorkspace = currentPatchRows * currentPatchCols;
+			embedDimWorkspace *= 2;
+		}
+		for(int stage = 0; stage < numStages_; ++stage){
+			currentPatchRows *= 2;
+			currentPatchCols *= 2;
+			nTokensWorkspace = currentPatchRows * currentPatchCols;
+			embedDimWorkspace /= 2;
+			const int windowHeight = std::min(baseWindowSize_, currentPatchRows);
+			const int windowWidth = std::min(baseWindowSize_, currentPatchCols);
+			updateWorkspaceSizes(nTokensWorkspace, embedDimWorkspace, currentPatchRows, currentPatchCols, windowHeight, windowWidth);
+		}
+		blockWorkspace_.windowBytes = maxWindowElems * sizeof(__half);
+		blockWorkspace_.tokenBytes = maxTokenElems * sizeof(__half);
+		CUDAMallocZero(&blockWorkspace_.windowedInput, blockWorkspace_.windowBytes);
+		CUDAMallocZero(&blockWorkspace_.windowedGrad, blockWorkspace_.windowBytes);
+		CUDAMallocZero(&blockWorkspace_.tokens, blockWorkspace_.tokenBytes);
+		CUDAMallocZero(&blockWorkspace_.residualGrad, blockWorkspace_.tokenBytes);
+	}
 	patchEmbed_ = new PatchEmbedLayer(cudnnHandle_, cublasHandle_, batchSize_, inChannels_, inHeight_, inWidth_, patchSize_, embedSize, "PatchEmbed", train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 	int nTokens = patchRows * patchCols;
 	int embedDim = embedSize;
@@ -39,7 +80,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const bool useShift = block % 2 != 0;
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
-			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, _strdup(name.c_str()), train_, weightDecay_, gradAccumLength_, weightInitMethod_));
+			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, _strdup(name.c_str()), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, blockWorkspace_.residualGrad));
 			++blockIndex;
 		}
 		encoderStage.skip.elements = batchSize_ * nTokens * embedDim;
@@ -77,7 +118,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const bool useShift = block % 2 != 0;
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
-			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, _strdup(name.c_str()), train_, weightDecay_, gradAccumLength_, weightInitMethod_));
+			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, _strdup(name.c_str()), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, blockWorkspace_.residualGrad));
 			++blockIndex;
 		}
 		decoderStages_.push_back(decoderStage);
@@ -98,6 +139,10 @@ SwinUnetLayer::~SwinUnetLayer(){
 		delete stage.expand;
 		for(const auto* block : stage.blocks) delete block;
 	}
+	cudaFree(blockWorkspace_.windowedInput);
+	cudaFree(blockWorkspace_.windowedGrad);
+	cudaFree(blockWorkspace_.tokens);
+	cudaFree(blockWorkspace_.residualGrad);
 }
 __half* SwinUnetLayer::Forward(__half* data){
 	data = patchEmbed_->Forward(data);

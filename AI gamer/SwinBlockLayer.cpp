@@ -7,11 +7,11 @@
 #include "LayerNorm.h"
 #include "WmmaAttentionLayer.h"
 #include <algorithm>
-#include <cmath>
 #include <vector>
-SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth,
-								const int shiftHeight, const int shiftWidth, const float dropPathRate, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize),
-	nTokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
+SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int nTokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth,
+	const int shiftHeight, const int shiftWidth, const float dropPathRate, const char* layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad,
+	__half* tokens, __half* residualGrad) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize),
+	nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
 	layerName_ = layerName;
 	train_ = train;
 	if(nTokens_ != patchRows_ * patchCols_){ throw std::invalid_argument("SwinBlockLayer tokens must match patch grid"); }
@@ -91,20 +91,31 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 		}
 	}
 	attention_->SetAttentionMask(attentionMask_, windowCount_, 1);
-	const size_t windowElems = static_cast<size_t>(windowBatch_) * windowTokens_ * embedDim_;
-	CUDAMallocZero(&windowedInput_, windowElems * sizeof(__half));
-	CUDAMallocZero(&windowedGrad_, windowElems * sizeof(__half));
-	CUDAMallocZero(&tokens_, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half));
-	CUDAMallocZero(&residualGrad_, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half));
+	windowedInput_ = windowedInput;
+	windowedGrad_ = windowedGrad;
+	tokens_ = tokens;
+	residualGrad_ = residualGrad;
+	if(windowedInput_ == nullptr || windowedGrad_ == nullptr || tokens_ == nullptr || residualGrad_ == nullptr){
+		ownsWorkspace_ = true;
+		const size_t windowElems = static_cast<size_t>(windowBatch_) * windowTokens_ * embedDim_;
+		CUDAMallocZero(&windowedInput_, windowElems * sizeof(__half));
+		CUDAMallocZero(&windowedGrad_, windowElems * sizeof(__half));
+		CUDAMallocZero(&tokens_, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half));
+		CUDAMallocZero(&residualGrad_, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half));
+	} else{
+		ownsWorkspace_ = false;
+	}
 }
 SwinBlockLayer::~SwinBlockLayer(){
 	for(const auto layer : layers_) delete layer;
 	layers_.clear();
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
-	cudaFree(windowedInput_);
-	cudaFree(windowedGrad_);
-	cudaFree(tokens_);
-	cudaFree(residualGrad_);
+	if(ownsWorkspace_){
+		cudaFree(windowedInput_);
+		cudaFree(windowedGrad_);
+		cudaFree(tokens_);
+		cudaFree(residualGrad_);
+	}
 	cudaFree(attentionMask_);
 }
 __half* SwinBlockLayer::Forward(__half* data){
