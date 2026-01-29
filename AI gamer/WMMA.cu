@@ -495,18 +495,20 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 					reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
 				}
 				__syncthreads();
-				load_matrix_sync(v_frag, warpTiles, tileStride);
-				wmma::fragment<wmma::accumulator, 16, 16, 16, float> outFrag;
-				fill_fragment(outFrag, 0.0f);
-				mma_sync(outFrag, att_frag, v_frag, outFrag);
-				for(int i = 0; i < outFrag.num_elements; ++i){
-					const int row = i/16;
-					const int col = i % 16;
-					const int outRow = row;
-					const int outCol = vb*16 + col;
-					if(outRow < 16 && outCol < headDim){
-						const int outIdx = outRow*valueStride + outCol;
-						outAccum[outIdx] += outFrag.x[i];
+				if(warpId == 0){
+					load_matrix_sync(v_frag, warpTiles, tileStride);
+					wmma::fragment<wmma::accumulator, 16, 16, 16, float> outFrag;
+					fill_fragment(outFrag, 0.0f);
+					mma_sync(outFrag, att_frag, v_frag, outFrag);
+					for(int i = 0; i < outFrag.num_elements; ++i){
+						const int row = i/16;
+						const int col = i % 16;
+						const int outRow = row;
+						const int outCol = vb*16 + col;
+						if(outRow < 16 && outCol < headDim){
+							const int outIdx = outRow*valueStride + outCol;
+							outAccum[outIdx] += outFrag.x[i];
+						}
 					}
 				}
 				__syncthreads();
@@ -631,18 +633,18 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 					const int rowPair = rem % kVecRows;
 					const int r0 = rowPair*2;
 					const int r1 = r0 + 1;
-					const int globalRow0 = tileStart + colBlock + warpLocal*16 + r0;
-					const int globalRow1 = tileStart + colBlock + warpLocal*16 + r1;
-					const int globalCol = dBlock*16 + c;
+					const int globalKey = tileStart + colBlock + warpLocal*16 + c;
+					const int globalDim0 = dBlock*16 + r0;
+					const int globalDim1 = dBlock*16 + r1;
 					__half h0 = zeroHalf;
 					__half h1 = zeroHalf;
-					if(globalCol < headDim){
-						if(warpLocal*16 + r0 < remainingCols && globalRow0 < tokens){
-							const size_t vIdx0 = embOffset + static_cast<size_t>(globalRow0)*headDim + globalCol;
+					if(globalKey < tokens){
+						if(globalDim0 < headDim && warpLocal*16 + c < remainingCols){
+							const size_t vIdx0 = embOffset + static_cast<size_t>(globalKey)*headDim + globalDim0;
 							if(vIdx0 < totalEmbElements){ h0 = V[vIdx0]; }
 						}
-						if(r1 < 16 && warpLocal*16 + r1 < remainingCols && globalRow1 < tokens){
-							const size_t vIdx1 = embOffset + static_cast<size_t>(globalRow1)*headDim + globalCol;
+						if(r1 < 16 && globalDim1 < headDim && warpLocal*16 + c < remainingCols){
+							const size_t vIdx1 = embOffset + static_cast<size_t>(globalKey)*headDim + globalDim1;
 							if(vIdx1 < totalEmbElements){ h1 = V[vIdx1]; }
 						}
 					}
@@ -852,18 +854,18 @@ __global__ void ComputeDVKernel(const __half* __restrict__ attention, const __ha
 				const int rowPair = pairIdx % kVecRows;
 				const int r0 = rowPair*2;
 				const int r1 = r0 + 1;
-				const int globalKey = keyStart + c;
+				const int globalKey0 = keyStart + r0;
+				const int globalKey1 = keyStart + r1;
+				const int globalQuery = queryBase + c;
 				__half h0 = zeroHalf;
 				__half h1 = zeroHalf;
-				if(globalKey < tokens){
-					const int globalQuery0 = queryBase + r0;
-					const int globalQuery1 = queryBase + r1;
-					if(globalQuery0 < tokens){
-						const size_t attIdx0 = attOffset + static_cast<size_t>(globalQuery0)*tokens + globalKey;
+				if(globalQuery < tokens){
+					if(globalKey0 < tokens){
+						const size_t attIdx0 = attOffset + static_cast<size_t>(globalQuery)*tokens + globalKey0;
 						if(attIdx0 < totalAttElements){ h0 = attention[attIdx0]; }
 					}
-					if(r1 < 16 && globalQuery1 < tokens){
-						const size_t attIdx1 = attOffset + static_cast<size_t>(globalQuery1)*tokens + globalKey;
+					if(r1 < 16 && globalKey1 < tokens){
+						const size_t attIdx1 = attOffset + static_cast<size_t>(globalQuery)*tokens + globalKey1;
 						if(attIdx1 < totalAttElements){ h1 = attention[attIdx1]; }
 					}
 				}
