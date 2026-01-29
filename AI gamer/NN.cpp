@@ -34,7 +34,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	auto embedSize = embedH*embedW;
 	constexpr int baseHeads = 8;
 	constexpr int blocksPerStage = 2;
-	constexpr int numMergeStages = 4;
+	constexpr int numMergeStages = 2;
 	constexpr int baseWindowSize = 8;
 	constexpr float maxDropPathRate = 0.1f;
 	constexpr int scaledHeight = 256;
