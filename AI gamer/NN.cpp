@@ -2,12 +2,9 @@
 #include "BatchNorm.h"
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
-#include "LayerNorm.h"
-#include "MLPKBMHead.h"
-#include "PatchEmbedLayer.h"
-#include "PatchMergingLayer.h"
 #include "ResizeLayer.h"
-#include "SwinBlockLayer.h"
+#include "SpatialActionHead.h"
+#include "SwinUnetLayer.h"
 #include "ViewerLayer.h"
 #undef min
 #undef max
@@ -35,7 +32,6 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
 	auto embedSize = embedH*embedW;
-	auto ffDim = embedSize*4;
 	constexpr int baseHeads = 8;
 	constexpr int blocksPerStage = 2;
 	constexpr int numMergeStages = 4;
@@ -45,42 +41,14 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr int scaledWidth = 256;
 	auto patchRows = DivCeil(scaledHeight, patchSize);
 	auto patchCols = DivCeil(scaledWidth, patchSize);
-	auto nTokens = patchRows*patchCols;
 	constexpr bool enableViewerLayers = false;
 	layers_.push_back(new ResizeLayer(batchSize_, 3, netHeight, netWidth, scaledHeight, scaledWidth, "Input Resize 256x256", train));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*3*scaledHeight*scaledWidth, 3, scaledHeight, scaledWidth, 3, "Input Viewer", true, 1.0f, false));
-	layers_.push_back(new PatchEmbedLayer(cudnn_, cublas_, batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedSize, "PatchEmbed", train, wd, gradAccumLength_, Xavier));
-	int embedDim = embedSize;
-	for(int stage = 0; stage < numMergeStages; ++stage){
-		constexpr int embedTileH = embedH;
-		const int embedTileW = embedDim / embedTileH;
-		if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, embedTileH, embedTileW, patchCols, "Swin Block In Viewer", true, 1.0f, false));
-		const int stageHeads = baseHeads << stage;
-		const int windowHeight = std::min(baseWindowSize, patchRows);
-		const int windowWidth = std::min(baseWindowSize, patchCols);
-		const int shiftHeight = windowHeight > 1 ? windowHeight/2 : 0;
-		const int shiftWidth = windowWidth > 1 ? windowWidth/2 : 0;
-		for(int block = 0; block < blocksPerStage; ++block){
-			const int blockIndex = stage*blocksPerStage + block;
-			constexpr int totalBlocks = numMergeStages * blocksPerStage;
-			const float dropPathRate = totalBlocks > 1 ? maxDropPathRate * (static_cast<float>(blockIndex) / static_cast<float>(totalBlocks - 1)) : 0.0f;
-			auto name = "SwinBlock" + std::to_string(blockIndex);
-			const bool useShift = block % 2 != 0;
-			const int blockShiftHeight = useShift ? shiftHeight : 0;
-			const int blockShiftWidth = useShift ? shiftWidth : 0;
-			layers_.push_back(new SwinBlockLayer(cudnn_, cublas_, batchSize_, nTokens, embedDim, ffDim, stageHeads, patchRows, patchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, _strdup(name.c_str()), train, wd, gradAccumLength_, Xavier));
-		}
-		auto mergeName = "PatchMerge" + std::to_string(stage);
-		layers_.push_back(new PatchMergingLayer(cudnn_, cublas_, batchSize_, nTokens, embedDim, patchRows, patchCols, _strdup(mergeName.c_str()), train, wd, gradAccumLength_, Xavier));
-		patchRows /= 2;
-		patchCols /= 2;
-		nTokens = patchRows*patchCols;
-		embedDim *= 2;
-		ffDim = embedDim*4;
-	}
-	layers_.push_back(new LayerNorm(batchSize_*nTokens, embedDim, 1, 1, "Post-encoder norm", train));
+	auto nTokens = patchRows*patchCols;
+	auto embedDim = embedSize;
+	layers_.push_back(new SwinUnetLayer(cudnn_, cublas_, batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
-	layers_.push_back(new MLPKBMHead(cudnn_, cublas_, batchSize_, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
+	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
