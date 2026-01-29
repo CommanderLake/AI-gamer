@@ -285,5 +285,9 @@
     <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="AttentionPool.cu" />
+    <CudaCompile Include="Outputs.cu" />
+    <CudaCompile Include="TokenTransforms.cu" />
+    <CudaCompile Include="Scale.cu" />
+    <CudaCompile Include="DropPath.cu" />
   </ItemGroup>
 </Project>

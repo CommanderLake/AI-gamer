@@ -30,6 +30,7 @@ const char* cublasGetErrorString(cublasStatus_t status);
     } \
 }
 #define EPSILON_F 1e-6f
+constexpr int DEFAULT_BLOCK_SIZE = 256;
 extern curandGenerator_t generator_;
 extern size_t GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 struct pixARGB{
@@ -43,7 +44,6 @@ struct pixRGB{
 	unsigned char G;
 	unsigned char R;
 };
-float MseLoss(const __half* dPredictions, const float* dTargets, int size);
 void LossStats(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
 void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
 void ConvertByteToHalf(const unsigned char* input, __half* output, size_t size, bool normalize);
@@ -55,7 +55,6 @@ void SGDHalf(__half* params, const __half* grads, int size, float learningRate, 
 void SGDFloat(float* params, const float* grads, int size, float learningRate, float weightDecay);
 void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
 void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
-void Gradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, float clip, int size);
 void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
 void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, int numCtrls, int numButs, int size);
 void GetPrediction(const __half* predBatch, float* prediction, int numCtrls, int batchSize);
@@ -72,7 +71,6 @@ void AsinhBackward(__half* grad, const __half* activated, int size, float alpha,
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW, bool spatialMode);
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW, bool spatialMode);
 bool IsnanHalf(const __half* data, int size);
-void BCEGradient(__half* dGradient, const __half* dPredictions, const __half* dTargets, int size, float scale);
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int maskBatchSize, int maskHeads);
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
@@ -99,8 +97,8 @@ void TokensToSpatial(const __half* input, __half* output, int batch, int tokens,
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void TokensToWindows(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
 void WindowsToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
-void ResizeNearestNeighborForward(const __half* input, __half* output, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
-void ResizeNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
+void ScaleNearestNeighborForward(const __half* input, __half* output, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
+void ScaleNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
 void DropPathBuildMask(float* mask, int batch, float keepProb);
 void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch);
 int ConvertSmVer2Cores(int major, int minor);

@@ -17,7 +17,7 @@ public:
 	virtual void SetTrain(bool enable){}
 	cudnnTensorDescriptor_t outDesc_;
 	size_t outNCHW_ = 0;
-	const char* layerName_ = "";
+	std::string layerName_ = "";
 	bool train_;
 	size_t weightCount_ = 0;
 	__half* weights_ = nullptr;

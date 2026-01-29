@@ -21,13 +21,13 @@ ResizeLayer::~ResizeLayer(){
 }
 
 __half* ResizeLayer::Forward(__half* data){
-	ResizeNearestNeighborForward(data, outData_, batchSize_, channels_, inHeight_, inWidth_, outHeight_, outWidth_);
+	ScaleNearestNeighborForward(data, outData_, batchSize_, channels_, inHeight_, inWidth_, outHeight_, outWidth_);
 	return outData_;
 }
 
 __half* ResizeLayer::Backward(__half* grad){
 	checkCUDA(cudaMemset(inGrad_, 0, static_cast<size_t>(batchSize_)*channels_*inHeight_*inWidth_*sizeof(__half)));
-	ResizeNearestNeighborBackward(grad, inGrad_, batchSize_, channels_, inHeight_, inWidth_, outHeight_, outWidth_);
+	ScaleNearestNeighborBackward(grad, inGrad_, batchSize_, channels_, inHeight_, inWidth_, outHeight_, outWidth_);
 	return inGrad_;
 }
 

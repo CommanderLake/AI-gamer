@@ -201,10 +201,14 @@
     <CudaCompile Include="Conversions.cu" />
     <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="CudaStuff.cu" />
+    <CudaCompile Include="DropPath.cu" />
     <CudaCompile Include="LayerNorm.cu" />
     <CudaCompile Include="Loss.cu" />
     <CudaCompile Include="Optimizers.cu" />
+    <CudaCompile Include="Outputs.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
+    <CudaCompile Include="Scale.cu" />
+    <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMA.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

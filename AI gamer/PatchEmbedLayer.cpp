@@ -59,6 +59,7 @@ PatchEmbedLayer::~PatchEmbedLayer(){
 	cudaFree(offsetActivations_);
 	cudaFree(offsetGrad_);
 	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
+	checkCUDNN(cudnnDestroyTensorDescriptor(posDesc_));
 	if(train_){
 		cudaFree(gradWeights_);
 		cudaFree(gradPosEmbed_);

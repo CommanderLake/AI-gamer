@@ -2,6 +2,7 @@
 #include "Layer.h"
 #include <cublas_v2.h>
 #include <vector>
+#include <cuda_fp16.h>
 class SpatialActionHead final : public Layer{
 public:
 	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int patchRows, int patchCols, int embedSize, const char* layerName, bool train, float weightDecay, int gradAccumLength);
