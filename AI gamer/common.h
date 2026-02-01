@@ -60,7 +60,7 @@ extern std::vector<RecordIndex> trainRecordIndices;
 extern std::vector<RecordIndex> valRecordIndices;
 extern ThreadPool threadPool;
 constexpr int NUM_BUTS_ = 14;
-constexpr int NUM_AXES_ = 4;
+constexpr int NUM_AXES_ = 2;
 constexpr int NUM_CTRLS_ = NUM_BUTS_ + NUM_AXES_;
 constexpr float AXIS_SCALE_ = 1024.0f;
 constexpr int TGT_STATE_WIDTH_ = 320;

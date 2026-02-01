@@ -7,6 +7,8 @@
 #include "SwinBlockLayer.h"
 #include <algorithm>
 #include <stdexcept>
+
+#include "GELULayer.h"
 SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inChannels, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), inChannels_(inChannels), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
 	layerName_ = layerName;
 	train_ = train;
@@ -121,11 +123,13 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 		decoderStages_.push_back(decoderStage);
 	}
 	postNorm_ = new LayerNorm(batchSize_ * nTokens, embedDim, 1, 1, "Post-encoder norm", train_);
+	postGELU_ = new GELULayer(batchSize_*nTokens, embedDim, 1, 1, "Post-encoder GELU");
 	outNCHW_ = static_cast<size_t>(batchSize_) * nTokens * embedDim;
 }
 SwinUnetLayer::~SwinUnetLayer(){
 	delete patchEmbed_;
 	delete postNorm_;
+	delete postGELU_;
 	for(auto& stage : encoderStages_){
 		for(const auto* block : stage.blocks) delete block;
 		delete stage.merge;
@@ -158,10 +162,12 @@ __half* SwinUnetLayer::Forward(__half* data){
 		for(auto* block : decoderStage.blocks){ data = block->Forward(data); }
 	}
 	data = postNorm_->Forward(data);
+	data = postGELU_->Forward(data);
 	return data;
 }
 __half* SwinUnetLayer::Backward(__half* grad){
 	for(const auto& stage : encoderStages_){ checkCUDA(cudaMemset(stage.skip.grad, 0, stage.skip.bytes)); }
+	grad = postGELU_->Backward(grad);
 	grad = postNorm_->Backward(grad);
 	for(size_t stage = decoderStages_.size(); stage-- > 0;){
 		auto& decoderStage = decoderStages_[stage];
@@ -277,4 +283,5 @@ void SwinUnetLayer::SetTrain(const bool enable){
 		for(auto* block : stage.blocks){ block->SetTrain(enable); }
 	}
 	postNorm_->SetTrain(enable);
+	postGELU_->SetTrain(enable);
 }

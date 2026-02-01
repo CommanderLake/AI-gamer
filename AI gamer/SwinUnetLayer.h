@@ -4,6 +4,7 @@
 #include <cublas_v2.h>
 #include <cudnn.h>
 #include <vector>
+class GELULayer;
 class PatchEmbedLayer;
 class PatchMergingLayer;
 class PatchExpandingLayer;
@@ -67,6 +68,7 @@ private:
 	WeightInitMethod weightInitMethod_;
 	PatchEmbedLayer* patchEmbed_ = nullptr;
 	LayerNorm* postNorm_ = nullptr;
+	GELULayer* postGELU_ = nullptr;
 	std::vector<EncoderStage> encoderStages_;
 	std::vector<DecoderStage> decoderStages_;
 	SwinBlockWorkspace blockWorkspace_;

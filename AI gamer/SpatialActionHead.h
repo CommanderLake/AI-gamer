@@ -21,7 +21,7 @@ public:
 	cublasHandle_t cublas_;
 	int batchSize_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
-	int spatialHeight_, spatialWidth_, spatialSize_;
+	int spatialSize_;
 	float weightDecay_;
 	int gradAccumLength_;
 	const float one_ = 1.0f;
