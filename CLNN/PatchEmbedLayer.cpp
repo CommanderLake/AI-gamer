@@ -85,7 +85,7 @@ __half* PatchEmbedLayer::Forward(__half* data){
 		TanhInPlace(offsetActivations_, batchSize_*numPatches_*offsetDim_);
 		checkCUBLAS(cublasGemmEx(cublas_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, batchSize_*numPatches_, offsetDim_, &alpha_, offsetEmbedWeights_, CUDA_R_16F, embedDim_, offsetActivations_, CUDA_R_16F, offsetDim_, &beta1_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 	}
-	checkCUDNN(cudnnAddTensor(cudnn_, &alpha_, posDesc_, posEmbed_, &alpha_, outDesc_, outData_));
+	AddTensorBroadcast(alpha_, posEmbed_, alpha_, outData_, batchSize_, posCount_);
 	return outData_;
 }
 __half* PatchEmbedLayer::Backward(__half* grad){

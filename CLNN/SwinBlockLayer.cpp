@@ -126,7 +126,7 @@ __half* SwinBlockLayer::Forward(__half* data){
 	WindowsToTokens(data, tokens_, batchSize_, nTokens_, embedDim_, patchRows_, patchCols_, windowHeight_, windowWidth_, shiftHeight_, shiftWidth_);
 	data = attnDrop_->Forward(tokens_);
 	data = attnDropPath_->Forward(data);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual1, &mixFwd_, outDesc_, data));
+	AddTensor(mixFwd_, data, mixFwd_, residual1, static_cast<int>(outNCHW_));
 	const auto* residual2 = data;
 	data = norm2_->Forward(data);
 	data = fc1_->Forward(data);
@@ -134,7 +134,7 @@ __half* SwinBlockLayer::Forward(__half* data){
 	data = fc2_->Forward(data);
 	data = ffDrop_->Forward(data);
 	data = ffDropPath_->Forward(data);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual2, &mixFwd_, outDesc_, data));
+	AddTensor(mixFwd_, data, mixFwd_, residual2, static_cast<int>(outNCHW_));
 	return data;
 }
 __half* SwinBlockLayer::Backward(__half* grad){
@@ -146,7 +146,7 @@ __half* SwinBlockLayer::Backward(__half* grad){
 	grad = gelu_->Backward(grad);
 	grad = fc1_->Backward(grad);
 	grad = norm2_->Backward(grad);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual2, &mixBwd_, outDesc_, grad));
+	AddTensor(mixBwd_, grad, mixBwd_, residual2, static_cast<int>(outNCHW_));
 	checkCUDA(cudaMemcpy(residualGrad_, grad, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
 	const auto* residual1 = residualGrad_;
 	grad = attnDropPath_->Backward(grad);
@@ -155,7 +155,7 @@ __half* SwinBlockLayer::Backward(__half* grad){
 	grad = attention_->Backward(windowedGrad_);
 	WindowsToTokens(grad, tokens_, batchSize_, nTokens_, embedDim_, patchRows_, patchCols_, windowHeight_, windowWidth_, shiftHeight_, shiftWidth_);
 	grad = norm1_->Backward(tokens_);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual1, &mixBwd_, outDesc_, grad));
+	AddTensor(mixBwd_, grad, mixBwd_, residual1, static_cast<int>(outNCHW_));
 	return grad;
 }
 void SwinBlockLayer::UpdateParameters(const float lr){

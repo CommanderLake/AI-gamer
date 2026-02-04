@@ -89,6 +89,20 @@ void AddTensor(float alpha, __half* A, float beta, const __half* B, const int si
 	AddTensorKernel<<<blocks, threads>>>(__half(alpha), A, __half(beta), B, size);
 	checkCUDA(cudaGetLastError());
 }
+__global__ void AddTensorBroadcastKernel(__half alpha, const __half* B, __half beta, __half* C, const int total, const int elementsPerBatch){
+	const int stride = blockDim.x*gridDim.x;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int bIndex = idx % elementsPerBatch;
+		C[idx] = __hfma(alpha, B[bIndex], __hfma(beta, C[idx], 0));
+	}
+}
+void AddTensorBroadcast(float alpha, const __half* B, float beta, __half* C, const int batch, const int elementsPerBatch){
+	const int total = batch*elementsPerBatch;
+	size_t blocks, threads = 256;
+	GetLaunchConfigGridStride(total, blocks, threads);
+	AddTensorBroadcastKernel<<<blocks, threads>>>(__half(alpha), B, __half(beta), C, total, elementsPerBatch);
+	checkCUDA(cudaGetLastError());
+}
 __global__ void AccumulateBiasGradKernel(const __half* grad, __half* gradBias, const int channels, const int batch, const float scale, const bool reset){
 	const int c = blockIdx.x*blockDim.x + threadIdx.x;
 	if(c >= channels){ return; }

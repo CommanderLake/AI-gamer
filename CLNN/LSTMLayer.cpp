@@ -99,7 +99,7 @@ __half* LSTMLayer::Backward(__half* dy){
 		reserveSpace_, reserveSpaceSize_));
 	checkCUDNN(cudnnRNNBackwardWeightsEx(cudnnHandle_, rnnDesc_, xDesc_, x_, nullptr, nullptr, yDesc_, y_, workspace_, workspaceSize_, weightDesc_, gradWeights_, reserveSpace_, reserveSpaceSize_));
 	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
-	cudnnAddTensor(cudnnHandle_, &alphaWeights_, wTensDesc_, gradWeights_, betaWeights, wTensDesc_, dGrads_);
+	AddTensor(*betaWeights, dGrads_, alphaWeights_, gradWeights_, static_cast<int>(weightCount_));
 	return dx_;
 }
 void LSTMLayer::UpdateParameters(const float learningRate){

@@ -36,7 +36,7 @@ __half* ResFCLayer::Forward(__half* data){
 		data = layers_[i]->Forward(data);
 		//PrintDataHalf(buttonData, 14, "buttonData");
 	}
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &fwdAlpha, outDesc_, residue, &fwdBeta, outDesc_, data));
+	AddTensor(fwdBeta, data, fwdAlpha, residue, batchSize_*outC_);
 	return resAct_->Forward(data);
 }
 __half* ResFCLayer::Backward(__half* grad){
@@ -47,7 +47,7 @@ __half* ResFCLayer::Backward(__half* grad){
 		grad = layers_[i]->Backward(grad);
 		//PrintDataHalf(buttonGrad, 8, "gradient");
 	}
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &bwdAlpha, inDesc_, residueGrad, &bwdBeta, inDesc_, grad));
+	AddTensor(bwdBeta, grad, bwdAlpha, residueGrad, batchSize_*inC_);
 	return grad;
 }
 void ResFCLayer::UpdateParameters(float learningRate){

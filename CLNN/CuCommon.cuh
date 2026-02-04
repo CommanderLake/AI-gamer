@@ -85,6 +85,7 @@ void AttentionPoolBackward(const __half* grad, const __half* input, const __half
 void ScaleArrayHalf(__half* data, size_t count, float scale);
 void AddBias(__half* output, const __half* bias, int channels, int batchSize);
 void AddTensor(float alpha, __half* A, float beta, const __half* B, int size);
+void AddTensorBroadcast(float alpha, const __half* B, float beta, __half* C, int batch, int elementsPerBatch);
 void AccumulateBiasGrad(const __half* grad, __half* gradBias, int channels, int batch, float scale, bool reset);
 void PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, int batch, int tokens, int embedDim, int numHeads);
 void PackColumnsToHeads(const __half* input, __half* output, int batch, int tokens, int embedDim, int numHeads);

@@ -37,7 +37,7 @@ __half* ResConvLayer::Forward(__half* data){
 		data = layers_[i]->Forward(data);
 		//PrintDataHalf(data, 14, "data");
 	}
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &blendFwd, residue_->outDesc_, residue, &blendFwd, layers_.back()->outDesc_, data));
+	AddTensor(blendFwd, data, blendFwd, residue, static_cast<int>(layers_.back()->outNCHW_));
 	return resAct_->Forward(data);
 }
 __half* ResConvLayer::Backward(__half* grad){
@@ -48,7 +48,7 @@ __half* ResConvLayer::Backward(__half* grad){
 		grad = layers_[i]->Backward(grad);
 		//PrintDataHalf(grad, 8, "gradient");
 	}
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &blendBwd, inDesc_, residueGrad, &blendBwd, inDesc_, grad));
+	AddTensor(blendBwd, grad, blendBwd, residueGrad, batchSize_*inC_*inHeight_*inWidth_);
 	return grad;
 }
 void ResConvLayer::UpdateParameters(float learningRate){

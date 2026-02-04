@@ -39,7 +39,7 @@ __half* EncoderLayer::Forward(__half* data){
 	data = layers_[2]->Forward(data);
 	//SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
 	//std::cout << "\n" << layers_[3]->layerName_ << " ";
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual1, &mixFwd_, outDesc_, data));
+	AddTensor(mixFwd_, data, mixFwd_, residual1, static_cast<int>(outNCHW_));
 	const auto* residual2 = data;
 	data = layers_[3]->Forward(data);
 	//SummarizeHalfDevice(data, layers_[3]->outNCHW_, "data");
@@ -55,7 +55,7 @@ __half* EncoderLayer::Forward(__half* data){
 	//std::cout << "\n" << layers_[7]->layerName_ << " ";
 	data = layers_[7]->Forward(data);
 	//SummarizeHalfDevice(data, layers_[7]->outNCHW_, "data");
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixFwd_, outDesc_, residual2, &mixFwd_, outDesc_, data));
+	AddTensor(mixFwd_, data, mixFwd_, residual2, static_cast<int>(outNCHW_));
 	return data;
 }
 __half* EncoderLayer::Backward(__half* grad){
@@ -65,12 +65,12 @@ __half* EncoderLayer::Backward(__half* grad){
 	grad = layers_[5]->Backward(grad);
 	grad = layers_[4]->Backward(grad);
 	grad = layers_[3]->Backward(grad);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual2, &mixBwd_, outDesc_, grad));
+	AddTensor(mixBwd_, grad, mixBwd_, residual2, static_cast<int>(outNCHW_));
 	const auto* residual1 = grad;
 	grad = layers_[2]->Backward(grad);
 	grad = layers_[1]->Backward(grad);
 	grad = layers_[0]->Backward(grad);
-	checkCUDNN(cudnnAddTensor(cudnnHandle_, &mixBwd_, outDesc_, residual1, &mixBwd_, outDesc_, grad));
+	AddTensor(mixBwd_, grad, mixBwd_, residual1, static_cast<int>(outNCHW_));
 	return grad;
 }
 void EncoderLayer::UpdateParameters(const float lr){ for(const auto layer : layers_){ layer->UpdateParameters(lr); } }
