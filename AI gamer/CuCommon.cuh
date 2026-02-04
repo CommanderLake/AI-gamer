@@ -29,7 +29,6 @@ const char* cublasGetErrorString(cublasStatus_t status);
         throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(err)); \
     } \
 }
-#define EPSILON_F 1e-6f
 constexpr int DEFAULT_BLOCK_SIZE = 256;
 extern curandGenerator_t generator_;
 extern size_t GS, BS, RPB, CPB, TPG, maxTPB, smemPB;

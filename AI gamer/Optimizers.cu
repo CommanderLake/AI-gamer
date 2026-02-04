@@ -2,6 +2,7 @@
 #include "CuCommon.cuh"
 #include <device_launch_parameters.h>
 #include <cuda_fp16.h>
+#define EPSILON_OPT 1e-6f
 #define BETA1_F 0.9f
 #define BETA2_F 0.95f
 #define CLIP 1.0f
@@ -75,10 +76,10 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 		vNew.w = BETA2_F*v4.w + sBeta3Complement*gradClipped.w*gradClipped.w;
 		// Compute updates
 		float4 update;
-		update.x = sLrT*mNew.x/(sqrtf(vNew.x/sBiasCorrection2) + EPSILON_F);
-		update.y = sLrT*mNew.y/(sqrtf(vNew.y/sBiasCorrection2) + EPSILON_F);
-		update.z = sLrT*mNew.z/(sqrtf(vNew.z/sBiasCorrection2) + EPSILON_F);
-		update.w = sLrT*mNew.w/(sqrtf(vNew.w/sBiasCorrection2) + EPSILON_F);
+		update.x = sLrT*mNew.x/(sqrtf(vNew.x/sBiasCorrection2) + EPSILON_OPT);
+		update.y = sLrT*mNew.y/(sqrtf(vNew.y/sBiasCorrection2) + EPSILON_OPT);
+		update.z = sLrT*mNew.z/(sqrtf(vNew.z/sBiasCorrection2) + EPSILON_OPT);
+		update.w = sLrT*mNew.w/(sqrtf(vNew.w/sBiasCorrection2) + EPSILON_OPT);
 		// Apply updates
 		const float paramX = params4.x;
 		const float paramY = params4.y;
@@ -100,7 +101,7 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 		const float mVal = BETA1_F*m[i] + sBeta1Complement*grad;
 		const float vVal = BETA2_F*v[i] + sBeta3Complement*grad*grad;
 		const float param = params[i];
-		const float update = sLrT*mVal/(sqrtf(vVal/sBiasCorrection2) + EPSILON_F);
+		const float update = sLrT*mVal/(sqrtf(vVal/sBiasCorrection2) + EPSILON_OPT);
 		params[i] = param - update - lrWeightDecay*param;
 		m[i] = mVal;
 		v[i] = vVal;
@@ -172,8 +173,8 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 			vF2[j].y = BETA2_F*vF2[j].y + sBeta3Complement*gradsF2[j].y*gradsF2[j].y;
 			// Compute denominator
 			float2 denom;
-			denom.x = sqrtf(vF2[j].x/sBiasCorrection2) + EPSILON_F;
-			denom.y = sqrtf(vF2[j].y/sBiasCorrection2) + EPSILON_F;
+			denom.x = sqrtf(vF2[j].x/sBiasCorrection2) + EPSILON_OPT;
+			denom.y = sqrtf(vF2[j].y/sBiasCorrection2) + EPSILON_OPT;
 			// Update parameters
 			const float updateX = sLrT*mF2[j].x/denom.x;
 			const float updateY = sLrT*mF2[j].y/denom.y;
@@ -201,7 +202,7 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 		const float mVal = BETA1_F*__half2float(m[i]) + sBeta1Complement*grad;
 		const float vVal = BETA2_F*__half2float(v[i]) + sBeta3Complement*grad*grad;
 		const float param = __half2float(params[i]);
-		const float denom = sqrtf(vVal/sBiasCorrection2) + EPSILON_F;
+		const float denom = sqrtf(vVal/sBiasCorrection2) + EPSILON_OPT;
 		const float update = sLrT*mVal/denom;
 		params[i] = __float2half(param - update - sLrWeightDecay*param);
 		m[i] = __float2half(mVal);

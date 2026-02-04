@@ -25,7 +25,6 @@ public:
 	float weightDecay_;
 	int gradAccumLength_;
 	const float one_ = 1.0f;
-	std::vector<Layer*> spatialLayers_;
 	std::vector<Layer*> buttonLayers_;
 	std::vector<Layer*> axisLayers_;
 	__half* predictions_ = nullptr;
