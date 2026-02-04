@@ -1,0 +1,365 @@
+#include "NNCommon.h"
+#include "CuCommon.cuh"
+#include <cudnn.h>
+#include <windows.h>
+#include <algorithm>
+#include <string>
+#include <iostream>
+#include <sstream>
+#include <vector>
+#undef min
+#undef max
+ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, const cudnnTensorDescriptor_t xDesc, const cudnnFilterDescriptor_t wDesc, const cudnnConvolutionDescriptor_t convDesc, const cudnnTensorDescriptor_t yDesc, bool isTraining){
+	ConvolutionAlgorithms algorithms;
+	algorithms.workspaceSize = 0;
+	// Forward algorithm
+	cudnnConvolutionFwdAlgoPerf_t fwdAlgoPerf[10];
+	int returnedAlgoCount;
+	checkCUDNN(cudnnGetConvolutionForwardAlgorithm_v7(cudnnHandle, xDesc, wDesc, convDesc, yDesc, 10, &returnedAlgoCount, fwdAlgoPerf));
+	algorithms.fwdAlgo = fwdAlgoPerf[0].algo;
+	algorithms.workspaceSize = std::max(algorithms.workspaceSize, fwdAlgoPerf[0].memory);
+	if(isTraining){
+		// Backward data algorithm
+		cudnnConvolutionBwdDataAlgoPerf_t bwdDataAlgoPerf[10];
+		checkCUDNN(cudnnGetConvolutionBackwardDataAlgorithm_v7(cudnnHandle, wDesc, yDesc, convDesc, xDesc, 10, &returnedAlgoCount, bwdDataAlgoPerf));
+		algorithms.bwdDataAlgo = bwdDataAlgoPerf[0].algo;
+		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdDataAlgoPerf[0].memory);
+		// Backward filter algorithm
+		cudnnConvolutionBwdFilterAlgoPerf_t bwdFilterAlgoPerf[10];
+		checkCUDNN(cudnnGetConvolutionBackwardFilterAlgorithm_v7(cudnnHandle, xDesc, yDesc, convDesc, wDesc, 10, &returnedAlgoCount, bwdFilterAlgoPerf));
+		algorithms.bwdFilterAlgo = bwdFilterAlgoPerf[0].algo;
+		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdFilterAlgoPerf[0].memory);
+	} else{
+		algorithms.bwdDataAlgo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
+		algorithms.bwdFilterAlgo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
+	}
+	return algorithms;
+}
+void HalfToFloatAsm(float* dst, __half* src, int count){
+	__asm {
+		mov rsi, src
+		mov rdi, dst
+		mov ecx, count
+		mov eax, ecx
+		shr ecx, 7
+		test ecx, ecx
+		jz remainder
+
+		loop_start :
+		movdqa xmm0, [rsi]
+			movdqa xmm1, [rsi+16]
+			movdqa xmm2, [rsi+32]
+			movdqa xmm3, [rsi+48]
+			movdqa xmm4, [rsi+64]
+			movdqa xmm5, [rsi+80]
+			movdqa xmm6, [rsi+96]
+			movdqa xmm7, [rsi+112]
+			movdqa xmm8, [rsi+128]
+			movdqa xmm9, [rsi+144]
+			movdqa xmm10, [rsi+160]
+			movdqa xmm11, [rsi+176]
+			movdqa xmm12, [rsi+192]
+			movdqa xmm13, [rsi+208]
+			movdqa xmm14, [rsi+224]
+			movdqa xmm15, [rsi+240]
+			vcvtph2ps ymm0, xmm0
+			vcvtph2ps ymm1, xmm1
+			vcvtph2ps ymm2, xmm2
+			vcvtph2ps ymm3, xmm3
+			vcvtph2ps ymm4, xmm4
+			vcvtph2ps ymm5, xmm5
+			vcvtph2ps ymm6, xmm6
+			vcvtph2ps ymm7, xmm7
+			vcvtph2ps ymm8, xmm8
+			vcvtph2ps ymm9, xmm9
+			vcvtph2ps ymm10, xmm10
+			vcvtph2ps ymm11, xmm11
+			vcvtph2ps ymm12, xmm12
+			vcvtph2ps ymm13, xmm13
+			vcvtph2ps ymm14, xmm14
+			vcvtph2ps ymm15, xmm15
+			vmovdqa[rdi], ymm0
+			vmovdqa[rdi+32], ymm1
+			vmovdqa[rdi+64], ymm2
+			vmovdqa[rdi+96], ymm3
+			vmovdqa[rdi+128], ymm4
+			vmovdqa[rdi+160], ymm5
+			vmovdqa[rdi+192], ymm6
+			vmovdqa[rdi+224], ymm7
+			vmovdqa[rdi+256], ymm8
+			vmovdqa[rdi+288], ymm9
+			vmovdqa[rdi+320], ymm10
+			vmovdqa[rdi+352], ymm11
+			vmovdqa[rdi+384], ymm12
+			vmovdqa[rdi+416], ymm13
+			vmovdqa[rdi+448], ymm14
+			vmovdqa[rdi+480], ymm15
+			add rsi, 256
+			add rdi, 512
+			dec ecx
+			jnz loop_start
+
+			remainder :
+		and eax, 127
+			jz done
+
+			remainder_loop :
+		movdqa xmm0, [rsi]
+			vcvtph2ps ymm0, xmm0
+			vmovdqa[rdi], ymm0
+			add rsi, 16
+			add rdi, 32
+			sub eax, 8
+			cmp eax, 8
+			jge remainder_loop
+			test eax, eax
+			jz done
+
+			final_elements :
+		movsd xmm0, [rsi]
+			vcvtph2ps xmm0, xmm0
+			movsd[rdi], xmm0
+			add rsi, 4
+			add rdi, 8
+			sub eax, 2
+			jg final_elements
+
+			done :
+		vzeroupper
+	}
+}
+void FloatToHalfAsm(float* src, __half* dst, int count){
+	__asm {
+		mov rsi, src
+		mov rdi, dst
+		mov ecx, count
+		mov eax, ecx
+		shr ecx, 7
+		test ecx, ecx
+		jz remainder
+
+		loop_start :
+		vmovdqa ymm0, [rsi]
+			vmovdqa ymm1, [rsi+32]
+			vmovdqa ymm2, [rsi+64]
+			vmovdqa ymm3, [rsi+96]
+			vmovdqa ymm4, [rsi+128]
+			vmovdqa ymm5, [rsi+160]
+			vmovdqa ymm6, [rsi+192]
+			vmovdqa ymm7, [rsi+224]
+			vmovdqa ymm8, [rsi+256]
+			vmovdqa ymm9, [rsi+288]
+			vmovdqa ymm10, [rsi+320]
+			vmovdqa ymm11, [rsi+352]
+			vmovdqa ymm12, [rsi+384]
+			vmovdqa ymm13, [rsi+416]
+			vmovdqa ymm14, [rsi+448]
+			vmovdqa ymm15, [rsi+480]
+			vcvtps2ph xmm0, ymm0, 0
+			vcvtps2ph xmm1, ymm1, 0
+			vcvtps2ph xmm2, ymm2, 0
+			vcvtps2ph xmm3, ymm3, 0
+			vcvtps2ph xmm4, ymm4, 0
+			vcvtps2ph xmm5, ymm5, 0
+			vcvtps2ph xmm6, ymm6, 0
+			vcvtps2ph xmm7, ymm7, 0
+			vcvtps2ph xmm8, ymm8, 0
+			vcvtps2ph xmm9, ymm9, 0
+			vcvtps2ph xmm10, ymm10, 0
+			vcvtps2ph xmm11, ymm11, 0
+			vcvtps2ph xmm12, ymm12, 0
+			vcvtps2ph xmm13, ymm13, 0
+			vcvtps2ph xmm14, ymm14, 0
+			vcvtps2ph xmm15, ymm15, 0
+			movdqa[rdi], xmm0
+			movdqa[rdi+16], xmm1
+			movdqa[rdi+32], xmm2
+			movdqa[rdi+48], xmm3
+			movdqa[rdi+64], xmm4
+			movdqa[rdi+80], xmm5
+			movdqa[rdi+96], xmm6
+			movdqa[rdi+112], xmm7
+			movdqa[rdi+128], xmm8
+			movdqa[rdi+144], xmm9
+			movdqa[rdi+160], xmm10
+			movdqa[rdi+176], xmm11
+			movdqa[rdi+192], xmm12
+			movdqa[rdi+208], xmm13
+			movdqa[rdi+224], xmm14
+			movdqa[rdi+240], xmm15
+			add rsi, 512
+			add rdi, 256
+			dec ecx
+			jnz loop_start
+
+			remainder :
+		and eax, 127
+			jz done
+
+			remainder_loop :
+		vmovdqa ymm0, [rsi]
+			vcvtps2ph xmm0, ymm0, 0
+			movdqa[rdi], xmm0
+			add rsi, 32
+			add rdi, 16
+			sub eax, 8
+			cmp eax, 8
+			jge remainder_loop
+			test eax, eax
+			jz done
+
+			final_elements :
+		movsd xmm0, [rsi]
+			vcvtps2ph xmm0, xmm0, 0
+			movsd[rdi], xmm0
+			add rsi, 8
+			add rdi, 4
+			sub eax, 2
+			jg final_elements
+
+			done :
+		vzeroupper
+	}
+}
+size_t printDataCount = 0;
+__half* hData = nullptr;
+float* fData = nullptr;
+void PrintDataHalfDevice(const __half* data, const size_t size, const char* label){
+	if(printDataCount < size){
+		if(hData)
+			_mm_free(hData);
+		if(fData)
+			_mm_free(fData);
+		hData = static_cast<__half*>(_mm_malloc(size*sizeof(__half), 64));
+		fData = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
+		printDataCount = size;
+	}
+	checkCUDA(cudaMemcpy(hData, data, size*sizeof(__half), cudaMemcpyDeviceToHost));
+	HalfToFloatAsm(fData, hData, size);
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < size; ++i){ output << fData[i] << " "; }
+	output << "\n";
+	std::cout << output.str();
+}
+void PrintDataFloatDevice(const float* data, const size_t size, const char* label){
+	std::vector<float> hData(size);
+	checkCUDA(cudaMemcpy(hData.data(), data, size*sizeof(float), cudaMemcpyDeviceToHost));
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < hData.size(); ++i){ output << hData[i] << " "; }
+	output << "\n";
+	std::cout << output.str();
+}
+void PrintDataFloatHost(const float* data, const size_t size, const char* label){
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < size; ++i){ output << data[i] << " "; }
+	output << "\n";
+	std::cout << output.str();
+}
+void PrintDataCharHost(const unsigned char* data, const size_t size, const char* label){
+	std::ostringstream output;
+	output << label << ":\n";
+	for(size_t i = 0; i < size; ++i){ output << data[i] << " "; }
+	output << "\n";
+	std::cout << output.str();
+}
+void SummarizeHalfDevice(const __half* data, const size_t size, const char* label){
+	if(printDataCount < size){
+		if(hData)
+			_mm_free(hData);
+		if(fData)
+			_mm_free(fData);
+		hData = static_cast<__half*>(_mm_malloc(size*sizeof(__half), 64));
+		fData = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
+		printDataCount = size;
+	}
+	checkCUDA(cudaMemcpy(hData, data, size*sizeof(__half), cudaMemcpyDeviceToHost));
+	HalfToFloatAsm(fData, hData, size);
+	float minVal = std::numeric_limits<float>::infinity();
+	float maxVal = -std::numeric_limits<float>::infinity();
+	bool hasNaN = false;
+	bool hasInf = false;
+	for(size_t i = 0; i < size; ++i){
+		const float v = fData[i];
+		if(std::isnan(v)){ hasNaN = true; continue; }
+		if(std::isinf(v)){ hasInf = true; continue; }
+		if(v < minVal) minVal = v;
+		if(v > maxVal) maxVal = v;
+	}
+	if(minVal == std::numeric_limits<float>::infinity()) minVal = 0.0f;
+	if(maxVal == -std::numeric_limits<float>::infinity()) maxVal = 0.0f;
+	std::ostringstream output;
+	output << label << " summary: min=" << minVal << " max=" << maxVal
+		<< " NaN=" << (hasNaN ? "true" : "false")
+		<< " Inf=" << (hasInf ? "true" : "false") << "\n";
+	std::cout << output.str();
+}
+void SummarizeFloatDevice(const float* data, const size_t size, const char* label){
+	if(printDataCount < size){
+		if(fData) _mm_free(fData);
+		fData = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
+		printDataCount = size;
+	}
+	checkCUDA(cudaMemcpy(fData, data, size*sizeof(float), cudaMemcpyDeviceToHost));
+	float minVal = std::numeric_limits<float>::infinity();
+	float maxVal = -std::numeric_limits<float>::infinity();
+	bool hasNaN = false;
+	bool hasInf = false;
+	for(size_t i = 0; i < size; ++i){
+		const float v = fData[i];
+		if(std::isnan(v)){ hasNaN = true; continue; }
+		if(std::isinf(v)){ hasInf = true; continue; }
+		if(v < minVal) minVal = v;
+		if(v > maxVal) maxVal = v;
+	}
+	if(minVal == std::numeric_limits<float>::infinity()) minVal = 0.0f;
+	if(maxVal == -std::numeric_limits<float>::infinity()) maxVal = 0.0f;
+	std::ostringstream output;
+	output << label << " summary: min=" << minVal << " max=" << maxVal
+		<< " NaN=" << (hasNaN ? "true" : "false")
+		<< " Inf=" << (hasInf ? "true" : "false") << "\n";
+	std::cout << output.str();
+}
+void ClearScreen(char fill){
+	const COORD tl = {0, 0};
+	CONSOLE_SCREEN_BUFFER_INFO s;
+	const HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+	GetConsoleScreenBufferInfo(console, &s);
+	DWORD written;
+	const DWORD cells = s.dwSize.X*s.dwSize.Y;
+	FillConsoleOutputCharacter(console, fill, cells, tl, &written);
+	FillConsoleOutputAttribute(console, s.wAttributes, cells, tl, &written);
+	SetConsoleCursorPosition(console, tl);
+}
+void WeightInit(__half* weights, const int elementCount, const int fanIn, const int fanOut, const WeightInitMethod method){
+	if(elementCount <= 0){
+		std::cout << "WeightInit called with non-positive elementCount=" << elementCount << '\n';
+		return;
+	}
+	int rows;
+	int cols;
+	if(fanIn > 0 && elementCount%fanIn == 0){
+		cols = fanIn;
+		rows = elementCount/fanIn;
+	} else if(fanOut > 0 && elementCount%fanOut == 0){
+		rows = fanOut;
+		cols = elementCount/fanOut;
+	} else{
+		cols = fanIn > 0 ? fanIn : (fanOut > 0 ? fanOut : elementCount);
+		if(cols <= 0){ cols = 1; }
+		rows = elementCount/cols;
+		if(rows <= 0 || rows*cols != elementCount){
+			rows = elementCount;
+			cols = 1;
+		}
+	}
+	OrthogonalInit(weights, rows, cols, method);
+	//float* weightFloat;
+	//checkCUDA(cudaMalloc(&weightFloat, elementCount*sizeof(float)));
+	//const float factor = method == Xavier ? 1.0f : 2.0f;
+	//curandGenerateNormal(generator_, weightFloat, elementCount, 0.0f, 1.0f);
+	//ConvertFloatToHalfScale(weights, weightFloat, elementCount, sqrtf(factor/(fanIn + fanOut)));
+	//cudaFree(weightFloat);
+}

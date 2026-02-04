@@ -45,11 +45,11 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);C:\Program Files %28x86%29\IntelSWTools\compilers_and_libraries_2019.1.144\windows\mkl\include</IncludePath>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);C:\Program Files %28x86%29\IntelSWTools\compilers_and_libraries_2019.1.144\windows\mkl\include;..\CLNN</IncludePath>
     <LibraryPath>C:\Program Files %28x86%29\IntelSWTools\compilers_and_libraries_2019.1.144\windows\mkl\lib\intel64_win;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);C:\Program Files %28x86%29\IntelSWTools\compilers_and_libraries_2019.1.144\windows\mkl\include</IncludePath>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);C:\Program Files %28x86%29\IntelSWTools\compilers_and_libraries_2019.1.144\windows\mkl\include;..\CLNN</IncludePath>
     <LibraryPath>C:\Program Files %28x86%29\IntelSWTools\compilers_and_libraries_2019.1.144\windows\mkl\lib\intel64_win;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -106,110 +106,36 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Activate.h" />
-    <ClInclude Include="AsinhLayer.h" />
-    <ClInclude Include="BatchNorm.h" />
     <ClInclude Include="common.h" />
-    <ClInclude Include="ConvLayer.h" />
-    <ClInclude Include="ConvScale.h" />
-    <ClInclude Include="CuCommon.cuh" />
-    <ClInclude Include="DropPath.h" />
-    <ClInclude Include="GELULayer.h" />
-    <ClInclude Include="GlobalPoolLayer.h" />
-    <ClInclude Include="LayerNorm.h" />
-    <ClInclude Include="MHALayer.h" />
     <ClInclude Include="MLPKBMHead.h" />
-    <ClInclude Include="PatchEmbedLayer.h" />
-    <ClInclude Include="PatchExpandingLayer.h" />
-    <ClInclude Include="PatchMergingLayer.h" />
-    <ClInclude Include="PoolLayer.h" />
-    <ClInclude Include="ResizeLayer.h" />
-    <ClInclude Include="ResConvLayer.h" />
-    <ClInclude Include="Dropout.h" />
     <ClInclude Include="Infer.h" />
-    <ClInclude Include="LSTMLayer.h" />
     <ClInclude Include="NN.h" />
-    <ClInclude Include="ResFCLayer.h" />
-    <ClInclude Include="EncoderLayer.h" />
-    <ClInclude Include="SpatialActionHead.h" />
-    <ClInclude Include="SwinBlockLayer.h" />
-    <ClInclude Include="SwinUnetLayer.h" />
-    <ClInclude Include="TokensToSpatialLayer.h" />
-    <ClInclude Include="TransposeLayer.h" />
-    <ClInclude Include="SwishLayer.h" />
-    <ClInclude Include="Viewer.h" />
-    <ClInclude Include="FCLayer.h" />
+    <ClInclude Include="ActionHead.h" />
     <ClInclude Include="Record.h" />
-    <ClInclude Include="Layer.h" />
-    <ClInclude Include="LeakyReLULayer.h" />
     <ClInclude Include="NvDisplayCap.h" />
     <ClInclude Include="NvFBCLibrary.h" />
-    <ClInclude Include="SigmoidLayer.h" />
     <ClInclude Include="ThreadPool.h" />
     <ClInclude Include="Train.h" />
-    <ClInclude Include="ViewerLayer.h" />
-    <ClInclude Include="WeightInitMethod.h" />
-    <ClInclude Include="WmmaAttentionLayer.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Activate.cpp" />
-    <ClCompile Include="AsinhLayer.cpp" />
-    <ClCompile Include="BatchNorm.cpp" />
     <ClCompile Include="common.cpp" />
-    <ClCompile Include="ConvLayer.cpp" />
-    <ClCompile Include="ConvScale.cpp" />
-    <ClCompile Include="DropPath.cpp" />
-    <ClCompile Include="GELULayer.cpp" />
-    <ClCompile Include="GlobalPoolLayer.cpp" />
-    <ClCompile Include="LayerNorm.cpp" />
-    <ClCompile Include="MHALayer.cpp" />
     <ClCompile Include="MLPKBMHead.cpp" />
     <ClCompile Include="NvDisplayCap.cpp" />
-    <ClCompile Include="OrthogonalInit.cpp" />
-    <ClCompile Include="PatchEmbedLayer.cpp" />
-    <ClCompile Include="PatchExpandingLayer.cpp" />
-    <ClCompile Include="PatchMergingLayer.cpp" />
-    <ClCompile Include="PoolLayer.cpp" />
-    <ClCompile Include="ResizeLayer.cpp" />
-    <ClCompile Include="ResConvLayer.cpp" />
-    <ClCompile Include="Dropout.cpp" />
     <ClCompile Include="Infer.cpp" />
-    <ClCompile Include="LSTMLayer.cpp" />
     <ClCompile Include="NN.cpp" />
-    <ClCompile Include="ResFCLayer.cpp" />
-    <ClCompile Include="EncoderLayer.cpp" />
-    <ClCompile Include="SpatialActionHead.cpp" />
-    <ClCompile Include="SwinBlockLayer.cpp" />
-    <ClCompile Include="SwinUnetLayer.cpp" />
-    <ClCompile Include="TokensToSpatialLayer.cpp" />
-    <ClCompile Include="TransposeLayer.cpp" />
-    <ClCompile Include="SwishLayer.cpp" />
-    <ClCompile Include="Viewer.cpp" />
-    <ClCompile Include="FCLayer.cpp" />
+    <ClCompile Include="ActionHead.cpp" />
     <ClCompile Include="Record.cpp" />
-    <ClCompile Include="LeakyReLULayer.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="SigmoidLayer.cpp" />
     <ClCompile Include="ThreadPool.cpp" />
     <ClCompile Include="Train.cpp" />
-    <ClCompile Include="ViewerLayer.cpp" />
-    <ClCompile Include="WmmaAttentionLayer.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="Activations.cu" />
-    <CudaCompile Include="AttentionPool.cu" />
-    <CudaCompile Include="Conversions.cu" />
-    <CudaCompile Include="CuCommon.cu" />
-    <CudaCompile Include="CudaStuff.cu" />
-    <CudaCompile Include="DropPath.cu" />
-    <CudaCompile Include="LayerNorm.cu" />
-    <CudaCompile Include="Loss.cu" />
-    <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="Outputs.cu" />
-    <CudaCompile Include="PatchEmbedding.cu" />
-    <CudaCompile Include="Scale.cu" />
-    <CudaCompile Include="TokenTransforms.cu" />
-    <CudaCompile Include="WMMA.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CLNN\CLNN.vcxproj">
+      <Project>{6a380eaa-f84f-4751-9002-9ec02859f85d}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

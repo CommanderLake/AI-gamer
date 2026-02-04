@@ -3,10 +3,10 @@
 #include <cublas_v2.h>
 #include <vector>
 #include <cuda_fp16.h>
-class SpatialActionHead final : public Layer{
+class ActionHead final : public Layer{
 public:
-	SpatialActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int patchRows, int patchCols, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
-	~SpatialActionHead() override;
+	ActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int patchRows, int patchCols, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
+	~ActionHead() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void UpdateParameters(float learningRate) override;
@@ -21,7 +21,7 @@ public:
 	cublasHandle_t cublas_;
 	int batchSize_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
-	int spatialSize_;
+	int inC_;
 	float weightDecay_;
 	int gradAccumLength_;
 	const float one_ = 1.0f;

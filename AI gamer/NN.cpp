@@ -3,7 +3,7 @@
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
 #include "ResizeLayer.h"
-#include "SpatialActionHead.h"
+#include "ActionHead.h"
 #include "SwinUnetLayer.h"
 #include "ViewerLayer.h"
 #undef min
@@ -48,7 +48,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	auto embedDim = embedSize;
 	layers_.push_back(new SwinUnetLayer(cudnn_, cublas_, batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
-	layers_.push_back(new SpatialActionHead(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedDim, "SpatialActionHead", train, wd, gradAccumLength_));
+	layers_.push_back(new ActionHead(cudnn_, cublas_, batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());

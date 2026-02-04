@@ -84,7 +84,7 @@ __global__ void AddTensorKernel(__half alpha, __half* A, __half beta, const __ha
 	}
 }
 void AddTensor(float alpha, __half* A, float beta, const __half* B, const int size){
-	size_t blocks, threads = DEFAULT_BLOCK_SIZE;
+	size_t blocks, threads = 256;
 	GetLaunchConfigGridStride(size, blocks, threads);
 	AddTensorKernel<<<blocks, threads>>>(__half(alpha), A, __half(beta), B, size);
 	checkCUDA(cudaGetLastError());

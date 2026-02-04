@@ -1,5 +1,5 @@
 #include "WmmaAttentionLayer.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <stdexcept>
 WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),

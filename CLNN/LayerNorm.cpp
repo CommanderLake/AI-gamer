@@ -1,5 +1,5 @@
 #include "LayerNorm.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <vector>
 LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, std::string layerName, const bool train, const bool spatialMode)

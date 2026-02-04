@@ -1,5 +1,5 @@
 #include "FCLayer.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <iostream>
 FCLayer::FCLayer(const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :

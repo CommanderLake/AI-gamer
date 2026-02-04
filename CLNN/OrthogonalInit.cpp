@@ -1,8 +1,12 @@
-#include "common.h"
+#include "NNCommon.h"
 #include <mkl.h>
 #include <mkl_lapacke.h>
 #include <mkl_vsl.h>
-#include <cuda_fp16.h>
+#include <algorithm>
+#include <ctime>
+#include <iostream>
+#include <malloc.h>
+#include <cuda_runtime_api.h>
 __half* matrixH_ = nullptr;
 float* matrixF_ = nullptr;
 size_t matrixSize_ = 0;

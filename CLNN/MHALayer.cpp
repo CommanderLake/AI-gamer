@@ -1,5 +1,5 @@
 #include "MHALayer.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <iostream>
 MultiHeadAttentionLayer::MultiHeadAttentionLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int timeSize, const int vectorSize, const int numHeads, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), timeSize_(timeSize), vectorSize_(vectorSize), numHeads_(numHeads), inData_(nullptr), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){

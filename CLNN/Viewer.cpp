@@ -1,8 +1,10 @@
 #include "Viewer.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <sstream>
 #include <iostream>
 #include <fstream>
+#include <thread>
 LRESULT CALLBACK Viewer::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 	switch(uMsg){
 		case WM_DESTROY: PostQuitMessage(0);

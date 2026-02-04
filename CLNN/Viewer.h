@@ -1,16 +1,16 @@
 #pragma once
-#include "common.h"
+#include "ConvScale.h"
 #include <windows.h>
 #include <gdiplus.h>
-#include "ConvScale.h"
+#include <string>
 #pragma comment(lib, "gdiplus.lib")
 class Viewer{
 public:
 	Viewer();
 	~Viewer();
-	void ProcessMessages(const int width, const int height, const char* windowTitle);
+	void ProcessMessages(int width, int height, const char* windowTitle);
 	static LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-	void InitializeWindow(const int width, const int height, const char* windowTitle);
+	void InitializeWindow(int width, int height, const char* windowTitle);
 	void ShowImageRGB(const unsigned char* imageData, int width, int height);
 	void ShowImageGreyscale(const unsigned char* imageData, int width, int height);
 	static void ShowKeyState(unsigned int keyStates, int mouseDeltaX, int mouseDeltaY);

@@ -1,6 +1,6 @@
 #include "ResConvLayer.h"
 #include "Activate.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include "BatchNorm.h"
 #include "ConvLayer.h"

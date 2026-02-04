@@ -1,4 +1,4 @@
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include "EncoderLayer.h"
 #include "LayerNorm.h"

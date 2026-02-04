@@ -1,5 +1,5 @@
 #pragma once
-#include "common.h"
+#include "NNCommon.h"
 #include "Layer.h"
 #include <cudnn.h>
 class ConvLayer final : public Layer{

@@ -1,5 +1,5 @@
 #include "LSTMLayer.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <iostream>
 LSTMLayer::LSTMLayer(const cudnnHandle_t cudnnHandle, const int seqLength, const int numLayers, const int hiddenSize, const int batchSize, const int inC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :

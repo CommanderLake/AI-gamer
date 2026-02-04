@@ -1,5 +1,6 @@
 #pragma once
 #include "Viewer.h"
+struct StateBatch;
 class NN;
 class Train{
 public:

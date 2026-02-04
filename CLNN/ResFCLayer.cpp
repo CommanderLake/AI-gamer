@@ -1,5 +1,5 @@
 #include "ResFCLayer.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include "FCLayer.h"
 #include "BatchNorm.h"

@@ -1,5 +1,5 @@
 #include "BatchNorm.h"
-#include "common.h"
+#include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <vector>
 BatchNorm::BatchNorm(const cudnnHandle_t cudnnHandle, const cudnnBatchNormMode_t bnMode, const int batchSize, const int channels, const int height, const int width, std::string layerName, const bool train, const int gradAccumLength): cudnnHandle_(cudnnHandle), bnMode_(bnMode),
