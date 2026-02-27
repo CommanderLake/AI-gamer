@@ -3,6 +3,7 @@
 #include "WeightInitMethod.h"
 #include <cublas_v2.h>
 #include <cudnn.h>
+#include <unordered_map>
 #include <vector>
 class GELULayer;
 class PatchEmbedLayer;
@@ -32,13 +33,12 @@ private:
 		__half* windowedInput = nullptr;
 		__half* windowedGrad = nullptr;
 		__half* tokens = nullptr;
-		__half* residualGrad = nullptr;
 	};
 	struct SkipConnection{
 		int elements = 0;
 		size_t bytes = 0;
-		__half* data = nullptr;
-		__half* grad = nullptr;
+		__half* scratch = nullptr;
+		bool isActivation = false;
 	};
 	struct EncoderStage{
 		std::vector<SwinBlockLayer*> blocks;
@@ -71,5 +71,6 @@ private:
 	GELULayer* postGELU_ = nullptr;
 	std::vector<EncoderStage> encoderStages_;
 	std::vector<DecoderStage> decoderStages_;
+	std::unordered_map<unsigned long long, float*> attentionMaskCache_;
 	SwinBlockWorkspace blockWorkspace_;
 };

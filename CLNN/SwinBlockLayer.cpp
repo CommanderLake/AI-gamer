@@ -10,8 +10,7 @@
 #include <vector>
 SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int nTokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth,
 	const int shiftHeight, const int shiftWidth, const float dropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad,
-	__half* tokens, __half* residualGrad) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize),
-	nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
+	__half* tokens, float* sharedAttentionMask, const bool ownsAttentionMask) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
 	layerName_ = layerName;
 	train_ = train;
 	if(nTokens_ != patchRows_ * patchCols_){ throw std::invalid_argument("SwinBlockLayer tokens must match patch grid"); }
@@ -58,50 +57,49 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 		}
 		attention_->InitRelativePositionBias(windowHeight_, windowWidth_, relPosIndex);
 	}
-	{
+	attentionMask_ = sharedAttentionMask;
+	ownsAttentionMask_ = ownsAttentionMask;
+	if(attentionMask_ == nullptr && (shiftHeight_ > 0 || shiftWidth_ > 0)){
 		const int windowsCols = patchCols_ / windowWidth_;
 		constexpr float maskValue = -1e4f;
-		if(shiftHeight_ > 0 || shiftWidth_ > 0){
-			const size_t windowMaskSize = static_cast<size_t>(windowCount_) * windowTokens_ * windowTokens_;
-			std::vector<float> hostMask(windowMaskSize, 0.0f);
-			std::vector<int> tokenWindowIds(windowTokens_, 0);
-			for(int windowIndex = 0; windowIndex < windowCount_; ++windowIndex){
-				const int windowRow = windowIndex / windowsCols;
-				const int windowCol = windowIndex % windowsCols;
-				for(int token = 0; token < windowTokens_; ++token){
-					const int localRow = token / windowWidth_;
-					const int localCol = token % windowWidth_;
-					const int shiftedRow = windowRow * windowHeight_ + localRow;
-					const int shiftedCol = windowCol * windowWidth_ + localCol;
-					const int origRow = (shiftedRow - shiftHeight_ + patchRows_) % patchRows_;
-					const int origCol = (shiftedCol - shiftWidth_ + patchCols_) % patchCols_;
-					const int origWindowRow = origRow / windowHeight_;
-					const int origWindowCol = origCol / windowWidth_;
-					tokenWindowIds[token] = origWindowRow * windowsCols + origWindowCol;
-				}
-				for(int i = 0; i < windowTokens_; ++i){
-					const size_t base = (static_cast<size_t>(windowIndex) * windowTokens_ + i) * windowTokens_;
-					for(int j = 0; j < windowTokens_; ++j){
-						if(tokenWindowIds[i] != tokenWindowIds[j]){ hostMask[base + j] = maskValue; }
-					}
+		const size_t windowMaskSize = static_cast<size_t>(windowCount_) * windowTokens_ * windowTokens_;
+		std::vector<float> hostMask(windowMaskSize, 0.0f);
+		std::vector<int> tokenWindowIds(windowTokens_, 0);
+		for(int windowIndex = 0; windowIndex < windowCount_; ++windowIndex){
+			const int windowRow = windowIndex / windowsCols;
+			const int windowCol = windowIndex % windowsCols;
+			for(int token = 0; token < windowTokens_; ++token){
+				const int localRow = token / windowWidth_;
+				const int localCol = token % windowWidth_;
+				const int shiftedRow = windowRow * windowHeight_ + localRow;
+				const int shiftedCol = windowCol * windowWidth_ + localCol;
+				const int origRow = (shiftedRow - shiftHeight_ + patchRows_) % patchRows_;
+				const int origCol = (shiftedCol - shiftWidth_ + patchCols_) % patchCols_;
+				const int origWindowRow = origRow / windowHeight_;
+				const int origWindowCol = origCol / windowWidth_;
+				tokenWindowIds[token] = origWindowRow * windowsCols + origWindowCol;
+			}
+			for(int i = 0; i < windowTokens_; ++i){
+				const size_t base = (static_cast<size_t>(windowIndex) * windowTokens_ + i) * windowTokens_;
+				for(int j = 0; j < windowTokens_; ++j){
+					if(tokenWindowIds[i] != tokenWindowIds[j]){ hostMask[base + j] = maskValue; }
 				}
 			}
-			CUDAMallocZero(&attentionMask_, windowMaskSize * sizeof(float));
-			checkCUDA(cudaMemcpy(attentionMask_, hostMask.data(), windowMaskSize*sizeof(float), cudaMemcpyHostToDevice));
 		}
+		CUDAMallocZero(&attentionMask_, windowMaskSize * sizeof(float));
+		checkCUDA(cudaMemcpy(attentionMask_, hostMask.data(), windowMaskSize*sizeof(float), cudaMemcpyHostToDevice));
+		ownsAttentionMask_ = true;
 	}
 	attention_->SetAttentionMask(attentionMask_, windowCount_, 1);
 	windowedInput_ = windowedInput;
 	windowedGrad_ = windowedGrad;
 	tokens_ = tokens;
-	residualGrad_ = residualGrad;
-	if(windowedInput_ == nullptr || windowedGrad_ == nullptr || tokens_ == nullptr || residualGrad_ == nullptr){
+	if(windowedInput_ == nullptr || windowedGrad_ == nullptr || tokens_ == nullptr){
 		ownsWorkspace_ = true;
 		const size_t windowElems = static_cast<size_t>(windowBatch_) * windowTokens_ * embedDim_;
 		CUDAMallocZero(&windowedInput_, windowElems * sizeof(__half));
 		CUDAMallocZero(&windowedGrad_, windowElems * sizeof(__half));
 		CUDAMallocZero(&tokens_, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half));
-		CUDAMallocZero(&residualGrad_, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half));
 	} else{
 		ownsWorkspace_ = false;
 	}
@@ -114,9 +112,8 @@ SwinBlockLayer::~SwinBlockLayer(){
 		cudaFree(windowedInput_);
 		cudaFree(windowedGrad_);
 		cudaFree(tokens_);
-		cudaFree(residualGrad_);
 	}
-	cudaFree(attentionMask_);
+	if(ownsAttentionMask_){ cudaFree(attentionMask_); }
 }
 __half* SwinBlockLayer::Forward(__half* data){
 	const auto* residual1 = data;
@@ -138,8 +135,7 @@ __half* SwinBlockLayer::Forward(__half* data){
 	return data;
 }
 __half* SwinBlockLayer::Backward(__half* grad){
-	checkCUDA(cudaMemcpy(residualGrad_, grad, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
-	const auto* residual2 = residualGrad_;
+	const auto* residual2 = grad;
 	grad = ffDropPath_->Backward(grad);
 	grad = ffDrop_->Backward(grad);
 	grad = fc2_->Backward(grad);
@@ -147,8 +143,7 @@ __half* SwinBlockLayer::Backward(__half* grad){
 	grad = fc1_->Backward(grad);
 	grad = norm2_->Backward(grad);
 	AddTensor(mixBwd_, grad, mixBwd_, residual2, static_cast<int>(outNCHW_));
-	checkCUDA(cudaMemcpy(residualGrad_, grad, static_cast<size_t>(batchSize_) * nTokens_ * embedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
-	const auto* residual1 = residualGrad_;
+	const auto* residual1 = grad;
 	grad = attnDropPath_->Backward(grad);
 	grad = attnDrop_->Backward(grad);
 	TokensToWindows(grad, windowedGrad_, batchSize_, nTokens_, embedDim_, patchRows_, patchCols_, windowHeight_, windowWidth_, shiftHeight_, shiftWidth_);

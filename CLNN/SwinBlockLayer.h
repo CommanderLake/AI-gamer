@@ -13,7 +13,7 @@ class DropPath;
 class SwinBlockLayer final : public Layer{
 public:
 	SwinBlockLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate,
-		std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, __half* residualGrad = nullptr);
+		std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true);
 	~SwinBlockLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -56,9 +56,9 @@ private:
 	__half* windowedInput_ = nullptr;
 	__half* windowedGrad_ = nullptr;
 	__half* tokens_ = nullptr;
-	__half* residualGrad_ = nullptr;
 	float* attentionMask_ = nullptr;
 	bool ownsWorkspace_ = true;
+	bool ownsAttentionMask_ = true;
 	cudnnTensorDescriptor_t outDesc_;
 	const float mixFwd_ = 1.0f;
 	const float mixBwd_ = 1.0f;
