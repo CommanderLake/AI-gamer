@@ -9,6 +9,10 @@ __device__ inline float BceWithLogitsLoss(const float logit, const float target)
 	const float negAbs = -fabsf(logit);
 	return maxPart - logit*target + log1pf(expf(negAbs));
 }
+__device__ inline float AxisLossWeight(const float target){
+	const float w = 1.0f + 0.5f*fabsf(target);
+	return fminf(w, 4.0f);
+}
 __global__ void LossStatsKernel(const __half* predictions, const float* targets, const int size, const int numKeys, const int numCtrls){
 	extern __shared__ float sdata[];
 	const int tid = threadIdx.x;
@@ -23,7 +27,8 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 			sumKeys += BceWithLogitsLoss(pred, target);
 		} else{
 			const float diff = pred - target;
-			sumMouse += diff*diff;
+			const float w = AxisLossWeight(target);
+			sumMouse += w*diff*diff;
 		}
 		idx += gridDim.x*blockDim.x;
 	}
@@ -75,7 +80,8 @@ __global__ void LossBackpropKernel(__half* gradients, const __half* predictions,
 			gradients[batchId*numButs + ctrlId] = __float2half(fmaxf(-clip, fminf(clip, prob - target)));
 		} else{
 			const float pred = __half2float(predictions[idx]);
-			gradients[numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs)] = __float2half(fmaxf(-clip, fminf(clip, pred - target)));
+			const float w = AxisLossWeight(target);
+			gradients[numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs)] = __float2half(fmaxf(-clip, fminf(clip, w*(pred - target))));
 		}
 	}
 }

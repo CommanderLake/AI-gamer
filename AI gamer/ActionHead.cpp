@@ -5,7 +5,6 @@
 #include "Dropout.h"
 #include "FCLayer.h"
 #include "ActionHead.h"
-#include "AsinhLayer.h"
 #include "ViewerLayer.h"
 #undef min
 #undef max
@@ -26,7 +25,6 @@ ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cub
 	axisLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Axes GELU"));
 	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, hiddenC, 1, 1, "Axes Drop", train_));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
-	axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 ActionHead::~ActionHead(){
 	cudaFree(predictions_);
