@@ -54,12 +54,6 @@
     <ClCompile Include="LeakyReLULayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="LSTMLayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="MHALayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="PatchEmbedLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -157,12 +151,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="LeakyReLULayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="LSTMLayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MHALayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PatchEmbedLayer.h">

@@ -32,8 +32,6 @@
     <ClCompile Include="GlobalPoolLayer.cpp" />
     <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="LeakyReLULayer.cpp" />
-    <ClCompile Include="LSTMLayer.cpp" />
-    <ClCompile Include="MHALayer.cpp" />
     <ClCompile Include="NNCommon.cpp" />
     <ClCompile Include="OrthogonalInit.cpp" />
     <ClCompile Include="PatchEmbedLayer.cpp" />
@@ -69,8 +67,6 @@
     <ClInclude Include="Layer.h" />
     <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="LeakyReLULayer.h" />
-    <ClInclude Include="LSTMLayer.h" />
-    <ClInclude Include="MHALayer.h" />
     <ClInclude Include="NNCommon.h" />
     <ClInclude Include="PatchEmbedLayer.h" />
     <ClInclude Include="PatchExpandingLayer.h" />

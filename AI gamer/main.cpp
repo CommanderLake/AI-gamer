@@ -47,7 +47,7 @@ bool LoadIndexCache(const std::filesystem::path& cachePath, std::uintmax_t expec
 	if(width){ *width = cachedWidth; }
 	if(height){ *height = cachedHeight; }
 	index->reserve(index->size() + positions.size());
-	for(std::uint64_t posValue : positions){
+	for(const std::uint64_t posValue : positions){
 		const std::streamoff offset = static_cast<std::streamoff>(posValue);
 		index->push_back({fileName, std::streampos(offset)});
 	}
