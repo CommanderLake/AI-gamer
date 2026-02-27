@@ -8,7 +8,7 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(80), gradAccumLength_(1){
+NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, bool train) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(40), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	int netWidth = w;
 	int netHeight = h;
@@ -33,7 +33,7 @@ NN::NN(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int w, int h, boo
 	constexpr auto embedW = 16;
 	auto embedSize = embedH*embedW;
 	constexpr int baseHeads = 8;
-	constexpr int blocksPerStage = 2;
+	constexpr int blocksPerStage = 6;
 	constexpr int numMergeStages = 2;
 	constexpr int baseWindowSize = 8;
 	constexpr float maxDropPathRate = 0.1f;
