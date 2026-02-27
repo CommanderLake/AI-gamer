@@ -66,11 +66,15 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 		return (static_cast<unsigned long long>(patchRowsSize) << 40) | (static_cast<unsigned long long>(patchColsSize) << 28) | (static_cast<unsigned long long>(windowHeight) << 20) |
 			(static_cast<unsigned long long>(windowWidth) << 12) | (static_cast<unsigned long long>(shiftHeight) << 6) | static_cast<unsigned long long>(shiftWidth);
 	};
+	struct AttentionMaskRef{
+		float* ptr;
+		bool owns;
+	};
 	auto getOrCreateAttentionMask = [&](const int patchRowsSize, const int patchColsSize, const int windowHeight, const int windowWidth, const int shiftHeight, const int shiftWidth){
-		if(shiftHeight == 0 && shiftWidth == 0){ return static_cast<float*>(nullptr); }
+		if(shiftHeight == 0 && shiftWidth == 0){ return AttentionMaskRef{nullptr, false}; }
 		const auto key = getMaskKey(patchRowsSize, patchColsSize, windowHeight, windowWidth, shiftHeight, shiftWidth);
 		const auto existing = attentionMaskCache_.find(key);
-		if(existing != attentionMaskCache_.end()){ return existing->second; }
+		if(existing != attentionMaskCache_.end()){ return AttentionMaskRef{existing->second, false}; }
 		const int windowTokens = windowHeight * windowWidth;
 		const int windowCount = (patchRowsSize / windowHeight) * (patchColsSize / windowWidth);
 		const int windowsCols = patchColsSize / windowWidth;
@@ -103,7 +107,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 		CUDAMallocZero(&deviceMask, windowMaskSize * sizeof(float));
 		checkCUDA(cudaMemcpy(deviceMask, hostMask.data(), windowMaskSize * sizeof(float), cudaMemcpyHostToDevice));
 		attentionMaskCache_.emplace(key, deviceMask);
-		return deviceMask;
+		return AttentionMaskRef{deviceMask, false};
 	};
 	encoderStages_.reserve(numStages_);
 	for(int stage = 0; stage < numStages_; ++stage){
@@ -120,7 +124,8 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const bool useShift = block % 2 != 0;
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
-			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth), false));
+			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
+			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns));
 			++blockIndex;
 		}
 		encoderStage.skip.elements = batchSize_ * nTokens * embedDim;
@@ -158,7 +163,8 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const bool useShift = block % 2 != 0;
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
-			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth), false));
+			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
+			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns));
 			++blockIndex;
 		}
 		decoderStages_.push_back(decoderStage);
@@ -221,7 +227,7 @@ __half* SwinUnetLayer::Backward(__half* grad){
 		auto& decoderStage = decoderStages_[stage];
 		for(size_t i = decoderStage.blocks.size(); i-- > 0;){ grad = decoderStage.blocks[i]->Backward(grad); }
 		const size_t skipIndex = encoderStages_.size() - stage - 1;
-		auto& skip = encoderStages_[skipIndex].skip;
+		const auto& skip = encoderStages_[skipIndex].skip;
 		AddTensor(0.0f, skip.scratch, 1.0f, grad, skip.elements);
 		grad = decoderStage.expand->Backward(grad);
 	}
