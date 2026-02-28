@@ -55,7 +55,7 @@ extern ThreadPool threadPool;
 constexpr int NUM_BUTS_ = 14;
 constexpr int NUM_AXES_ = 2;
 constexpr int NUM_CTRLS_ = NUM_BUTS_ + NUM_AXES_;
-constexpr float AXIS_SCALE_ = 1024.0f;
+constexpr float AXIS_SCALE_ = 256.0f;
 constexpr int TGT_STATE_WIDTH_ = 320;
 extern unsigned char keyMap[14];
 void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation);

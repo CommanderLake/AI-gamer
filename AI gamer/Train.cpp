@@ -20,7 +20,7 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(const int epoch, const int batch, const int epochBatchCount, const int epochs){
-	constexpr auto baseLr = 0.00001f;
+	constexpr auto baseLr = 0.00002f;
 	constexpr auto minLr = 0.0000001f;
 	const auto warmupSteps = epochBatchCount*1;
 	const auto totalSteps = epochBatchCount*epochs;
@@ -56,7 +56,7 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 	}
 	std::cout << "\rLR: " << lr << " Batch " << (batchIndex + 1) << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_;
 	if(lr == 0.0f) return 0;
-	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 8.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
+	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 16.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
 	if(IsnanHalf(nn->Backward(dGradient_), nn->stateSize_*nn->batchSize_)){
 		std::cout << " NaN in gradient\n";
 		return -1;
