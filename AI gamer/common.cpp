@@ -12,6 +12,7 @@ std::string optFileName = "E:\\AIGamer.opt";
 std::vector<RecordIndex> trainRecordIndices;
 std::vector<RecordIndex> valRecordIndices;
 ThreadPool threadPool(8);
+static std::atomic<int> gLoadBatchFailureCount{0};
 unsigned char keyMap[] = {
 	0x11, // W
 	0x1E, // A
@@ -65,16 +66,24 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 				auto& file = GetThreadFile(*record.fileName);
 				file.seekg(record.position);
 				if(file.fail()){
-					std::cerr << "Failed to seek to position: " << record.position << " in file: " << *record.fileName << "\n";
+					std::cerr << "Failed to seek to position: " << record.position << " in file: " << *record.fileName << " (batch index " << i << ")\n";
+					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
 					return;
 				}
 				if(!file.read(reinterpret_cast<char*>(&batch->inputStates[i]), sizeof(InputState))){
 					std::cerr << "Failed to read input states at index " << i << " from file: " << *record.fileName << "\n";
+					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData + i*stateSize), stateSize)){ std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n"; }
-			} catch(const std::exception&){}
-		});
+				if(!file.read(reinterpret_cast<char*>(batch->stateData + i*stateSize), stateSize)){
+					std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n";
+					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+				}
+			} catch(const std::exception& e){
+				std::cerr << "LoadBatch exception for file " << *record.fileName << " at batch index " << i << ": " << e.what() << "\n";
+				gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+			}
+			});
 	}
 }
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, const int batchSize, const int stateSize){
@@ -84,11 +93,22 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 	}
 	std::uniform_int_distribution<size_t> dist(0, states.size() - 1);
 	for(size_t i = 0; i < batchSize; ++i){
-		threadPool.Enqueue([batch, stateSize, &states, dist]() mutable{
+		threadPool.Enqueue([i, batch, stateSize, &states, dist]() mutable{
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
 			const auto& record = states[randomIndex];
-			batch->inputStates[1] = record->inputState;
-			if(batch->stateData && record->stateData){ std::memcpy(batch->stateData + 1*stateSize, record->stateData, stateSize); } else{ std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << "\n"; }
-		});
+			batch->inputStates[i] = record->inputState;
+			if(batch->stateData && record->stateData){
+				std::memcpy(batch->stateData + i*stateSize, record->stateData, stateSize);
+			} else{
+				std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << " (batch index " << i << ")\n";
+				gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+			}
+			});
 	}
+}
+void ResetLoadBatchFailureCount(){
+	gLoadBatchFailureCount.store(0, std::memory_order_relaxed);
+}
+int GetLoadBatchFailureCount(){
+	return gLoadBatchFailureCount.load(std::memory_order_relaxed);
 }

@@ -6,6 +6,12 @@
 #include <csignal>
 #undef min
 #undef max
+constexpr int kKbdButs = 11;
+constexpr int kMouseLeft = kKbdButs;
+constexpr int kMouseRight = kKbdButs + 1;
+constexpr int kMouseMiddle = kKbdButs + 2;
+static_assert(NUM_BUTS_ == 14, "Update inference output mapping constants for new NUM_BUTS_");
+static_assert(kMouseMiddle == NUM_BUTS_ - 1, "Mouse button indices must match end of button outputs");
 static Infer* this_ = nullptr;
 void InferSig(const int sig){
 	if(sig == SIGINT){
@@ -70,7 +76,7 @@ void Infer::ProcessOutput(const float* predictions){
 	constexpr auto thr = 0.0f;
 	INPUT inputs[20] = {};
 	int inputIndex = 0;
-	for(int i = 0; i < 11; ++i){
+	for(int i = 0; i < kKbdButs; ++i){
 		const bool pressed = predictions[i] > thr;
 		inputs[inputIndex].type = INPUT_KEYBOARD;
 		inputs[inputIndex].ki.wScan = keyMap[i];
@@ -80,7 +86,7 @@ void Infer::ProcessOutput(const float* predictions){
 		}
 		inputIndex++;
 	}
-	if(predictions[11] > thr){
+	if(predictions[kMouseLeft] > thr){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
 		inputIndex++;
@@ -89,7 +95,7 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_LEFTUP;
 		inputIndex++;
 	}
-	if(predictions[12] > thr){
+	if(predictions[kMouseRight] > thr){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
 		inputIndex++;
@@ -98,7 +104,7 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
 		inputIndex++;
 	}
-	if(predictions[13] > thr){
+	if(predictions[kMouseMiddle] > thr){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN;
 		inputIndex++;

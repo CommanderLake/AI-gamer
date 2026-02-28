@@ -2,7 +2,6 @@
 #include "CuCommon.cuh"
 #include "ConvLayer.h"
 #include "GELULayer.h"
-#include "Dropout.h"
 #include "FCLayer.h"
 #include "ActionHead.h"
 #include "ViewerLayer.h"
@@ -17,11 +16,9 @@ ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cub
 	constexpr auto hiddenC = 1024;
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, inC_, hiddenC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Buttons GELU"));
-	buttonLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, hiddenC, 1, 1, "Buttons Drop", train_));
 	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, inC_, hiddenC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new Dropout(cudnn_, 0.2f, batchSize_, hiddenC, 1, 1, "Axes Drop", train_));
 	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
 }
 ActionHead::~ActionHead(){

@@ -20,7 +20,7 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(const int epoch, const int batch, const int epochBatchCount, const int epochs){
-	constexpr auto baseLr = 0.0001f;
+	constexpr auto baseLr = 0.00001f;
 	constexpr auto minLr = 0.0000001f;
 	const auto warmupSteps = epochBatchCount*1;
 	const auto totalSteps = epochBatchCount*epochs;
@@ -36,8 +36,6 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 		const auto axisBase = i*NUM_CTRLS_ + NUM_BUTS_;
 		hTargetBatchFloat[axisBase] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX)/AXIS_SCALE_);
 		hTargetBatchFloat[axisBase + 1] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY)/AXIS_SCALE_);
-		hTargetBatchFloat[axisBase + 2] = 0.0f;
-		hTargetBatchFloat[axisBase + 3] = 0.0f;
 	}
 	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, nn->stateSize_*nn->batchSize_, cudaMemcpyHostToDevice));
 	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, nn->stateSize_*nn->batchSize_, true);
@@ -83,6 +81,7 @@ void Train::TrainModel(const int width, const int height){
 	auto sbRead = &sb0;
 	bool sbSwitch = false;
 	auto fetchBatch = [&](const bool validation){
+		ResetLoadBatchFailureCount();
 		sbSwitch = !sbSwitch;
 		StateBatch* nextBatch = sbSwitch ? &sb1 : &sb0;
 		threadPool.Enqueue([&, nextBatch, validation]{ LoadBatch(nextBatch, nn->batchSize_, nn->stateSize_, validation); });
@@ -98,7 +97,12 @@ void Train::TrainModel(const int width, const int height){
 		std::cout << "\nEpoch: " << epoch << "\n";
 		for(auto batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
 			threadPool.WaitAll();
+			const auto loadBatchFailures = GetLoadBatchFailureCount();
 			fetchBatch(false);
+			if(loadBatchFailures > 0){
+				std::cerr << "\nWarning: skipped batch " << (batch + 1) << "/" << epochBatchCount << " due to " << loadBatchFailures << " load failures\n";
+				continue;
+			}
 			const float lr = GetLearningRate(epoch, batch, epochBatchCount, epochs);
 			const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
 			if(result == -1){ stopTraining = true; }

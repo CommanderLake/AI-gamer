@@ -60,3 +60,5 @@ constexpr int TGT_STATE_WIDTH_ = 320;
 extern unsigned char keyMap[14];
 void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation);
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
+void ResetLoadBatchFailureCount();
+int GetLoadBatchFailureCount();
