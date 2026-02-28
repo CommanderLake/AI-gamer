@@ -12,8 +12,7 @@ class Dropout;
 class DropPath;
 class SwinBlockLayer final : public Layer{
 public:
-	SwinBlockLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate,
-		std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true);
+	SwinBlockLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true, __half* attentionWorkspace = nullptr, __half* qPacked = nullptr, __half* kPacked = nullptr, __half* vPacked = nullptr, __half* attnOutPacked = nullptr, __half* dQPacked = nullptr, __half* dKPacked = nullptr, __half* dVPacked = nullptr, float* attnGradWorkspace = nullptr);
 	~SwinBlockLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;

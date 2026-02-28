@@ -7,6 +7,8 @@
 class WmmaAttentionLayer final : public Layer{
 public:
 	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod,
+		__half* sharedWorkspace, __half* sharedQPacked, __half* sharedKPacked, __half* sharedVPacked, __half* sharedAttnOutPacked, __half* sharedDQPacked, __half* sharedDKPacked, __half* sharedDVPacked, float* sharedAttnGradWorkspace);
 	~WmmaAttentionLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -31,7 +33,7 @@ public:
 	__half *qWeights_ = nullptr, *kWeights_ = nullptr, *vWeights_ = nullptr, *oWeights_ = nullptr;
 	__half *gradQkvBase_ = nullptr;
 	__half *gradQ_ = nullptr, *gradK_ = nullptr, *gradV_ = nullptr, *gradOut_ = nullptr;
-	__half *m_Q_, *v_Q_, *m_K_, *v_K_, *m_V_, *v_V_, *m_O_, *v_O_;
+	__half *m_Q_ = nullptr, *v_Q_ = nullptr, *m_K_ = nullptr, *v_K_ = nullptr, *m_V_ = nullptr, *v_V_ = nullptr, *m_O_ = nullptr, *v_O_ = nullptr;
 	__half *dQ = nullptr, *dK = nullptr, *dV = nullptr;
 	__half *qPacked_ = nullptr, *kPacked_ = nullptr, *vPacked_ = nullptr, *attnOutPacked_ = nullptr;
 	__half *dQPacked_ = nullptr, *dKPacked_ = nullptr, *dVPacked_ = nullptr;
@@ -55,4 +57,7 @@ public:
 	float weightDecay_;
 	float alphaWeights_ = 1.0f;
 	int accumCount_ = 0;
+	bool ownsTemporaries_ = true;
+	bool ownsPackedGradTemporaries_ = true;
+	bool ownsAttnGradWorkspace_ = true;
 };

@@ -2,7 +2,11 @@
 #include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <stdexcept>
-WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
+WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
+	WmmaAttentionLayer(cudnnHandle, cublasHandle, batchSize, tokens, embedDim, numHeads, std::move(layerName), train, weightDecay, gradAccumLength, weightInitMethod, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr){}
+WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod,
+	__half* sharedWorkspace, __half* sharedQPacked, __half* sharedKPacked, __half* sharedVPacked, __half* sharedAttnOutPacked, __half* sharedDQPacked, __half* sharedDKPacked, __half* sharedDVPacked,
+	float* sharedAttnGradWorkspace) : cudnnHandle_(cudnnHandle),
 	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
@@ -17,11 +21,19 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 	CUDAMallocZero(&oWeights_, projSize*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	const auto attentionElems = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
-	CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + attentionElems*sizeof(__half));
-	CUDAMallocZero(&qPacked_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&kPacked_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&attnOutPacked_, outNCHW_*sizeof(__half));
+	workspace_ = sharedWorkspace;
+	qPacked_ = sharedQPacked;
+	kPacked_ = sharedKPacked;
+	vPacked_ = sharedVPacked;
+	attnOutPacked_ = sharedAttnOutPacked;
+	if(workspace_ == nullptr || qPacked_ == nullptr || kPacked_ == nullptr || vPacked_ == nullptr || attnOutPacked_ == nullptr){
+		ownsTemporaries_ = true;
+		CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + attentionElems*sizeof(__half));
+		CUDAMallocZero(&qPacked_, outNCHW_*sizeof(__half));
+		CUDAMallocZero(&kPacked_, outNCHW_*sizeof(__half));
+		CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
+		CUDAMallocZero(&attnOutPacked_, outNCHW_*sizeof(__half));
+	} else{ ownsTemporaries_ = false; }
 	if(train_){
 		WeightInit(qWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(kWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
@@ -29,7 +41,11 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 		WeightInit(oWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		const auto gradWorkspaceElems = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
 		attnGradWorkspaceSize_ = gradWorkspaceElems;
-		if(gradWorkspaceElems > 0){ CUDAMallocZero(&attnGradWorkspace_, gradWorkspaceElems*sizeof(float)); }
+		attnGradWorkspace_ = sharedAttnGradWorkspace;
+		if(gradWorkspaceElems > 0 && attnGradWorkspace_ == nullptr){
+			ownsAttnGradWorkspace_ = true;
+			CUDAMallocZero(&attnGradWorkspace_, gradWorkspaceElems*sizeof(float));
+		} else{ ownsAttnGradWorkspace_ = false; }
 		CUDAMallocZero(&gradQkvBase_, 3*projSize*sizeof(__half));
 		gradQ_ = gradQkvBase_;
 		gradK_ = gradQkvBase_ + projSize;
@@ -44,24 +60,32 @@ WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t
 		CUDAMallocZero(&m_O_, projSize*sizeof(__half));
 		CUDAMallocZero(&v_O_, projSize*sizeof(__half));
 		CUDAMallocZero(&outGrad_, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dQPacked_, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dKPacked_, outNCHW_*sizeof(__half));
-		CUDAMallocZero(&dVPacked_, outNCHW_*sizeof(__half));
+		dQPacked_ = sharedDQPacked;
+		dKPacked_ = sharedDKPacked;
+		dVPacked_ = sharedDVPacked;
+		if(dQPacked_ == nullptr || dKPacked_ == nullptr || dVPacked_ == nullptr){
+			ownsPackedGradTemporaries_ = true;
+			CUDAMallocZero(&dQPacked_, outNCHW_*sizeof(__half));
+			CUDAMallocZero(&dKPacked_, outNCHW_*sizeof(__half));
+			CUDAMallocZero(&dVPacked_, outNCHW_*sizeof(__half));
+		} else{ ownsPackedGradTemporaries_ = false; }
 	}
 }
 WmmaAttentionLayer::~WmmaAttentionLayer(){
 	cudaFree(qkvWeightsBase_);
 	cudaFree(oWeights_);
 	cudaFree(outData_);
-	cudaFree(workspace_);
-	cudaFree(qPacked_);
-	cudaFree(kPacked_);
-	cudaFree(vPacked_);
-	cudaFree(attnOutPacked_);
+	if(ownsTemporaries_){
+		cudaFree(workspace_);
+		cudaFree(qPacked_);
+		cudaFree(kPacked_);
+		cudaFree(vPacked_);
+		cudaFree(attnOutPacked_);
+	}
 	cudaFree(relPosBias_);
 	cudaFree(relPosIndex_);
 	if(train_){
-		cudaFree(attnGradWorkspace_);
+		if(ownsAttnGradWorkspace_){ cudaFree(attnGradWorkspace_); }
 		cudaFree(gradQkvBase_);
 		cudaFree(gradOut_);
 		cudaFree(m_Q_);
@@ -73,9 +97,11 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 		cudaFree(m_O_);
 		cudaFree(v_O_);
 		cudaFree(outGrad_);
-		cudaFree(dQPacked_);
-		cudaFree(dKPacked_);
-		cudaFree(dVPacked_);
+		if(ownsPackedGradTemporaries_){
+			cudaFree(dQPacked_);
+			cudaFree(dKPacked_);
+			cudaFree(dVPacked_);
+		}
 		cudaFree(gradRelPosBias_);
 		cudaFree(m_relPosBias_);
 		cudaFree(v_relPosBias_);

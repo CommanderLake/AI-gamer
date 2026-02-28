@@ -34,6 +34,20 @@ private:
 		__half* windowedGrad = nullptr;
 		__half* tokens = nullptr;
 	};
+	struct AttentionWorkspace{
+		size_t workspaceBytes = 0;
+		size_t packedBytes = 0;
+		size_t gradWorkspaceBytes = 0;
+		__half* workspace = nullptr;
+		__half* qPacked = nullptr;
+		__half* kPacked = nullptr;
+		__half* vPacked = nullptr;
+		__half* attnOutPacked = nullptr;
+		__half* dQPacked = nullptr;
+		__half* dKPacked = nullptr;
+		__half* dVPacked = nullptr;
+		float* gradWorkspace = nullptr;
+	};
 	struct SkipConnection{
 		int elements = 0;
 		size_t bytes = 0;
@@ -73,4 +87,5 @@ private:
 	std::vector<DecoderStage> decoderStages_;
 	std::unordered_map<unsigned long long, float*> attentionMaskCache_;
 	SwinBlockWorkspace blockWorkspace_;
+	AttentionWorkspace attentionWorkspace_;
 };

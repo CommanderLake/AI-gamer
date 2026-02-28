@@ -17,14 +17,22 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 	{
 		size_t maxWindowElems = 0;
 		size_t maxTokenElems = 0;
+		size_t maxAttentionWorkspaceElems = 0;
+		size_t maxAttentionPackedElems = 0;
+		size_t maxAttentionGradWorkspaceElems = 0;
 		auto updateWorkspaceSizes = [&](const int tokens, const int embedDim, const int patchRowsSize, const int patchColsSize, const int windowHeight, const int windowWidth){
 			const int windowTokens = windowHeight * windowWidth;
 			const int windowCount = (patchRowsSize / windowHeight) * (patchColsSize / windowWidth);
 			const int windowBatch = batchSize_ * windowCount;
 			const size_t windowElems = static_cast<size_t>(windowBatch) * windowTokens * embedDim;
 			const size_t tokenElems = static_cast<size_t>(batchSize_) * tokens * embedDim;
+			const int maxHeads = baseHeads_ << std::max(0, numStages_ - 1);
+			const size_t attentionElems = static_cast<size_t>(windowBatch) * windowTokens * windowTokens * maxHeads;
 			maxWindowElems = std::max(maxWindowElems, windowElems);
 			maxTokenElems = std::max(maxTokenElems, tokenElems);
+			maxAttentionWorkspaceElems = std::max(maxAttentionWorkspaceElems, static_cast<size_t>(4) * windowElems + attentionElems);
+			maxAttentionPackedElems = std::max(maxAttentionPackedElems, windowElems);
+			maxAttentionGradWorkspaceElems = std::max(maxAttentionGradWorkspaceElems, attentionElems);
 		};
 		int nTokensWorkspace = patchRows * patchCols;
 		int embedDimWorkspace = embedSize;
@@ -53,6 +61,20 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 		CUDAMallocZero(&blockWorkspace_.windowedInput, blockWorkspace_.windowBytes);
 		CUDAMallocZero(&blockWorkspace_.windowedGrad, blockWorkspace_.windowBytes);
 		CUDAMallocZero(&blockWorkspace_.tokens, blockWorkspace_.tokenBytes);
+		attentionWorkspace_.workspaceBytes = maxAttentionWorkspaceElems * sizeof(__half);
+		attentionWorkspace_.packedBytes = maxAttentionPackedElems * sizeof(__half);
+		attentionWorkspace_.gradWorkspaceBytes = maxAttentionGradWorkspaceElems * sizeof(float);
+		CUDAMallocZero(&attentionWorkspace_.workspace, attentionWorkspace_.workspaceBytes);
+		CUDAMallocZero(&attentionWorkspace_.qPacked, attentionWorkspace_.packedBytes);
+		CUDAMallocZero(&attentionWorkspace_.kPacked, attentionWorkspace_.packedBytes);
+		CUDAMallocZero(&attentionWorkspace_.vPacked, attentionWorkspace_.packedBytes);
+		CUDAMallocZero(&attentionWorkspace_.attnOutPacked, attentionWorkspace_.packedBytes);
+		if(train_){
+			CUDAMallocZero(&attentionWorkspace_.dQPacked, attentionWorkspace_.packedBytes);
+			CUDAMallocZero(&attentionWorkspace_.dKPacked, attentionWorkspace_.packedBytes);
+			CUDAMallocZero(&attentionWorkspace_.dVPacked, attentionWorkspace_.packedBytes);
+			if(attentionWorkspace_.gradWorkspaceBytes > 0){ CUDAMallocZero(&attentionWorkspace_.gradWorkspace, attentionWorkspace_.gradWorkspaceBytes); }
+		}
 	}
 	patchEmbed_ = new PatchEmbedLayer(cudnnHandle_, cublasHandle_, batchSize_, inChannels_, inHeight_, inWidth_, patchSize_, embedSize, "PatchEmbed", train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 	int nTokens = patchRows * patchCols;
@@ -125,7 +147,9 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
-			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns));
+			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
+				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
+				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
 			++blockIndex;
 		}
 		encoderStage.skip.elements = batchSize_ * nTokens * embedDim;
@@ -164,7 +188,9 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
-			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns));
+			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
+				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
+				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
 			++blockIndex;
 		}
 		decoderStages_.push_back(decoderStage);
@@ -189,6 +215,15 @@ SwinUnetLayer::~SwinUnetLayer(){
 	cudaFree(blockWorkspace_.windowedInput);
 	cudaFree(blockWorkspace_.windowedGrad);
 	cudaFree(blockWorkspace_.tokens);
+	cudaFree(attentionWorkspace_.workspace);
+	cudaFree(attentionWorkspace_.qPacked);
+	cudaFree(attentionWorkspace_.kPacked);
+	cudaFree(attentionWorkspace_.vPacked);
+	cudaFree(attentionWorkspace_.attnOutPacked);
+	cudaFree(attentionWorkspace_.dQPacked);
+	cudaFree(attentionWorkspace_.dKPacked);
+	cudaFree(attentionWorkspace_.dVPacked);
+	cudaFree(attentionWorkspace_.gradWorkspace);
 	for(const auto& entry : attentionMaskCache_){ cudaFree(entry.second); }
 	attentionMaskCache_.clear();
 }
