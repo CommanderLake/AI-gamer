@@ -221,6 +221,7 @@
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="Scale.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
-    <CudaCompile Include="WMMA.cu" />
+    <CudaCompile Include="WMMAAttention.cu" />
+    <CudaCompile Include="GemmWmma.cu" />
   </ItemGroup>
 </Project>

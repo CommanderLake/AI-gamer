@@ -7,7 +7,6 @@
 #include <stdexcept>
 #include <iostream>
 #include <string>
-#include <ctime>
 const char* cublasGetErrorString(cublasStatus_t status);
 #define checkCUBLAS(status) { \
 	const auto err = status; \
@@ -101,6 +100,8 @@ void ScaleNearestNeighborForward(const __half* input, __half* output, int batch,
 void ScaleNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
 void DropPathBuildMask(float* mask, int batch, float keepProb);
 void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch);
+cublasStatus_t CLNNGemmEx(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType, cublasGemmAlgo_t algo);
+cublasStatus_t CLNNGemmStridedBatchedEx(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long int strideA, const void* B, cudaDataType Btype, int ldb, long long int strideB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long int strideC, int batchCount, cudaDataType computeType, cublasGemmAlgo_t algo);
 int ConvertSmVer2Cores(int major, int minor);
 template<class Ta, class Tb>
 Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }

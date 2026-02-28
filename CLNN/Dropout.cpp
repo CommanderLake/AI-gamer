@@ -1,7 +1,8 @@
 #include "Dropout.h"
 #include "NNCommon.h"
 #include "CuCommon.cuh"
-Dropout::Dropout(cudnnHandle_t cudnnHandle, float dropoutRate, int batchSize, int channels, int height, int width, std::string layerName, bool train) : cudnnHandle_(cudnnHandle), dropoutRate_(dropoutRate), batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
+#include <ctime>
+Dropout::Dropout(const cudnnHandle_t cudnnHandle, const float dropoutRate, const int batchSize, const int channels, const int height, const int width, const std::string layerName, const bool train) : cudnnHandle_(cudnnHandle), dropoutRate_(dropoutRate), batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = outWidth_*outHeight_*outC_*batchSize_;
