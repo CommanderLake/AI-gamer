@@ -1,8 +1,8 @@
 #pragma once
 #include "ThreadPool.h"
-#include <cudnn.h>
 #include <string>
 #include <iostream>
+#include <cuda_runtime_api.h>
 struct __half;
 struct InputState{
 	unsigned int keyStates;

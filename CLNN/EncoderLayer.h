@@ -3,7 +3,7 @@
 #include <vector>
 class EncoderLayer final : public Layer{
 public:
-	EncoderLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength);
+	EncoderLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int ffDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~EncoderLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -17,7 +17,6 @@ public:
 	void SetTrain(bool enable) override;
 private:
 	cudnnHandle_t cudnnHandle_;
-	cublasHandle_t cublasHandle_;
 	int batchSize_, tokens_, embedDim_, ffDim_;
 	int gradAccumLength_;
 	std::vector<Layer*> layers_;

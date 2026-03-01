@@ -3,9 +3,8 @@
 #include "FCLayer.h"
 #include "LayerNorm.h"
 #include <algorithm>
-
-PatchExpandingLayer::PatchExpandingLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, std::string layerName, const bool train,
-	const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
+PatchExpandingLayer::PatchExpandingLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, const std::string layerName, const bool train,
+	const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
 	layerName_ = layerName;
 	train_ = train;
 	if(tokens_ != patchRows_*patchCols_){ throw std::invalid_argument("PatchExpandingLayer tokens must match patch grid"); }
@@ -16,7 +15,7 @@ PatchExpandingLayer::PatchExpandingLayer(const cudnnHandle_t cudnnHandle, const 
 	outEmbedDim_ = embedDim_ / 2;
 	outNCHW_ = static_cast<size_t>(batchSize_) * outTokens_ * outEmbedDim_;
 	norm_ = new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "PatchExpandNorm", train);
-	expansion_ = new FCLayer(cublasHandle_, batchSize_*tokens_, embedDim_, outEmbedDim_*4, "PatchExpandLinear", train, weightDecay, gradAccumLength, weightInitMethod);
+	expansion_ = new FCLayer(batchSize_*tokens_, embedDim_, outEmbedDim_*4, "PatchExpandLinear", train, weightDecay, gradAccumLength, weightInitMethod);
 	const size_t expandedElems = static_cast<size_t>(batchSize_) * tokens_ * outEmbedDim_ * 4;
 	CUDAMallocZero(&expandedData_, expandedElems*sizeof(__half));
 	CUDAMallocZero(&expandedTokens_, static_cast<size_t>(batchSize_) * outTokens_ * outEmbedDim_ * sizeof(__half));

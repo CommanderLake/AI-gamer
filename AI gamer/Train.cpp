@@ -71,11 +71,8 @@ void Train::TrainModel(const int width, const int height){
 	std::cout << "\n";
 	InitCUDA();
 	cudnnContext* cudnn;
-	cublasContext* cublas;
 	cudnnCreate(&cudnn);
-	cublasCreate(&cublas);
-	cublasSetMathMode(cublas, CUBLAS_TENSOR_OP_MATH); //S
-	const auto nn = new NN(cudnn, cublas, width, height, true);
+	const auto nn = new NN(cudnn, width, height, true);
 	StateBatch sb0(nn->batchSize_, nn->stateSize_);
 	StateBatch sb1(nn->batchSize_, nn->stateSize_);
 	auto sbRead = &sb0;
@@ -133,6 +130,5 @@ void Train::TrainModel(const int width, const int height){
 	threadPool.WaitAll();
 	Free();
 	delete nn;
-	cublasDestroy(cublas);
 	cudnnDestroy(cudnn);
 }

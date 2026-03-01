@@ -1,15 +1,11 @@
 #pragma once
 #include "Layer.h"
-#include "WeightInitMethod.h"
-#include <cublas_v2.h>
-#include <cudnn.h>
-
+#include "CuCommon.cuh"
 class LayerNorm;
 class FCLayer;
-
 class PatchExpandingLayer final : public Layer{
 public:
-	PatchExpandingLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int patchRows, int patchCols, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	PatchExpandingLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int patchRows, int patchCols, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchExpandingLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -21,10 +17,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
-
-private:
 	cudnnHandle_t cudnnHandle_;
-	cublasHandle_t cublasHandle_;
 	int batchSize_;
 	int tokens_;
 	int embedDim_;

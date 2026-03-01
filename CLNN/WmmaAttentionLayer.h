@@ -1,13 +1,11 @@
 #pragma once
 #include "Layer.h"
-#include "WeightInitMethod.h"
-#include <cublas_v2.h>
-#include <cudnn.h>
+#include "CuCommon.cuh"
 #include <vector>
 class WmmaAttentionLayer final : public Layer{
 public:
-	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
-	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod,
+	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod,
 		__half* sharedWorkspace, __half* sharedQPacked, __half* sharedKPacked, __half* sharedVPacked, __half* sharedAttnOutPacked, __half* sharedDQPacked, __half* sharedDKPacked, __half* sharedDVPacked, float* sharedAttnGradWorkspace);
 	~WmmaAttentionLayer() override;
 	__half* Forward(__half* data) override;
@@ -23,7 +21,6 @@ public:
 	void SetAttentionMask(const float* attentionMask, int maskBatchSize, int maskHeads);
 	void InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex);
 	cudnnHandle_t cudnnHandle_;
-	cublasHandle_t cublasHandle_;
 	int batchSize_, tokens_, embedDim_, numHeads_;
 	int headDim_;
 	__half* outData_ = nullptr;

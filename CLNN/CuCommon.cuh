@@ -1,18 +1,35 @@
 #pragma once
-#include "WeightInitMethod.h"
 #include <cuda.h>
 #include <curand.h>
 #include <cuda_fp16.h>
-#include <cublas_v2.h>
 #include <stdexcept>
 #include <iostream>
 #include <string>
-const char* cublasGetErrorString(cublasStatus_t status);
-#define checkCUBLAS(status) { \
+typedef enum{
+	CLNN_OP_N = 0,
+	CLNN_OP_T = 1,
+	CLNN_OP_C = 2,
+} CLNNOpT;
+typedef enum{
+	CLNN_STATUS_SUCCESS = 0,
+	CLNN_STATUS_NOT_INITIALIZED = 1,
+	CLNN_STATUS_ALLOC_FAILED = 3,
+	CLNN_STATUS_INVALID_VALUE = 7,
+	CLNN_STATUS_ARCH_MISMATCH = 8,
+	CLNN_STATUS_MAPPING_ERROR = 11,
+	CLNN_STATUS_EXECUTION_FAILED = 13,
+	CLNN_STATUS_INTERNAL_ERROR = 14,
+	CLNN_STATUS_NOT_SUPPORTED = 15
+} CLNNStatusT;
+enum WeightInitMethod{
+	He, Xavier
+};
+const char* clnnGetErrorString(CLNNStatusT status);
+#define checkCLNN(status) { \
 	const auto err = status; \
-    if (err != CUBLAS_STATUS_SUCCESS) { \
-        std::cerr << "\ncuBLAS error: " << cublasGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("cuBLAS error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cublasGetErrorString(err)); \
+    if (err != CLNN_STATUS_SUCCESS) { \
+        std::cerr << "\nError: " << clnnGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+        throw std::runtime_error("Error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + clnnGetErrorString(err)); \
     } \
 }
 #define checkCUDNN(status) { \
@@ -100,8 +117,8 @@ void ScaleNearestNeighborForward(const __half* input, __half* output, int batch,
 void ScaleNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
 void DropPathBuildMask(float* mask, int batch, float keepProb);
 void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch);
-cublasStatus_t CLNNGemmEx(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType, cublasGemmAlgo_t algo);
-cublasStatus_t CLNNGemmStridedBatchedEx(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long int strideA, const void* B, cudaDataType Btype, int ldb, long long int strideB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long int strideC, int batchCount, cudaDataType computeType, cublasGemmAlgo_t algo);
+CLNNStatusT CLNNGemmEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType);
+CLNNStatusT CLNNGemmStridedBatchedEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long int strideA, const void* B, cudaDataType Btype, int ldb, long long int strideB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long int strideC, int batchCount, cudaDataType computeType);
 int ConvertSmVer2Cores(int major, int minor);
 template<class Ta, class Tb>
 Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }

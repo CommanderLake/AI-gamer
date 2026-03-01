@@ -24,8 +24,7 @@ Infer::Infer(){
 	InitCUDA();
 	InitNvFBC();
 	cudnnCreate(&cudnn_);
-	cublasCreate(&cublas_);
-	nn_ = new NN(cudnn_, cublas_, 0, 0, false);
+	nn_ = new NN(cudnn_, 0, 0, false);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
 	int width, height;
@@ -42,7 +41,6 @@ void Infer::Dispose(){
 	delete nn_;
 	cudaFree(frameHalf_);
 	cudaFree(predictionsF_);
-	cublasDestroy(cublas_);
 	cudnnDestroy(cudnn_);
 	FreeHost();
 	FreeGPU();

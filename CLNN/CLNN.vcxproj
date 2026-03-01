@@ -38,8 +38,6 @@
     <ClCompile Include="PatchExpandingLayer.cpp" />
     <ClCompile Include="PatchMergingLayer.cpp" />
     <ClCompile Include="PoolLayer.cpp" />
-    <ClCompile Include="ResConvLayer.cpp" />
-    <ClCompile Include="ResFCLayer.cpp" />
     <ClCompile Include="ResizeLayer.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
     <ClCompile Include="SwinBlockLayer.cpp" />
@@ -72,8 +70,6 @@
     <ClInclude Include="PatchExpandingLayer.h" />
     <ClInclude Include="PatchMergingLayer.h" />
     <ClInclude Include="PoolLayer.h" />
-    <ClInclude Include="ResConvLayer.h" />
-    <ClInclude Include="ResFCLayer.h" />
     <ClInclude Include="ResizeLayer.h" />
     <ClInclude Include="SigmoidLayer.h" />
     <ClInclude Include="SwinBlockLayer.h" />
@@ -83,7 +79,6 @@
     <ClInclude Include="TransposeLayer.h" />
     <ClInclude Include="Viewer.h" />
     <ClInclude Include="ViewerLayer.h" />
-    <ClInclude Include="WeightInitMethod.h" />
     <ClInclude Include="WmmaAttentionLayer.h" />
   </ItemGroup>
   <ItemGroup>

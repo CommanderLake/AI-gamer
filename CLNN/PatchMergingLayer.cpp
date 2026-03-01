@@ -3,8 +3,7 @@
 #include "FCLayer.h"
 #include "LayerNorm.h"
 #include <algorithm>
-PatchMergingLayer::PatchMergingLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength,
-									const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
+PatchMergingLayer::PatchMergingLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
 	layerName_ = layerName;
 	train_ = train;
 	if(tokens_ != patchRows_*patchCols_){ throw std::invalid_argument("PatchMergingLayer tokens must match patch grid"); }
@@ -13,7 +12,7 @@ PatchMergingLayer::PatchMergingLayer(const cudnnHandle_t cudnnHandle, const cubl
 	outEmbedDim_ = embedDim_*2;
 	outNCHW_ = batchSize_*outTokens_*outEmbedDim_;
 	norm_ = new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "PatchMergeNorm", train);
-	reduction_ = new FCLayer(cublasHandle_, batchSize_*outTokens_, embedDim_*4, outEmbedDim_, "PatchMergeLinear", train, weightDecay, gradAccumLength, weightInitMethod);
+	reduction_ = new FCLayer(batchSize_*outTokens_, embedDim_*4, outEmbedDim_, "PatchMergeLinear", train, weightDecay, gradAccumLength, weightInitMethod);
 	const size_t mergeElems = static_cast<size_t>(batchSize_)*outTokens_*embedDim_*4;
 	CUDAMallocZero(&mergedData_, mergeElems*sizeof(__half));
 	CUDAMallocZero(&mergedGrad_, mergeElems*sizeof(__half));

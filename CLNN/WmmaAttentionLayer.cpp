@@ -2,12 +2,11 @@
 #include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <stdexcept>
-WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
-	WmmaAttentionLayer(cudnnHandle, cublasHandle, batchSize, tokens, embedDim, numHeads, std::move(layerName), train, weightDecay, gradAccumLength, weightInitMethod, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr){}
-WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod,
+WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
+	WmmaAttentionLayer(cudnnHandle, batchSize, tokens, embedDim, numHeads, std::move(layerName), train, weightDecay, gradAccumLength, weightInitMethod, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr){}
+WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod,
 	__half* sharedWorkspace, __half* sharedQPacked, __half* sharedKPacked, __half* sharedVPacked, __half* sharedAttnOutPacked, __half* sharedDQPacked, __half* sharedDKPacked, __half* sharedDVPacked,
-	float* sharedAttnGradWorkspace) : cudnnHandle_(cudnnHandle),
-	cublasHandle_(cublasHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
+	float* sharedAttnGradWorkspace) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	headDim_ = embedDim_/numHeads_;
@@ -116,7 +115,7 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	inData_ = data;
 	const long long qkvStrideA = static_cast<long long>(embedDim_)*embedDim_;
 	const long long qkvStrideC = static_cast<long long>(outNCHW_);
-	checkCUBLAS(cublasGemmStridedBatchedEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, qWeights_, CUDA_R_16F, embedDim_, qkvStrideA, data, CUDA_R_16F, embedDim_, 0, &zero_, Q, CUDA_R_16F, embedDim_, qkvStrideC, 3, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	checkCLNN(CLNNGemmStridedBatchedEx(CLNN_OP_N, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, qWeights_, CUDA_R_16F, embedDim_, qkvStrideA, data, CUDA_R_16F, embedDim_, 0, &zero_, Q, CUDA_R_16F, embedDim_, qkvStrideC, 3, CUDA_R_32F));
 	PackColumnsToHeads(Q, K, V, qPacked_, kPacked_, vPacked_, batchSize_, tokens_, embedDim_, numHeads_);
 	dQ = Q;
 	dK = K;
@@ -125,15 +124,15 @@ __half* WmmaAttentionLayer::Forward(__half* data){
 	const int* relPosIndex = useRelPosBias_ ? relPosIndex_ : nullptr;
 	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, relPosBias, relPosIndex, relPosSize_, batchSize_, tokens_, headDim_, numHeads_, maskBatchSize_, maskHeads_);
 	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
 	const auto attnOut = workspace_ + 3*outNCHW_;
 	const __half* attentionWeights = workspace_ + 4*outNCHW_;
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &zero_ : &one_;
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, betaWeights, gradOut_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &zero_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, betaWeights, gradOut_, CUDA_R_16F, embedDim_, CUDA_R_32F));
+	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &zero_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	PackColumnsToHeads(attnOut, attnOutPacked_, batchSize_, tokens_, embedDim_, numHeads_);
 	WmmaAttentionBackward(qPacked_, kPacked_, vPacked_, attnOutPacked_, attentionWeights, dQPacked_, dKPacked_, dVPacked_, attnGradWorkspace_, attnGradWorkspaceSize_, batchSize_, tokens_, headDim_, numHeads_);
 	if(useRelPosBias_ && train_ && gradRelPosBias_ && relPosIndex_){
@@ -147,10 +146,10 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	PackHeadsToColumns(dQPacked_, dKPacked_, dVPacked_, dQ, dK, dV, batchSize_, tokens_, embedDim_, numHeads_);
 	const long long dqdvdStrideA = static_cast<long long>(outNCHW_);
 	const long long dqdvdStrideC = static_cast<long long>(embedDim_)*embedDim_;
-	checkCUBLAS(cublasGemmStridedBatchedEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dQ, CUDA_R_16F, embedDim_, dqdvdStrideA, inData_, CUDA_R_16F, embedDim_, 0, betaWeights, gradQ_, CUDA_R_16F, embedDim_, dqdvdStrideC, 3, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, qWeights_, CUDA_R_16F, embedDim_, dQ, CUDA_R_16F, embedDim_, &zero_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, kWeights_, CUDA_R_16F, embedDim_, dK, CUDA_R_16F, embedDim_, &one_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, vWeights_, CUDA_R_16F, embedDim_, dV, CUDA_R_16F, embedDim_, &one_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	checkCLNN(CLNNGemmStridedBatchedEx(CLNN_OP_N, CLNN_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dQ, CUDA_R_16F, embedDim_, dqdvdStrideA, inData_, CUDA_R_16F, embedDim_, 0, betaWeights, gradQ_, CUDA_R_16F, embedDim_, dqdvdStrideC, 3, CUDA_R_32F));
+	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, qWeights_, CUDA_R_16F, embedDim_, dQ, CUDA_R_16F, embedDim_, &zero_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F));
+	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, kWeights_, CUDA_R_16F, embedDim_, dK, CUDA_R_16F, embedDim_, &one_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F));
+	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, vWeights_, CUDA_R_16F, embedDim_, dV, CUDA_R_16F, embedDim_, &one_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	return outGrad_;
 }
 void WmmaAttentionLayer::UpdateParameters(float lr){

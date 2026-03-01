@@ -8,7 +8,7 @@
 #include "GELULayer.h"
 #include <algorithm>
 #include <stdexcept>
-SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int inChannels, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), inChannels_(inChannels), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
+SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inChannels, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), inChannels_(inChannels), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
 	layerName_ = layerName;
 	train_ = train;
 	const int embedSize = embedH_ * embedW_;
@@ -76,7 +76,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			if(attentionWorkspace_.gradWorkspaceBytes > 0){ CUDAMallocZero(&attentionWorkspace_.gradWorkspace, attentionWorkspace_.gradWorkspaceBytes); }
 		}
 	}
-	patchEmbed_ = new PatchEmbedLayer(cudnnHandle_, cublasHandle_, batchSize_, inChannels_, inHeight_, inWidth_, patchSize_, embedSize, "PatchEmbed", train_, weightDecay_, gradAccumLength_, weightInitMethod_);
+	patchEmbed_ = new PatchEmbedLayer(cudnnHandle_, batchSize_, inChannels_, inHeight_, inWidth_, patchSize_, embedSize, "PatchEmbed", train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 	int nTokens = patchRows * patchCols;
 	int embedDim = embedSize;
 	int ffDim = embedDim * 4;
@@ -147,7 +147,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
-			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
+			encoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
 				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
 				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
 			++blockIndex;
@@ -157,7 +157,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 		CUDAMallocZero(&encoderStage.skip.scratch, encoderStage.skip.bytes);
 		encoderStage.skip.isActivation = false;
 		auto mergeName = "PatchMerge" + std::to_string(stage);
-		encoderStage.merge = new PatchMergingLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, mergeName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
+		encoderStage.merge = new PatchMergingLayer(cudnnHandle_, batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, mergeName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 		encoderStages_.push_back(encoderStage);
 		currentPatchRows /= 2;
 		currentPatchCols /= 2;
@@ -169,7 +169,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 	for(int stage = 0; stage < numStages_; ++stage){
 		DecoderStage decoderStage;
 		auto expandName = "PatchExpand" + std::to_string(stage);
-		decoderStage.expand = new PatchExpandingLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, expandName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
+		decoderStage.expand = new PatchExpandingLayer(cudnnHandle_, batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, expandName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 		currentPatchRows *= 2;
 		currentPatchCols *= 2;
 		nTokens = currentPatchRows * currentPatchCols;
@@ -188,7 +188,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const cublasHandle
 			const int blockShiftHeight = useShift ? shiftHeight : 0;
 			const int blockShiftWidth = useShift ? shiftWidth : 0;
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
-			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, cublasHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
+			decoderStage.blocks.push_back(new SwinBlockLayer(cudnnHandle_, batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
 				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
 				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
 			++blockIndex;

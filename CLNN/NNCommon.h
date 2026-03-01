@@ -1,8 +1,7 @@
 #pragma once
-#include "WeightInitMethod.h"
+#include "CuCommon.cuh"
 #include <cuda_fp16.h>
 #include <cudnn.h>
-#include <algorithm>
 struct ConvolutionAlgorithms{
 	cudnnConvolutionFwdAlgo_t fwdAlgo;
 	cudnnConvolutionBwdDataAlgo_t bwdDataAlgo;

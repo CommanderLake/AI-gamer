@@ -66,12 +66,6 @@
     <ClCompile Include="PoolLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ResConvLayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="ResFCLayer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ResizeLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -165,12 +159,6 @@
     <ClInclude Include="PoolLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ResConvLayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ResFCLayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="ResizeLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -196,9 +184,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ViewerLayer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="WeightInitMethod.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="WmmaAttentionLayer.h">

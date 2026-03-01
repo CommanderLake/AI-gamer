@@ -8,7 +8,7 @@
 #include "WmmaAttentionLayer.h"
 #include <algorithm>
 #include <vector>
-SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int nTokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth, const int shiftHeight, const int shiftWidth, const float dropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad, __half* tokens, float* sharedAttentionMask, const bool ownsAttentionMask, __half* attentionWorkspace, __half* qPacked, __half* kPacked, __half* vPacked, __half* attnOutPacked, __half* dQPacked, __half* dKPacked, __half* dVPacked, float* attnGradWorkspace) : cudnnHandle_(cudnnHandle), cublasHandle_(cublasHandle), batchSize_(batchSize), nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
+SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int nTokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth, const int shiftHeight, const int shiftWidth, const float dropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad, __half* tokens, float* sharedAttentionMask, const bool ownsAttentionMask, __half* attentionWorkspace, __half* qPacked, __half* kPacked, __half* vPacked, __half* attnOutPacked, __half* dQPacked, __half* dKPacked, __half* dVPacked, float* attnGradWorkspace) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
 	layerName_ = layerName;
 	train_ = train;
 	if(nTokens_ != patchRows_ * patchCols_){ throw std::invalid_argument("SwinBlockLayer tokens must match patch grid"); }
@@ -21,7 +21,7 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*nTokens_, embedDim_, 1, 1));
 	norm1_ = new LayerNorm(batchSize_ * nTokens_, embedDim_, 1, 1, "SwinNorm1", train);
 	layers_.push_back(norm1_);
-	attention_ = new WmmaAttentionLayer(cudnnHandle_, cublasHandle_, windowBatch_, windowTokens_, embedDim_, numHeads_, "SwinAttention", train, weightDecay, gradAccumLength, weightInitMethod, attentionWorkspace, qPacked, kPacked, vPacked, attnOutPacked, dQPacked, dKPacked, dVPacked, attnGradWorkspace);
+	attention_ = new WmmaAttentionLayer(cudnnHandle_, windowBatch_, windowTokens_, embedDim_, numHeads_, "SwinAttention", train, weightDecay, gradAccumLength, weightInitMethod, attentionWorkspace, qPacked, kPacked, vPacked, attnOutPacked, dQPacked, dKPacked, dVPacked, attnGradWorkspace);
 	layers_.push_back(attention_);
 	attnDrop_ = new Dropout(cudnnHandle_, 0.1f, batchSize_ * nTokens_, embedDim_, 1, 1, "SwinAttnDropout", train);
 	layers_.push_back(attnDrop_);
@@ -29,11 +29,11 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const cublasHand
 	layers_.push_back(attnDropPath_);
 	norm2_ = new LayerNorm(batchSize_ * nTokens_, embedDim_, 1, 1, "SwinNorm2", train);
 	layers_.push_back(norm2_);
-	fc1_ = new FCLayer(cublasHandle_, batchSize_ * nTokens_, embedDim_, ffDim_, "SwinFC1", train, weightDecay, gradAccumLength, weightInitMethod);
+	fc1_ = new FCLayer(batchSize_ * nTokens_, embedDim_, ffDim_, "SwinFC1", train, weightDecay, gradAccumLength, weightInitMethod);
 	layers_.push_back(fc1_);
 	gelu_ = new GELULayer(batchSize_ * nTokens_, ffDim_, 1, 1, "SwinGELU");
 	layers_.push_back(gelu_);
-	fc2_ = new FCLayer(cublasHandle_, batchSize_ * nTokens_, ffDim_, embedDim_, "SwinFC2", train, weightDecay, gradAccumLength, weightInitMethod);
+	fc2_ = new FCLayer(batchSize_ * nTokens_, ffDim_, embedDim_, "SwinFC2", train, weightDecay, gradAccumLength, weightInitMethod);
 	layers_.push_back(fc2_);
 	ffDrop_ = new Dropout(cudnnHandle_, 0.1f, batchSize_ * nTokens_, embedDim_, 1, 1, "SwinFfDropout", train);
 	layers_.push_back(ffDrop_);

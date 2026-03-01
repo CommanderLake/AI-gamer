@@ -7,19 +7,19 @@
 #include "AsinhLayer.h"
 #undef min
 #undef max
-ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const cublasHandle_t cublasHandle, const int batchSize, const int patchRows, const int patchCols, const int embedSize, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnn_(cudnnHandle), cublas_(cublasHandle), batchSize_(batchSize), nTokens_(patchRows*patchCols), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const int batchSize, const int patchRows, const int patchCols, const int embedSize, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnn_(cudnnHandle), batchSize_(batchSize), nTokens_(patchRows*patchCols), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	inC_ = embedSize_*patchRows_*patchCols_;
 	constexpr auto hiddenC = 1024;
-	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, inC_, hiddenC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	buttonLayers_.push_back(new FCLayer(batchSize_, inC_, hiddenC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Buttons GELU"));
-	buttonLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
-	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, inC_, hiddenC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	buttonLayers_.push_back(new FCLayer(batchSize_, hiddenC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
+	axisLayers_.push_back(new FCLayer(batchSize_, inC_, hiddenC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new FCLayer(cublas_, batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
+	axisLayers_.push_back(new FCLayer(batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
 	//axisLayers_.push_back(new AsinhLayer(batchSize_, NUM_AXES_, 1, 1, static_cast<int>(AXIS_SCALE_), "Axes Asinh"));
 }
 ActionHead::~ActionHead(){

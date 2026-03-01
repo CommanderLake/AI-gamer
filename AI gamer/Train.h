@@ -1,5 +1,5 @@
 #pragma once
-#include "Viewer.h"
+struct __half;
 struct StateBatch;
 class NN;
 class Train{

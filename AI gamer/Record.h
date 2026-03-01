@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <fstream>
 #include <thread>
+struct cudnnContext;
 class Record{
 public:
 	explicit Record();

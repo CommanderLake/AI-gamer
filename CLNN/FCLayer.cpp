@@ -1,9 +1,12 @@
 #include "FCLayer.h"
+
+#include <algorithm>
+
 #include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <iostream>
-FCLayer::FCLayer(const cublasHandle_t cublasHandle, const int batchSize, const int inC, const int outC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :
-	cublasHandle_(cublasHandle), batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+FCLayer::FCLayer(const int batchSize, const int inC, const int outC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :
+	batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*outC_;
@@ -47,18 +50,18 @@ FCLayer::~FCLayer(){
 }
 __half* FCLayer::Forward(__half* data){
 	inData_ = data;
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_N, outC_, batchSize_, inC_, &alpha_, weights_, CUDA_R_16F, outC_, data, CUDA_R_16F, inC_, &beta0_, outData_, CUDA_R_16F, outC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_N, outC_, batchSize_, inC_, &alpha_, weights_, CUDA_R_16F, outC_, data, CUDA_R_16F, inC_, &beta0_, outData_, CUDA_R_16F, outC_, CUDA_R_32F));
 	if(useBias_){ AddBias(outData_, biases_, outC_, batchSize_); }
 	return outData_;
 }
 __half* FCLayer::Backward(__half* grad){
 	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_N, CUBLAS_OP_T, outC_, inC_, batchSize_, &alphaWeights_, grad, CUDA_R_16F, outC_, inData_, CUDA_R_16F, inC_, betaWeights, gradWeights_, CUDA_R_16F, outC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, outC_, inC_, batchSize_, &alphaWeights_, grad, CUDA_R_16F, outC_, inData_, CUDA_R_16F, inC_, betaWeights, gradWeights_, CUDA_R_16F, outC_, CUDA_R_32F));
 	if(useBias_){
 		const bool reset = betaWeights == &beta0_;
 		AccumulateBiasGrad(grad, gradBiases_, outC_, batchSize_, alphaWeights_, reset);
 	}
-	checkCUBLAS(cublasGemmEx(cublasHandle_, CUBLAS_OP_T, CUBLAS_OP_N, inC_, batchSize_, outC_, &alpha_, weights_, CUDA_R_16F, outC_, grad, CUDA_R_16F, outC_, &beta0_, outGrad_, CUDA_R_16F, inC_, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, inC_, batchSize_, outC_, &alpha_, weights_, CUDA_R_16F, outC_, grad, CUDA_R_16F, outC_, &beta0_, outGrad_, CUDA_R_16F, inC_, CUDA_R_32F));
 	return outGrad_;
 }
 void FCLayer::UpdateParameters(const float learningRate){

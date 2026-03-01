@@ -1,11 +1,10 @@
 #pragma once
 #include "Layer.h"
-#include <cublas_v2.h>
 #include <vector>
 #include <cuda_fp16.h>
 class ActionHead final : public Layer{
 public:
-	ActionHead(cudnnHandle_t cudnnHandle, cublasHandle_t cublasHandle, int batchSize, int patchRows, int patchCols, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
+	ActionHead(cudnnHandle_t cudnnHandle, int batchSize, int patchRows, int patchCols, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~ActionHead() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -18,7 +17,6 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	cudnnHandle_t cudnn_;
-	cublasHandle_t cublas_;
 	int batchSize_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
 	int inC_;

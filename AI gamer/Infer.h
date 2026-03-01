@@ -4,7 +4,6 @@
 #include "Train.h"
 #include <windows.h>
 #include <atomic>
-struct cublasContext;
 class NN;
 class Infer{
 public:
@@ -22,7 +21,6 @@ public:
 	HWND hwnd_ = nullptr;
 	std::atomic<bool> stop_ = false;
 	cudnnContext* cudnn_ = nullptr;
-	cublasContext* cublas_ = nullptr;
 	NN* nn_ = nullptr;
 	std::thread inferThread_;
 	std::thread listenThread_;
