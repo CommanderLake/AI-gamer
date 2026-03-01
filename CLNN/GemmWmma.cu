@@ -271,27 +271,31 @@ static CLNNStatusT ToClnnStatus(cublasStatus_t status){
 		default: return CLNN_STATUS_INTERNAL_ERROR;
 	}
 }
+cublasHandle_t handle = nullptr;
 static CLNNStatusT CublasGemm(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType){
-	cublasHandle_t handle{};
-	cublasStatus_t status = cublasCreate(&handle);
+	cublasStatus_t status = CUBLAS_STATUS_SUCCESS;
+	if(handle == nullptr){
+		status = cublasCreate(&handle);
+		cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+	}
 	if(status != CUBLAS_STATUS_SUCCESS) return ToClnnStatus(status);
 	status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
 	if(status == CUBLAS_STATUS_SUCCESS){
 		status = cublasGemmEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 	}
-	cublasDestroy(handle);
 	return ToClnnStatus(status);
 }
-static CLNNStatusT CublasGemmStridedBatched(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long sA, const void* B, cudaDataType Btype, int ldb, long long sB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long sC, int batchCount,
-	cudaDataType computeType){
-	cublasHandle_t handle{};
-	cublasStatus_t status = cublasCreate(&handle);
+static CLNNStatusT CublasGemmStridedBatched(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long sA, const void* B, cudaDataType Btype, int ldb, long long sB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long sC, int batchCount, cudaDataType computeType){
+	cublasStatus_t status = CUBLAS_STATUS_SUCCESS;
+	if(handle == nullptr){
+		status = cublasCreate(&handle);
+		cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+	}
 	if(status != CUBLAS_STATUS_SUCCESS) return ToClnnStatus(status);
 	status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
 	if(status == CUBLAS_STATUS_SUCCESS){
 		status = cublasGemmStridedBatchedEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, sA, B, Btype, ldb, sB, beta, C, Ctype, ldc, sC, batchCount, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 	}
-	cublasDestroy(handle);
 	return ToClnnStatus(status);
 }
 #endif
