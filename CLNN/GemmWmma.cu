@@ -4,613 +4,242 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 using namespace nvcuda;
-__device__ __forceinline__ __half LoadHalfElement(const __half* ptr, const int row, const int col, const int ld){ return ptr[row + col * ld]; }
-__device__ __forceinline__ __half GetOpA(const __half* A, const CLNNOpT transa, const int row, const int col, const int lda){ return transa == CLNN_OP_N ? LoadHalfElement(A, row, col, lda) : LoadHalfElement(A, col, row, lda); }
-__device__ __forceinline__ __half GetOpB(const __half* B, const CLNNOpT transb, const int row, const int col, const int ldb){ return transb == CLNN_OP_N ? LoadHalfElement(B, row, col, ldb) : LoadHalfElement(B, col, row, ldb); }
-
-__global__ __launch_bounds__(256) void GemmExWmmaKernelNN64(const __half* A, const __half* B, __half* C, const int m, const int n, const int k, const int lda, const int ldb, const int ldc, const float alpha, const float beta, const long long strideA, const long long strideB, const long long strideC){
-	constexpr int SKEW_A = 8;
-	constexpr int SKEW_B = 8;
-	constexpr int LDM_A = 64 + SKEW_A;
-	constexpr int LDM_B = 16 + SKEW_B;
-	const int batch = blockIdx.z;
-	const int rowBase = (int)blockIdx.x * 64;
-	const int colBase = (int)blockIdx.y * 64;
-	if(rowBase >= m || colBase >= n) return;
-	const __half* batchA = A + batch * strideA;
-	const __half* batchB = B + batch * strideB;
-	__half* batchC = C + batch * strideC;
-	const int tid = (int)threadIdx.x;
-	const int warpId = tid >> 5;
-	const int warpRow = warpId & 3;
-	const int warpCol = warpId >> 2;
-	__shared__ __align__(32) __half aTile[64 * LDM_A];
-	__shared__ __align__(32) __half bTile[64 * LDM_B];
-	__shared__ __align__(32) float cTile[64 * 64];
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc0;
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc1;
-	wmma::fill_fragment(acc0, 0.0f);
-	wmma::fill_fragment(acc1, 0.0f);
-	const bool vecA = (((uintptr_t)batchA & 3u) == 0u) && ((lda & 1) == 0);
-	const bool vecB = (((uintptr_t)batchB & 3u) == 0u) && ((ldb & 1) == 0);
-	const bool fullA = (rowBase + 63 < m);
-	const bool fullB = (colBase + 63 < n);
-	for(int kk = 0; kk < k; kk += 16){
-		const bool fullK = (kk + 15 < k);
-		if(vecA && fullA && fullK){
+template <bool Trans> __device__ __forceinline__ void LoadATile(__half* __restrict__ dst, const __half* __restrict__ src, int rowBase, int kk, int lda, int m, int k, int tid, bool fullM, bool fullK, bool vec){
+	const int TILE_M = 64;
+	const int TILE_K = 16;
+	if(!Trans){
+		const int S = TILE_M + 8;
+		if(fullM && fullK && vec){
 			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = kk + c;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchA + row + col * lda);
-				*reinterpret_cast<__half2*>(aTile + r0 + c * LDM_A) = v;
-			}
-		} else{
-			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row0 = rowBase + r0;
-				const int row1 = row0 + 1;
-				const int col = kk + c;
-				aTile[r0 + c * LDM_A] = (row0 < m && col < k) ? batchA[row0 + col * lda] : __float2half(0.0f);
-				aTile[r0 + 1 + c * LDM_A] = (row1 < m && col < k) ? batchA[row1 + col * lda] : __float2half(0.0f);
-			}
-		}
-		if(vecB && fullB && fullK){
-			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 7;
-				const int c = idx >> 3;
-				const int r0 = rp * 2;
-				const int row = kk + r0;
-				const int col = colBase + c;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchB + row + col * ldb);
-				*reinterpret_cast<__half2*>(bTile + r0 + c * LDM_B) = v;
-			}
-		} else{
-			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 7;
-				const int c = idx >> 3;
-				const int r0 = rp * 2;
-				const int row0 = kk + r0;
-				const int row1 = row0 + 1;
-				const int col = colBase + c;
-				bTile[r0 + c * LDM_B] = (row0 < k && col < n) ? batchB[row0 + col * ldb] : __float2half(0.0f);
-				bTile[r0 + 1 + c * LDM_B] = (row1 < k && col < n) ? batchB[row1 + col * ldb] : __float2half(0.0f);
-			}
-		}
-		__syncthreads();
-		wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> aFrag;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag0;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag1;
-		const int baseCol = warpCol * 32;
-		wmma::load_matrix_sync(aFrag, aTile + warpRow * 16, LDM_A);
-		wmma::load_matrix_sync(bFrag0, bTile + (baseCol + 0) * LDM_B, LDM_B);
-		wmma::load_matrix_sync(bFrag1, bTile + (baseCol + 16) * LDM_B, LDM_B);
-		wmma::mma_sync(acc0, aFrag, bFrag0, acc0);
-		wmma::mma_sync(acc1, aFrag, bFrag1, acc1);
-		__syncthreads();
-	}
-	const int baseCol = warpCol * 32;
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 0) * 64, acc0, 64, wmma::mem_col_major);
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 16) * 64, acc1, 64, wmma::mem_col_major);
-	__syncthreads();
-	const bool vecC = (((uintptr_t)batchC & 3u) == 0u) && ((ldc & 1) == 0);
-	const bool fullC = (rowBase + 63 < m) && (colBase + 63 < n);
-	if(vecC && fullC){
-		if(beta == 0.0f){
-			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0, alpha * v1);
-			}
-		} else{
-			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				const __half2 prevh = *reinterpret_cast<const __half2*>(batchC + row + col * ldc);
-				const float p0 = __half2float(__low2half(prevh));
-				const float p1 = __half2float(__high2half(prevh));
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0 + beta * p0, alpha * v1 + beta * p1);
-			}
-		}
-	} else{
-		if(beta == 0.0f){
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n) batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64]);
-			}
-		} else{
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n){
-					const float p = __half2float(batchC[row + col * ldc]);
-					batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64] + beta * p);
-				}
-			}
-		}
-	}
-}
-
-__global__ __launch_bounds__(256) void GemmExWmmaKernelTN64(const __half* A, const __half* B, __half* C, const int m, const int n, const int k, const int lda, const int ldb, const int ldc, const float alpha, const float beta, const long long strideA, const long long strideB, const long long strideC){
-	constexpr int SKEW_A = 8;
-	constexpr int SKEW_B = 8;
-	constexpr int LDM_A = 16 + SKEW_A;
-	constexpr int LDM_B = 16 + SKEW_B;
-	const int batch = blockIdx.z;
-	const int rowBase = (int)blockIdx.x * 64;
-	const int colBase = (int)blockIdx.y * 64;
-	if(rowBase >= m || colBase >= n) return;
-	const __half* batchA = A + batch * strideA;
-	const __half* batchB = B + batch * strideB;
-	__half* batchC = C + batch * strideC;
-	const int tid = (int)threadIdx.x;
-	const int warpId = tid >> 5;
-	const int warpRow = warpId & 3;
-	const int warpCol = warpId >> 2;
-	__shared__ __align__(32) __half aTile[64 * LDM_A];
-	__shared__ __align__(32) __half bTile[64 * LDM_B];
-	__shared__ __align__(32) float cTile[64 * 64];
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc0;
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc1;
-	wmma::fill_fragment(acc0, 0.0f);
-	wmma::fill_fragment(acc1, 0.0f);
-	const bool vecA = (((uintptr_t)batchA & 3u) == 0u) && ((lda & 1) == 0);
-	const bool vecB = (((uintptr_t)batchB & 3u) == 0u) && ((ldb & 1) == 0);
-	const bool fullA = (rowBase + 63 < m);
-	const bool fullB = (colBase + 63 < n);
-	for(int kk = 0; kk < k; kk += 16){
-		const bool fullK = (kk + 15 < k);
-		if(vecA && fullA && fullK){
-			for(int idx = tid; idx < 512; idx += 256){
-				const int i = idx & 63;
-				const int jp = idx >> 6;
-				const int j0 = jp * 2;
-				const int col = rowBase + i;
-				const int row = kk + j0;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchA + row + col * lda);
-				*reinterpret_cast<__half2*>(aTile + i * LDM_A + j0) = v;
-			}
-		} else{
-			for(int idx = tid; idx < 512; idx += 256){
-				const int i = idx & 63;
-				const int jp = idx >> 6;
-				const int j0 = jp * 2;
-				const int col = rowBase + i;
-				const int row0 = kk + j0;
-				const int row1 = row0 + 1;
-				aTile[i * LDM_A + j0] = (col < m && row0 < k) ? batchA[row0 + col * lda] : __float2half(0.0f);
-				aTile[i * LDM_A + j0 + 1] = (col < m && row1 < k) ? batchA[row1 + col * lda] : __float2half(0.0f);
-			}
-		}
-		if(vecB && fullB && fullK){
-			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 7;
-				const int c = idx >> 3;
-				const int r0 = rp * 2;
-				const int row = kk + r0;
-				const int col = colBase + c;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchB + row + col * ldb);
-				*reinterpret_cast<__half2*>(bTile + r0 + c * LDM_B) = v;
-			}
-		} else{
-			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 7;
-				const int c = idx >> 3;
-				const int r0 = rp * 2;
-				const int row0 = kk + r0;
-				const int row1 = row0 + 1;
-				const int col = colBase + c;
-				bTile[r0 + c * LDM_B] = (row0 < k && col < n) ? batchB[row0 + col * ldb] : __float2half(0.0f);
-				bTile[r0 + 1 + c * LDM_B] = (row1 < k && col < n) ? batchB[row1 + col * ldb] : __float2half(0.0f);
-			}
-		}
-		__syncthreads();
-		wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> aFrag;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag0;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag1;
-		const int baseCol = warpCol * 32;
-		wmma::load_matrix_sync(aFrag, aTile + (warpRow * 16) * LDM_A, LDM_A);
-		wmma::load_matrix_sync(bFrag0, bTile + (baseCol + 0) * LDM_B, LDM_B);
-		wmma::load_matrix_sync(bFrag1, bTile + (baseCol + 16) * LDM_B, LDM_B);
-		wmma::mma_sync(acc0, aFrag, bFrag0, acc0);
-		wmma::mma_sync(acc1, aFrag, bFrag1, acc1);
-		__syncthreads();
-	}
-	const int baseCol = warpCol * 32;
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 0) * 64, acc0, 64, wmma::mem_col_major);
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 16) * 64, acc1, 64, wmma::mem_col_major);
-	__syncthreads();
-	const bool vecC = (((uintptr_t)batchC & 3u) == 0u) && ((ldc & 1) == 0);
-	const bool fullC = (rowBase + 63 < m) && (colBase + 63 < n);
-	if(vecC && fullC){
-		if(beta == 0.0f){
-			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0, alpha * v1);
-			}
-		} else{
-			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				const __half2 prevh = *reinterpret_cast<const __half2*>(batchC + row + col * ldc);
-				const float p0 = __half2float(__low2half(prevh));
-				const float p1 = __half2float(__high2half(prevh));
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0 + beta * p0, alpha * v1 + beta * p1);
-			}
-		}
-	} else{
-		if(beta == 0.0f){
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n) batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64]);
-			}
-		} else{
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n){
-					const float p = __half2float(batchC[row + col * ldc]);
-					batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64] + beta * p);
-				}
-			}
-		}
-	}
-}
-
-__global__ __launch_bounds__(256) void GemmExWmmaKernelNT64(const __half* A, const __half* B, __half* C, const int m, const int n, const int k, const int lda, const int ldb, const int ldc, const float alpha, const float beta, const long long strideA, const long long strideB, const long long strideC){
-	constexpr int SKEW_A = 8;
-	constexpr int SKEW_B = 8;
-	constexpr int LDM_A = 64 + SKEW_A;
-	constexpr int LDM_B = 16 + SKEW_B;
-	const int batch = blockIdx.z;
-	const int rowBase = (int)blockIdx.x * 64;
-	const int colBase = (int)blockIdx.y * 64;
-	if(rowBase >= m || colBase >= n) return;
-	const __half* batchA = A + batch * strideA;
-	const __half* batchB = B + batch * strideB;
-	__half* batchC = C + batch * strideC;
-	const int tid = (int)threadIdx.x;
-	const int warpId = tid >> 5;
-	const int warpRow = warpId & 3;
-	const int warpCol = warpId >> 2;
-	__shared__ __align__(32) __half aTile[64 * LDM_A];
-	__shared__ __align__(32) __half bTile[64 * LDM_B];
-	__shared__ __align__(32) float cTile[64 * 64];
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc0;
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc1;
-	wmma::fill_fragment(acc0, 0.0f);
-	wmma::fill_fragment(acc1, 0.0f);
-	const bool vecA = (((uintptr_t)batchA & 3u) == 0u) && ((lda & 1) == 0);
-	const bool vecB = (((uintptr_t)batchB & 3u) == 0u) && ((ldb & 1) == 0);
-	const bool fullA = (rowBase + 63 < m);
-	const bool fullB = (colBase + 63 < n);
-	for(int kk = 0; kk < k; kk += 16){
-		const bool fullK = (kk + 15 < k);
-		if(vecA && fullA && fullK){
-			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = kk + c;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchA + row + col * lda);
-				*reinterpret_cast<__half2*>(aTile + r0 + c * LDM_A) = v;
-			}
-		} else{
-			for(int idx = tid; idx < 512; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row0 = rowBase + r0;
-				const int row1 = row0 + 1;
-				const int col = kk + c;
-				aTile[r0 + c * LDM_A] = (row0 < m && col < k) ? batchA[row0 + col * lda] : __float2half(0.0f);
-				aTile[r0 + 1 + c * LDM_A] = (row1 < m && col < k) ? batchA[row1 + col * lda] : __float2half(0.0f);
-			}
-		}
-		if(vecB && fullB && fullK){
-			for(int idx = tid; idx < 512; idx += 256){
-				const int jp = idx & 31;
-				const int r = idx >> 5;
-				const int j0 = jp * 2;
-				const int row = colBase + j0;
-				const int col = kk + r;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchB + row + col * ldb);
-				bTile[r + (j0 + 0) * LDM_B] = __low2half(v);
-				bTile[r + (j0 + 1) * LDM_B] = __high2half(v);
+				int rp = idx & 31;
+				int c = idx >> 5;
+				int r = rp << 1;
+				*reinterpret_cast<__half2*>(dst + r + c * S) = *reinterpret_cast<const __half2*>(src + (rowBase + r) + static_cast<long long>(kk + c) * lda);
 			}
 		} else{
 			for(int idx = tid; idx < 1024; idx += 256){
-				const int r = idx & 15;
-				const int j = idx >> 4;
-				const int row = colBase + j;
-				const int col = kk + r;
-				bTile[r + j * LDM_B] = (row < n && col < k) ? batchB[row + col * ldb] : __float2half(0.0f);
-			}
-		}
-		__syncthreads();
-		wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> aFrag;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag0;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag1;
-		const int baseCol = warpCol * 32;
-		wmma::load_matrix_sync(aFrag, aTile + warpRow * 16, LDM_A);
-		wmma::load_matrix_sync(bFrag0, bTile + (baseCol + 0) * LDM_B, LDM_B);
-		wmma::load_matrix_sync(bFrag1, bTile + (baseCol + 16) * LDM_B, LDM_B);
-		wmma::mma_sync(acc0, aFrag, bFrag0, acc0);
-		wmma::mma_sync(acc1, aFrag, bFrag1, acc1);
-		__syncthreads();
-	}
-	const int baseCol = warpCol * 32;
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 0) * 64, acc0, 64, wmma::mem_col_major);
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 16) * 64, acc1, 64, wmma::mem_col_major);
-	__syncthreads();
-	const bool vecC = (((uintptr_t)batchC & 3u) == 0u) && ((ldc & 1) == 0);
-	const bool fullC = (rowBase + 63 < m) && (colBase + 63 < n);
-	if(vecC && fullC){
-		if(beta == 0.0f){
-			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0, alpha * v1);
-			}
-		} else{
-			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				const __half2 prevh = *reinterpret_cast<const __half2*>(batchC + row + col * ldc);
-				const float p0 = __half2float(__low2half(prevh));
-				const float p1 = __half2float(__high2half(prevh));
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0 + beta * p0, alpha * v1 + beta * p1);
+				int r = idx & 63;
+				int c = idx >> 6;
+				int gr = rowBase + r;
+				int gc = kk + c;
+				dst[r + c * S] = (gr < m && gc < k) ? src[gr + static_cast<long long>(gc) * lda] : __float2half(0.0f);
 			}
 		}
 	} else{
-		if(beta == 0.0f){
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n) batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64]);
-			}
-		} else{
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n){
-					const float p = __half2float(batchC[row + col * ldc]);
-					batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64] + beta * p);
-				}
-			}
-		}
-	}
-}
-
-__global__ __launch_bounds__(256) void GemmExWmmaKernelTT64(const __half* A, const __half* B, __half* C, const int m, const int n, const int k, const int lda, const int ldb, const int ldc, const float alpha, const float beta, const long long strideA, const long long strideB, const long long strideC){
-	constexpr int SKEW_A = 8;
-	constexpr int SKEW_B = 8;
-	constexpr int LDM_A = 16 + SKEW_A;
-	constexpr int LDM_B = 16 + SKEW_B;
-	const int batch = blockIdx.z;
-	const int rowBase = (int)blockIdx.x * 64;
-	const int colBase = (int)blockIdx.y * 64;
-	if(rowBase >= m || colBase >= n) return;
-	const __half* batchA = A + batch * strideA;
-	const __half* batchB = B + batch * strideB;
-	__half* batchC = C + batch * strideC;
-	const int tid = (int)threadIdx.x;
-	const int warpId = tid >> 5;
-	const int warpRow = warpId & 3;
-	const int warpCol = warpId >> 2;
-	__shared__ __align__(32) __half aTile[64 * LDM_A];
-	__shared__ __align__(32) __half bTile[64 * LDM_B];
-	__shared__ __align__(32) float cTile[64 * 64];
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc0;
-	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc1;
-	wmma::fill_fragment(acc0, 0.0f);
-	wmma::fill_fragment(acc1, 0.0f);
-	const bool vecA = (((uintptr_t)batchA & 3u) == 0u) && ((lda & 1) == 0);
-	const bool vecB = (((uintptr_t)batchB & 3u) == 0u) && ((ldb & 1) == 0);
-	const bool fullA = (rowBase + 63 < m);
-	const bool fullB = (colBase + 63 < n);
-	for(int kk = 0; kk < k; kk += 16){
-		const bool fullK = (kk + 15 < k);
-		if(vecA && fullA && fullK){
+		const int S = TILE_K + 8;
+		if(fullM && fullK && vec){
 			for(int idx = tid; idx < 512; idx += 256){
-				const int i = idx & 63;
-				const int jp = idx >> 6;
-				const int j0 = jp * 2;
-				const int col = rowBase + i;
-				const int row = kk + j0;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchA + row + col * lda);
-				*reinterpret_cast<__half2*>(aTile + i * LDM_A + j0) = v;
-			}
-		} else{
-			for(int idx = tid; idx < 512; idx += 256){
-				const int i = idx & 63;
-				const int jp = idx >> 6;
-				const int j0 = jp * 2;
-				const int col = rowBase + i;
-				const int row0 = kk + j0;
-				const int row1 = row0 + 1;
-				aTile[i * LDM_A + j0] = (col < m && row0 < k) ? batchA[row0 + col * lda] : __float2half(0.0f);
-				aTile[i * LDM_A + j0 + 1] = (col < m && row1 < k) ? batchA[row1 + col * lda] : __float2half(0.0f);
-			}
-		}
-		if(vecB && fullB && fullK){
-			for(int idx = tid; idx < 512; idx += 256){
-				const int jp = idx & 31;
-				const int r = idx >> 5;
-				const int j0 = jp * 2;
-				const int row = colBase + j0;
-				const int col = kk + r;
-				const __half2 v = *reinterpret_cast<const __half2*>(batchB + row + col * ldb);
-				bTile[r + (j0 + 0) * LDM_B] = __low2half(v);
-				bTile[r + (j0 + 1) * LDM_B] = __high2half(v);
+				int r = idx & 63;
+				int cp = idx >> 6;
+				int c = cp << 1;
+				*reinterpret_cast<__half2*>(dst + r * S + c) = *reinterpret_cast<const __half2*>(src + (kk + c) + static_cast<long long>(rowBase + r) * lda);
 			}
 		} else{
 			for(int idx = tid; idx < 1024; idx += 256){
-				const int r = idx & 15;
-				const int j = idx >> 4;
-				const int row = colBase + j;
-				const int col = kk + r;
-				bTile[r + j * LDM_B] = (row < n && col < k) ? batchB[row + col * ldb] : __float2half(0.0f);
+				int r = idx & 63;
+				int c = idx >> 6;
+				int gr = kk + c;
+				int gc = rowBase + r;
+				dst[r * S + c] = (gc < m && gr < k) ? src[gr + static_cast<long long>(gc) * lda] : __float2half(0.0f);
 			}
 		}
-		__syncthreads();
-		wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> aFrag;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag0;
-		wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag1;
-		const int baseCol = warpCol * 32;
-		wmma::load_matrix_sync(aFrag, aTile + (warpRow * 16) * LDM_A, LDM_A);
-		wmma::load_matrix_sync(bFrag0, bTile + (baseCol + 0) * LDM_B, LDM_B);
-		wmma::load_matrix_sync(bFrag1, bTile + (baseCol + 16) * LDM_B, LDM_B);
-		wmma::mma_sync(acc0, aFrag, bFrag0, acc0);
-		wmma::mma_sync(acc1, aFrag, bFrag1, acc1);
-		__syncthreads();
 	}
-	const int baseCol = warpCol * 32;
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 0) * 64, acc0, 64, wmma::mem_col_major);
-	wmma::store_matrix_sync(cTile + (warpRow * 16) + (baseCol + 16) * 64, acc1, 64, wmma::mem_col_major);
+}
+template <bool Trans> __device__ __forceinline__ void LoadBTile(__half* __restrict__ dst, const __half* __restrict__ src, int colBase, int kk, int ldb, int n, int k, int tid, bool fullN, bool fullK, bool vec){
+	const int TILE_K = 16;
+	const int S = TILE_K + 8;
+	if(!Trans){
+		if(fullN && fullK && vec){
+			for(int idx = tid; idx < 512; idx += 256){
+				int rp = idx & 7;
+				int c = idx >> 3;
+				int r = rp << 1;
+				*reinterpret_cast<__half2*>(dst + r + c * S) = *reinterpret_cast<const __half2*>(src + (kk + r) + static_cast<long long>(colBase + c) * ldb);
+			}
+		} else{
+			for(int idx = tid; idx < 1024; idx += 256){
+				int r = idx & 15;
+				int c = idx >> 4;
+				int gr = kk + r;
+				int gc = colBase + c;
+				dst[r + c * S] = (gr < k && gc < n) ? src[gr + static_cast<long long>(gc) * ldb] : __float2half(0.0f);
+			}
+		}
+	} else{
+		if(fullN && fullK && vec){
+			for(int idx = tid; idx < 512; idx += 256){
+				int r = idx >> 5;
+				int cp = idx & 31;
+				int c = cp << 1;
+				__half2 v = *reinterpret_cast<const __half2*>(src + (colBase + c) + static_cast<long long>(kk + r) * ldb);
+				dst[r + c * S] = __low2half(v);
+				dst[r + (c + 1) * S] = __high2half(v);
+			}
+		} else{
+			for(int idx = tid; idx < 1024; idx += 256){
+				int r = idx & 15;
+				int c = idx >> 4;
+				int gn = colBase + c;
+				int gk = kk + r;
+				dst[r + c * S] = (gn < n && gk < k) ? src[gn + static_cast<long long>(gk) * ldb] : __float2half(0.0f);
+			}
+		}
+	}
+}
+template <bool TransA, bool TransB> __global__ __launch_bounds__(256, 3) void HgemmWmma64x64(const __half* __restrict__ A, const __half* __restrict__ B, __half* __restrict__ C, const int m, const int n, const int k, const int lda, const int ldb, const int ldc, const float alpha, const float beta, const long long strideA, const long long strideB, const long long strideC){
+	const int TILE_M = 64;
+	const int TILE_N = 64;
+	const int TILE_K = 16;
+	const int LDA_SM = TransA ? (TILE_K + 8) : (TILE_M + 8);
+	const int LDB_SM = TILE_K + 8;
+	const int A_EL = TransA ? (TILE_M * LDA_SM) : (TILE_K * LDA_SM);
+	const int B_EL = TILE_N * LDB_SM;
+	__shared__ __align__(32) char smem_raw[16384];
+	__half* aBuf[2];
+	__half* bBuf[2];
+	aBuf[0] = reinterpret_cast<__half*>(smem_raw);
+	bBuf[0] = aBuf[0] + A_EL;
+	aBuf[1] = bBuf[0] + B_EL;
+	bBuf[1] = aBuf[1] + A_EL;
+	auto cBuf = reinterpret_cast<float*>(smem_raw);
+	const int batch = blockIdx.z;
+	const int rowBase = static_cast<int>(blockIdx.x) * TILE_M;
+	const int colBase = static_cast<int>(blockIdx.y) * TILE_N;
+	if(rowBase >= m || colBase >= n) return;
+	const __half* bA = A + batch * strideA;
+	const __half* bB = B + batch * strideB;
+	__half* bC = C + batch * strideC;
+	const int tid = static_cast<int>(threadIdx.x);
+	const int warpId = tid >> 5;
+	const int warpRow = warpId & 3;
+	const int warpCol = warpId >> 2;
+	const bool fullM = (rowBase + TILE_M <= m);
+	const bool fullN = (colBase + TILE_N <= n);
+	const bool vecA = ((reinterpret_cast<uintptr_t>(bA) & 3u) == 0u) && ((lda & 1) == 0);
+	const bool vecB = ((reinterpret_cast<uintptr_t>(bB) & 3u) == 0u) && ((ldb & 1) == 0);
+	wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc0, acc1;
+	fill_fragment(acc0, 0.0f);
+	fill_fragment(acc1, 0.0f);
+	const int numK = (k + TILE_K - 1) / TILE_K;
+	{
+		bool fk = (TILE_K <= k);
+		LoadATile<TransA>(aBuf[0], bA, rowBase, 0, lda, m, k, tid, fullM, fk, vecA);
+		LoadBTile<TransB>(bBuf[0], bB, colBase, 0, ldb, n, k, tid, fullN, fk, vecB);
+	}
 	__syncthreads();
-	const bool vecC = (((uintptr_t)batchC & 3u) == 0u) && ((ldc & 1) == 0);
-	const bool fullC = (rowBase + 63 < m) && (colBase + 63 < n);
-	if(vecC && fullC){
+	for(int ti = 0; ti < numK; ++ti){
+		const int cur = ti & 1;
+		const int nxt = 1 - cur;
+		if(ti + 1 < numK){
+			int nextKK = (ti + 1) * TILE_K;
+			bool fkn = (nextKK + TILE_K <= k);
+			LoadATile<TransA>(aBuf[nxt], bA, rowBase, nextKK, lda, m, k, tid, fullM, fkn, vecA);
+			LoadBTile<TransB>(bBuf[nxt], bB, colBase, nextKK, ldb, n, k, tid, fullN, fkn, vecB);
+		}
+		{
+			wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bFrag0, bFrag1;
+			const int bc = warpCol * 32;
+			load_matrix_sync(bFrag0, bBuf[cur] + bc * LDB_SM, LDB_SM);
+			load_matrix_sync(bFrag1, bBuf[cur] + (bc + 16) * LDB_SM, LDB_SM);
+			if(!TransA){
+				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::col_major> aFrag;
+				load_matrix_sync(aFrag, aBuf[cur] + warpRow * 16, LDA_SM);
+				mma_sync(acc0, aFrag, bFrag0, acc0);
+				mma_sync(acc1, aFrag, bFrag1, acc1);
+			} else{
+				wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> aFrag;
+				load_matrix_sync(aFrag, aBuf[cur] + warpRow * 16 * LDA_SM, LDA_SM);
+				mma_sync(acc0, aFrag, bFrag0, acc0);
+				mma_sync(acc1, aFrag, bFrag1, acc1);
+			}
+		}
+		if(ti + 1 < numK) __syncthreads();
+	}
+	__syncthreads();
+	const int bc = warpCol * 32;
+	store_matrix_sync(cBuf + warpRow * 16 + bc * TILE_M, acc0, TILE_M, wmma::mem_col_major);
+	store_matrix_sync(cBuf + warpRow * 16 + (bc + 16) * TILE_M, acc1, TILE_M, wmma::mem_col_major);
+	__syncthreads();
+	const bool vecC = ((reinterpret_cast<uintptr_t>(bC) & 3u) == 0u) && ((ldc & 1) == 0);
+	const bool fullC = fullM && fullN;
+	if(fullC && vecC){
 		if(beta == 0.0f){
 			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0, alpha * v1);
+				int rp = idx & 31;
+				int c = idx >> 5;
+				int r = rp << 1;
+				float v0 = cBuf[r + c * TILE_M];
+				float v1 = cBuf[r + 1 + c * TILE_M];
+				*reinterpret_cast<__half2*>(bC + (rowBase + r) + static_cast<long long>(colBase + c) * ldc) = __floats2half2_rn(alpha * v0, alpha * v1);
 			}
 		} else{
 			for(int idx = tid; idx < 2048; idx += 256){
-				const int rp = idx & 31;
-				const int c = idx >> 5;
-				const int r0 = rp * 2;
-				const int row = rowBase + r0;
-				const int col = colBase + c;
-				const float v0 = cTile[r0 + c * 64];
-				const float v1 = cTile[r0 + 1 + c * 64];
-				const __half2 prevh = *reinterpret_cast<const __half2*>(batchC + row + col * ldc);
-				const float p0 = __half2float(__low2half(prevh));
-				const float p1 = __half2float(__high2half(prevh));
-				*reinterpret_cast<__half2*>(batchC + row + col * ldc) = __floats2half2_rn(alpha * v0 + beta * p0, alpha * v1 + beta * p1);
+				int rp = idx & 31;
+				int c = idx >> 5;
+				int r = rp << 1;
+				float v0 = cBuf[r + c * TILE_M];
+				float v1 = cBuf[r + 1 + c * TILE_M];
+				long long ga = (rowBase + r) + static_cast<long long>(colBase + c) * ldc;
+				__half2 prev = *reinterpret_cast<const __half2*>(bC + ga);
+				float p0 = __half2float(__low2half(prev));
+				float p1 = __half2float(__high2half(prev));
+				*reinterpret_cast<__half2*>(bC + ga) = __floats2half2_rn(alpha * v0 + beta * p0, alpha * v1 + beta * p1);
 			}
 		}
 	} else{
 		if(beta == 0.0f){
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n) batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64]);
+			for(int idx = tid; idx < TILE_M * TILE_N; idx += 256){
+				int r = idx & (TILE_M - 1);
+				int c = idx >> 6;
+				int gr = rowBase + r;
+				int gc = colBase + c;
+				if(gr < m && gc < n)
+					bC[gr + static_cast<long long>(gc) * ldc] = __float2half(alpha * cBuf[r + c * TILE_M]);
 			}
 		} else{
-			for(int idx = tid; idx < 4096; idx += 256){
-				const int r = idx & 63;
-				const int c = idx >> 6;
-				const int row = rowBase + r;
-				const int col = colBase + c;
-				if(row < m && col < n){
-					const float p = __half2float(batchC[row + col * ldc]);
-					batchC[row + col * ldc] = __float2half(alpha * cTile[r + c * 64] + beta * p);
+			for(int idx = tid; idx < TILE_M * TILE_N; idx += 256){
+				int r = idx & (TILE_M - 1);
+				int c = idx >> 6;
+				int gr = rowBase + r;
+				int gc = colBase + c;
+				if(gr < m && gc < n){
+					long long ga = gr + static_cast<long long>(gc) * ldc;
+					float p = __half2float(bC[ga]);
+					bC[ga] = __float2half(alpha * cBuf[r + c * TILE_M] + beta * p);
 				}
 			}
 		}
 	}
 }
-
-bool CanUseWmma(const cudaDataType Atype, const cudaDataType Btype, const cudaDataType Ctype, const cudaDataType computeType, const CLNNOpT transa, const CLNNOpT transb){
+bool CanUseWmma(cudaDataType Atype, cudaDataType Btype, cudaDataType Ctype, cudaDataType computeType, CLNNOpT transa, CLNNOpT transb){
 	if(Atype != CUDA_R_16F || Btype != CUDA_R_16F || Ctype != CUDA_R_16F) return false;
 	if(computeType != CUDA_R_32F) return false;
-	if(transa != CLNN_OP_N && transa != CLNN_OP_T || transb != CLNN_OP_N && transb != CLNN_OP_T) return false;
+	if((transa != CLNN_OP_N && transa != CLNN_OP_T) || (transb != CLNN_OP_N && transb != CLNN_OP_T)) return false;
 	cudaDeviceProp prop{};
 	if(cudaGetDeviceProperties(&prop, 0) != cudaSuccess) return false;
 	return prop.major == 7;
 }
-
-float ReadAlpha(const void* alpha){ return alpha ? *static_cast<const float*>(alpha) : 1.0f; }
-float ReadBeta(const void* beta){ return beta ? *static_cast<const float*>(beta) : 0.0f; }
-
-CLNNStatusT CLNNGemmEx(const CLNNOpT transa, const CLNNOpT transb, const int m, const int n, const int k, const void* alpha, const void* A, const cudaDataType Atype, const int lda, const void* B, const cudaDataType Btype, const int ldb, const void* beta, void* C, const cudaDataType Ctype, const int ldc, const cudaDataType computeType){
-	if(!CanUseWmma(Atype, Btype, Ctype, computeType, transa, transb)) return CLNN_STATUS_NOT_SUPPORTED;
-	cudaStream_t stream = nullptr;
-	const float a = ReadAlpha(alpha);
-	const float b = ReadBeta(beta);
-	const dim3 block(256, 1, 1);
-	const dim3 grid(DivCeil(m, 64), DivCeil(n, 64), 1);
-	if(transa == CLNN_OP_N && transb == CLNN_OP_N) GemmExWmmaKernelNN64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, 0, 0, 0);
-	else if(transa == CLNN_OP_T && transb == CLNN_OP_N) GemmExWmmaKernelTN64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, 0, 0, 0);
-	else if(transa == CLNN_OP_N && transb == CLNN_OP_T) GemmExWmmaKernelNT64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, 0, 0, 0);
-	else GemmExWmmaKernelTT64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, 0, 0, 0);
-	if(cudaPeekAtLastError() != cudaSuccess) return CLNN_STATUS_EXECUTION_FAILED;
-	return CLNN_STATUS_SUCCESS;
+static float ReadAlpha(const void* a){ return a ? *static_cast<const float*>(a) : 1.0f; }
+static float ReadBeta(const void* b){ return b ? *static_cast<const float*>(b) : 0.0f; }
+template <bool TA, bool TB> static void LaunchGemm(const __half* A, const __half* B, __half* C, int m, int n, int k, int lda, int ldb, int ldc, float alpha, float beta, long long sA, long long sB, long long sC, int batchCount, cudaStream_t stream){
+	const dim3 block(256);
+	const dim3 grid(DivCeil(m, 64), DivCeil(n, 64), batchCount);
+	HgemmWmma64x64<TA, TB><<<grid, block, 0, stream>>>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC);
 }
-
-CLNNStatusT CLNNGemmStridedBatchedEx(const CLNNOpT transa, const CLNNOpT transb, const int m, const int n, const int k, const void* alpha, const void* A, const cudaDataType Atype, const int lda, const long long int strideA, const void* B, const cudaDataType Btype, const int ldb, const long long int strideB, const void* beta, void* C, const cudaDataType Ctype, const int ldc, const long long int strideC, const int batchCount, const cudaDataType computeType){
+static CLNNStatusT DispatchGemm(CLNNOpT ta, CLNNOpT tb, const __half* A, const __half* B, __half* C, int m, int n, int k, int lda, int ldb, int ldc, float alpha, float beta, long long sA, long long sB, long long sC, int batchCount, cudaStream_t stream){
+	if(ta == CLNN_OP_N && tb == CLNN_OP_N) LaunchGemm<false, false>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, batchCount, stream);
+	else if(ta == CLNN_OP_T && tb == CLNN_OP_N) LaunchGemm<true, false>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, batchCount, stream);
+	else if(ta == CLNN_OP_N && tb == CLNN_OP_T) LaunchGemm<false, true>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, batchCount, stream);
+	else LaunchGemm<true, true>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, batchCount, stream);
+	checkCUDA(cudaDeviceSynchronize());
+	return (cudaPeekAtLastError() == cudaSuccess) ? CLNN_STATUS_SUCCESS : CLNN_STATUS_EXECUTION_FAILED;
+}
+CLNNStatusT CLNNGemmEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType){
+	if(!CanUseWmma(Atype, Btype, Ctype, computeType, transa, transb)) return CLNN_STATUS_NOT_SUPPORTED;
+	return DispatchGemm(transa, transb, static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, ReadAlpha(alpha), ReadBeta(beta), 0, 0, 0, 1, nullptr);
+}
+CLNNStatusT CLNNGemmStridedBatchedEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long sA, const void* B, cudaDataType Btype, int ldb, long long sB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long sC, int batchCount, cudaDataType computeType){
 	if(batchCount <= 0) return CLNN_STATUS_INVALID_VALUE;
 	if(!CanUseWmma(Atype, Btype, Ctype, computeType, transa, transb)) return CLNN_STATUS_NOT_SUPPORTED;
-	cudaStream_t stream = nullptr;
-	const float a = ReadAlpha(alpha);
-	const float b = ReadBeta(beta);
-	const dim3 block(256, 1, 1);
-	const dim3 grid(DivCeil(m, 64), DivCeil(n, 64), batchCount);
-	if(transa == CLNN_OP_N && transb == CLNN_OP_N) GemmExWmmaKernelNN64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, strideA, strideB, strideC);
-	else if(transa == CLNN_OP_T && transb == CLNN_OP_N) GemmExWmmaKernelTN64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, strideA, strideB, strideC);
-	else if(transa == CLNN_OP_N && transb == CLNN_OP_T) GemmExWmmaKernelNT64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, strideA, strideB, strideC);
-	else GemmExWmmaKernelTT64<<<grid, block, 0, stream>>>(static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, a, b, strideA, strideB, strideC);
-	if(cudaPeekAtLastError() != cudaSuccess) return CLNN_STATUS_EXECUTION_FAILED;
-	return CLNN_STATUS_SUCCESS;
+	return DispatchGemm(transa, transb, static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, ReadAlpha(alpha), ReadBeta(beta), sA, sB, sC, batchCount, nullptr);
 }

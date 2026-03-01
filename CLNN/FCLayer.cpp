@@ -1,10 +1,8 @@
 #include "FCLayer.h"
-
-#include <algorithm>
-
 #include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <iostream>
+#include <algorithm>
 FCLayer::FCLayer(const int batchSize, const int inC, const int outC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :
 	batchSize_(batchSize), inC_(inC), outC_(outC), useBias_(useBias), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
