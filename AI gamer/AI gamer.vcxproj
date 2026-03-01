@@ -71,6 +71,8 @@
     <CudaCompile>
       <CodeGeneration>compute_70,sm_70</CodeGeneration>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <AdditionalOptions>%(AdditionalOptions) -Xcompiler "/MTd" -Xcompiler "/D_DEBUG" -Xcompiler "/UNDEBUG" -Xcompiler "/D_ITERATOR_DEBUG_LEVEL=2" -Xcompiler "/D_HAS_ITERATOR_DEBUGGING=1"</AdditionalOptions>
+      <AdditionalCompilerOptions>%(AdditionalCompilerOptions) -Xcompiler "/MTd" -Xcompiler "/D_DEBUG" -Xcompiler "/UNDEBUG" -Xcompiler "/D_ITERATOR_DEBUG_LEVEL=2" -Xcompiler "/D_HAS_ITERATOR_DEBUGGING=1"</AdditionalCompilerOptions>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -104,6 +106,8 @@
       <CodeGeneration>compute_70,sm_70</CodeGeneration>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <FastMath>true</FastMath>
+      <AdditionalOptions>%(AdditionalOptions) -Xcompiler "/MT" -Xcompiler "/DNDEBUG" -Xcompiler "/U_DEBUG" -Xcompiler "/D_ITERATOR_DEBUG_LEVEL=0" -Xcompiler "/D_HAS_ITERATOR_DEBUGGING=0"</AdditionalOptions>
+      <AdditionalCompilerOptions>%(AdditionalCompilerOptions) -Xcompiler "/MT" -Xcompiler "/DNDEBUG" -Xcompiler "/U_DEBUG" -Xcompiler "/D_ITERATOR_DEBUG_LEVEL=0" -Xcompiler "/D_HAS_ITERATOR_DEBUGGING=0"</AdditionalCompilerOptions>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>

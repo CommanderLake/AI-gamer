@@ -158,6 +158,7 @@
     <CudaCompile>
       <CodeGeneration>compute_70,sm_70</CodeGeneration>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <AdditionalOptions>-Xcompiler "/MT" %(AdditionalOptions)</AdditionalOptions>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -184,6 +185,7 @@
     <CudaCompile>
       <CodeGeneration>compute_70,sm_70</CodeGeneration>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <AdditionalOptions>-Xcompiler "/MTd /D_DEBUG /D_ITERATOR_DEBUG_LEVEL=2" %(AdditionalOptions)</AdditionalOptions>
     </CudaCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
