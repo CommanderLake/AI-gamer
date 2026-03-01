@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <ctime>
 curandGenerator_t generator_;
-size_t GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
+size_t MPC, GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 const char* clnnGetErrorString(const CLNNStatusT status){
 	switch(status){
 		case CLNN_STATUS_SUCCESS:
@@ -86,11 +86,11 @@ void InitCUDA(){
 	int minor;
 	cuDeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, 0);
 	const auto TPM = ConvertSmVer2Cores(major, minor);
-	const auto MP = prop.multiProcessorCount;
+	MPC = prop.multiProcessorCount;
 	const auto warps = prop.warpSize;
 	maxTPB = prop.maxThreadsPerBlock;
 	smemPB = prop.sharedMemPerBlock;
-	GS = warps*MP;
+	GS = warps*MPC;
 	BS = TPM;
 	int TPB = maxTPB;
 	TPB = TPB/warps*warps;

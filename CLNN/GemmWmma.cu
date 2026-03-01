@@ -18,16 +18,16 @@ template <bool Trans, int TK> __device__ __forceinline__ void LoadATile(__half* 
 		constexpr int S = TILE_M + 8;
 		if(fullM && fullK && vec){
 			for(int idx = tid; idx < VEC; idx += 256){
-				int rp = idx & 31;
-				int c = idx >> 5;
-				int r = rp << 1;
+				const int rp = idx & 31;
+				const int c = idx >> 5;
+				const int r = rp << 1;
 				*reinterpret_cast<__half2*>(dst + r + c * S) = *reinterpret_cast<const __half2*>(src + (rowBase + r) + static_cast<long long>(kk + c) * lda);
 			}
 		} else{
 			for(int idx = tid; idx < ELM; idx += 256){
-				int r = idx & 63;
-				int c = idx >> 6;
-				int gr = rowBase + r, gc = kk + c;
+				const int r = idx & 63;
+				const int c = idx >> 6;
+				const int gr = rowBase + r, gc = kk + c;
 				dst[r + c * S] = (gr < m && gc < k) ? src[gr + static_cast<long long>(gc) * lda] : __float2half(0.f);
 			}
 		}
@@ -35,16 +35,16 @@ template <bool Trans, int TK> __device__ __forceinline__ void LoadATile(__half* 
 		constexpr int S = TK + 8;
 		if(fullM && fullK && vec){
 			for(int idx = tid; idx < VEC; idx += 256){
-				int r = idx & 63;
-				int cp = idx >> 6;
-				int c = cp << 1;
+				const int r = idx & 63;
+				const int cp = idx >> 6;
+				const int c = cp << 1;
 				*reinterpret_cast<__half2*>(dst + r * S + c) = *reinterpret_cast<const __half2*>(src + (kk + c) + static_cast<long long>(rowBase + r) * lda);
 			}
 		} else{
 			for(int idx = tid; idx < ELM; idx += 256){
-				int r = idx & 63;
-				int c = idx >> 6;
-				int gr = kk + c, gc = rowBase + r;
+				const int r = idx & 63;
+				const int c = idx >> 6;
+				const int gr = kk + c, gc = rowBase + r;
 				dst[r * S + c] = (gc < m && gr < k) ? src[gr + static_cast<long long>(gc) * lda] : __float2half(0.f);
 			}
 		}
@@ -59,54 +59,57 @@ template <bool Trans, int TK> __device__ __forceinline__ void LoadBTile(__half* 
 	if(!Trans){
 		if(fullN && fullK && vec){
 			for(int idx = tid; idx < VEC; idx += 256){
-				int rp = idx & (HTK - 1);     
-				int c = idx / HTK;      
-				int r = rp << 1;
+				const int rp = idx & (HTK - 1);
+				const int c = idx / HTK;
+				const int r = rp << 1;
 				*reinterpret_cast<__half2*>(dst + r + c * S) = *reinterpret_cast<const __half2*>(src + (kk + r) + static_cast<long long>(colBase + c) * ldb);
 			}
 		} else{
 			for(int idx = tid; idx < ELM; idx += 256){
-				int r = idx & (TK - 1);
-				int c = idx / TK;
-				int gr = kk + r, gc = colBase + c;
+				const int r = idx & (TK - 1);
+				const int c = idx / TK;
+				const int gr = kk + r, gc = colBase + c;
 				dst[r + c * S] = (gr < k && gc < n) ? src[gr + static_cast<long long>(gc) * ldb] : __float2half(0.f);
 			}
 		}
 	} else{
 		if(fullN && fullK && vec){
 			for(int idx = tid; idx < VEC; idx += 256){
-				int r = idx / HN;   
-				int cp = idx & (HN - 1);   
-				int c = cp << 1;
-				__half2 v = *reinterpret_cast<const __half2*>(src + (colBase + c) + static_cast<long long>(kk + r) * ldb);
+				const int r = idx / HN;
+				const int cp = idx & (HN - 1);
+				const int c = cp << 1;
+				const __half2 v = *reinterpret_cast<const __half2*>(src + (colBase + c) + static_cast<long long>(kk + r) * ldb);
 				dst[r + c * S] = __low2half(v);
 				dst[r + (c + 1) * S] = __high2half(v);
 			}
 		} else{
 			for(int idx = tid; idx < ELM; idx += 256){
-				int r = idx & (TK - 1);
-				int c = idx / TK;
-				int gn = colBase + c, gk = kk + r;
+				const int r = idx & (TK - 1);
+				const int c = idx / TK;
+				const int gn = colBase + c, gk = kk + r;
 				dst[r + c * S] = (gn < n && gk < k) ? src[gn + static_cast<long long>(gk) * ldb] : __float2half(0.f);
 			}
 		}
 	}
 }
-__global__ void PreScaleCKernel(__half* __restrict__ C, int m, int n, int ldc, float beta, long long strideC, int batchCount){
+__global__ void ReduceSplitKToHalfKernel(const float* __restrict__ partial, __half* __restrict__ C, int m, int n, int ldc, float alpha, float beta, long long strideC, int splitK, int batchCount){
 	const int batchElems = m * n;
 	const int total = batchElems * batchCount;
 	for(int i = blockIdx.x * 256 + threadIdx.x; i < total; i += gridDim.x * 256){
-		int b = i / batchElems;
-		int local = i - b * batchElems;
-		int r = local % m;
-		int c = local / m;
+		const int b = i / batchElems;
+		const int local = i - b * batchElems;
+		const int r = local % m;
+		const int c = local / m;
+		float sum = 0.f;
+		const float* base = partial + (static_cast<long long>(b) * batchElems + local) * splitK;
+		for(int s = 0; s < splitK; ++s) sum += base[s];
 		__half* bC = C + b * strideC;
-		long long a = r + static_cast<long long>(c) * ldc;
-		bC[a] = (beta == 0.f) ? __float2half(0.f) : __float2half(beta * __half2float(bC[a]));
+		const long long a = r + static_cast<long long>(c) * ldc;
+		const float prev = (beta == 0.f) ? 0.f : __half2float(bC[a]);
+		bC[a] = __float2half(alpha * sum + beta * prev);
 	}
 }
-template <bool TransA, bool TransB, int TK, int MIN_BLK> __global__ __launch_bounds__(256, MIN_BLK)void HgemmWmma64x64(const __half* __restrict__ A, const __half* __restrict__ B, __half* __restrict__ C, const int m, const int n, const int k, const int lda, const int ldb, const int ldc,
-																														const float alpha, const float beta, const long long strideA, const long long strideB, const long long strideC, const int splitK){
+template <bool TransA, bool TransB, int TK, int MIN_BLK> __global__ __launch_bounds__(256, MIN_BLK)void HgemmWmma64x64(const __half* __restrict__ A, const __half* __restrict__ B, __half* __restrict__ C, const int m, const int n, const int k, const int lda, const int ldb, const int ldc, const float alpha, const float beta, const long long strideA, const long long strideB, const long long strideC, const int splitK, float* __restrict__ splitPartial){
 	constexpr int LDA_SM = TransA ? (TK + 8) : (TILE_M + 8);
 	constexpr int LDB_SM = TK + 8;
 	constexpr int A_EL = TransA ? (TILE_M * LDA_SM) : (TK * LDA_SM);
@@ -232,12 +235,13 @@ template <bool TransA, bool TransB, int TK, int MIN_BLK> __global__ __launch_bou
 			}
 		}
 	} else{
+		const int batchElems = m * n;
 		for(int idx = tid; idx < TILE_M * TILE_N; idx += 256){
 			int r = idx & (TILE_M - 1), c = idx >> 6;
 			int gr = rowBase + r, gc = colBase + c;
 			if(gr < m && gc < n){
-				float v = alpha * cBuf[r + c * TILE_M];
-				atomicAdd(&bC[gr + static_cast<long long>(gc) * ldc], __float2half(v));
+				const int local = gr + gc * m;
+				splitPartial[(static_cast<long long>(batch) * batchElems + local) * splitK + splitIdx] = cBuf[r + c * TILE_M];
 			}
 		}
 	}
@@ -255,9 +259,8 @@ static float ReadBeta(const void* b){ return b ? *static_cast<const float*>(b) :
 static int GetDeviceSmTarget(){
 	static int cachedTarget = 0;
 	if(cachedTarget > 0) return cachedTarget;
-	cudaDeviceProp prop{};
 	int target = 160;
-	if(cudaGetDeviceProperties(&prop, 0) == cudaSuccess && prop.multiProcessorCount > 0) target = prop.multiProcessorCount * 2;
+	if(MPC > 0) target = MPC*2;
 	cachedTarget = max(target, 1);
 	return cachedTarget;
 }
@@ -303,14 +306,27 @@ static CLNNStatusT CublasGemmStridedBatched(CLNNOpT transa, CLNNOpT transb, int 
 }
 #endif
 static int ChooseSplitK(int m, int n, int k, int batchCount){
-	int mnTiles = DivCeil(m, TILE_M) * DivCeil(n, TILE_N);
-	int totalTiles = mnTiles * batchCount;
-	int target = GetDeviceSmTarget();
+	const int mnTiles = DivCeil(m, TILE_M) * DivCeil(n, TILE_N);
+	const int totalTiles = mnTiles * batchCount;
+	const int target = GetDeviceSmTarget();
 	if(totalTiles >= target) return 1;
 	int splitK = (target + totalTiles - 1) / totalTiles;
 	splitK = min(splitK, max(1, k / 256));
 	splitK = min(splitK, 32);
 	return max(splitK, 1);
+}
+static float* gSplitWorkspace = nullptr;
+static size_t gSplitWorkspaceBytes = 0;
+static bool EnsureSplitWorkspace(size_t bytes){
+	if(gSplitWorkspaceBytes >= bytes && gSplitWorkspace != nullptr) return true;
+	if(gSplitWorkspace){
+		cudaFree(gSplitWorkspace);
+		gSplitWorkspace = nullptr;
+		gSplitWorkspaceBytes = 0;
+	}
+	if(cudaMalloc(&gSplitWorkspace, bytes) != cudaSuccess) return false;
+	gSplitWorkspaceBytes = bytes;
+	return true;
 }
 template <bool TA, bool TB> static void LaunchGemm(const __half* A, const __half* B, __half* C, int m, int n, int k, int lda, int ldb, int ldc, float alpha, float beta, long long sA, long long sB, long long sC, int batchCount, cudaStream_t stream){
 	const int mnTiles = DivCeil(m, TILE_M) * DivCeil(n, TILE_N);
@@ -320,15 +336,23 @@ template <bool TA, bool TB> static void LaunchGemm(const __half* A, const __half
 	if(useWideK){
 		int splitK = ChooseSplitK(m, n, k, batchCount);
 		if(splitK > 1){
-			int elems = m * n * batchCount;
-			PreScaleCKernel<<<min(DivCeil(elems, 256), 1024), 256, 0, stream>>>(C, m, n, ldc, beta, sC, batchCount);
+			const long long elems = static_cast<long long>(m) * n * batchCount * splitK;
+			if(!EnsureSplitWorkspace(elems * sizeof(float))){
+				splitK = 1;
+			} else{
+				const dim3 grid(DivCeil(m, TILE_M), DivCeil(n, TILE_N), splitK * batchCount);
+				HgemmWmma64x64<TA, TB, 32, 2><<<grid, 256, 0, stream>>>(A, B, C, m, n, k, lda, ldb, ldc, alpha, 0.f, sA, sB, sC, splitK, gSplitWorkspace);
+				int outElems = m * n * batchCount;
+				ReduceSplitKToHalfKernel<<<min(DivCeil(outElems, 256), 1024), 256, 0, stream>>>(gSplitWorkspace, C, m, n, ldc, alpha, beta, sC, splitK, batchCount);
+				return;
+			}
 		}
 		const dim3 grid(DivCeil(m, TILE_M), DivCeil(n, TILE_N), splitK * batchCount);
-		float kernelBeta = (splitK > 1) ? 0.f : beta;
-		HgemmWmma64x64<TA, TB, 32, 2><<<grid, 256, 0, stream>>>(A, B, C, m, n, k, lda, ldb, ldc, alpha, kernelBeta, sA, sB, sC, splitK);
+		const float kernelBeta = (splitK > 1) ? 0.f : beta;
+		HgemmWmma64x64<TA, TB, 32, 2><<<grid, 256, 0, stream>>>(A, B, C, m, n, k, lda, ldb, ldc, alpha, kernelBeta, sA, sB, sC, splitK, nullptr);
 	} else{
 		const dim3 grid(DivCeil(m, TILE_M), DivCeil(n, TILE_N), batchCount);
-		HgemmWmma64x64<TA, TB, 16, 3><<<grid, 256, 0, stream>>>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, 1);
+		HgemmWmma64x64<TA, TB, 16, 3><<<grid, 256, 0, stream>>>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, 1, nullptr);
 	}
 }
 static CLNNStatusT DispatchGemm(CLNNOpT ta, CLNNOpT tb, const __half* A, const __half* B, __half* C, int m, int n, int k, int lda, int ldb, int ldc, float alpha, float beta, long long sA, long long sB, long long sC, int batchCount, cudaStream_t stream){

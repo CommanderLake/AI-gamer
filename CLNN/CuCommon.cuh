@@ -47,7 +47,7 @@ const char* clnnGetErrorString(CLNNStatusT status);
     } \
 }
 extern curandGenerator_t generator_;
-extern size_t GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
+extern size_t MPC, GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
 struct pixARGB{
 	unsigned char B;
 	unsigned char G;
