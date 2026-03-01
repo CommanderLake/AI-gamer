@@ -1,5 +1,5 @@
 #define __CUDACC__
-#define CLNN_GEMM_USE_CUBLAS
+//#define CLNN_GEMM_USE_CUBLAS
 #include "CuCommon.cuh"
 #include <mma.h>
 #include <cuda_fp16.h>
@@ -248,10 +248,19 @@ bool CanUseWmma(cudaDataType Atype, cudaDataType Btype, cudaDataType Ctype, cuda
 	if((transa != CLNN_OP_N && transa != CLNN_OP_T) || (transb != CLNN_OP_N && transb != CLNN_OP_T)) return false;
 	cudaDeviceProp prop{};
 	if(cudaGetDeviceProperties(&prop, 0) != cudaSuccess) return false;
-	return prop.major == 7;
+	return prop.major >= 7;
 }
 static float ReadAlpha(const void* a){ return a ? *static_cast<const float*>(a) : 1.f; }
 static float ReadBeta(const void* b){ return b ? *static_cast<const float*>(b) : 0.f; }
+static int GetDeviceSmTarget(){
+	static int cachedTarget = 0;
+	if(cachedTarget > 0) return cachedTarget;
+	cudaDeviceProp prop{};
+	int target = 160;
+	if(cudaGetDeviceProperties(&prop, 0) == cudaSuccess && prop.multiProcessorCount > 0) target = prop.multiProcessorCount * 2;
+	cachedTarget = max(target, 1);
+	return cachedTarget;
+}
 #ifdef CLNN_GEMM_USE_CUBLAS
 static cublasOperation_t ToCublasOp(CLNNOpT op){
 	if(op == CLNN_OP_T || op == CLNN_OP_C) return CUBLAS_OP_T;
@@ -276,44 +285,38 @@ static CLNNStatusT CublasGemm(CLNNOpT transa, CLNNOpT transb, int m, int n, int 
 	cublasStatus_t status = CUBLAS_STATUS_SUCCESS;
 	if(handle == nullptr){
 		status = cublasCreate(&handle);
-		cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+		if(status == CUBLAS_STATUS_SUCCESS) status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
 	}
 	if(status != CUBLAS_STATUS_SUCCESS) return ToClnnStatus(status);
-	status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
-	if(status == CUBLAS_STATUS_SUCCESS){
-		status = cublasGemmEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
-	}
+	status = cublasGemmEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 	return ToClnnStatus(status);
 }
 static CLNNStatusT CublasGemmStridedBatched(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long sA, const void* B, cudaDataType Btype, int ldb, long long sB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long sC, int batchCount, cudaDataType computeType){
 	cublasStatus_t status = CUBLAS_STATUS_SUCCESS;
 	if(handle == nullptr){
 		status = cublasCreate(&handle);
-		cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+		if(status == CUBLAS_STATUS_SUCCESS) status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
 	}
 	if(status != CUBLAS_STATUS_SUCCESS) return ToClnnStatus(status);
-	status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
-	if(status == CUBLAS_STATUS_SUCCESS){
-		status = cublasGemmStridedBatchedEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, sA, B, Btype, ldb, sB, beta, C, Ctype, ldc, sC, batchCount, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
-	}
+	status = cublasGemmStridedBatchedEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, sA, B, Btype, ldb, sB, beta, C, Ctype, ldc, sC, batchCount, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 	return ToClnnStatus(status);
 }
 #endif
 static int ChooseSplitK(int m, int n, int k, int batchCount){
 	int mnTiles = DivCeil(m, TILE_M) * DivCeil(n, TILE_N);
 	int totalTiles = mnTiles * batchCount;
-	constexpr int TARGET = 160;      
-	if(totalTiles >= TARGET) return 1;
-	int splitK = (TARGET + totalTiles - 1) / totalTiles;
-	splitK = min(splitK, max(1, k / 256));       
+	int target = GetDeviceSmTarget();
+	if(totalTiles >= target) return 1;
+	int splitK = (target + totalTiles - 1) / totalTiles;
+	splitK = min(splitK, max(1, k / 256));
 	splitK = min(splitK, 32);
 	return max(splitK, 1);
 }
 template <bool TA, bool TB> static void LaunchGemm(const __half* A, const __half* B, __half* C, int m, int n, int k, int lda, int ldb, int ldc, float alpha, float beta, long long sA, long long sB, long long sC, int batchCount, cudaStream_t stream){
 	const int mnTiles = DivCeil(m, TILE_M) * DivCeil(n, TILE_N);
 	const int totalTiles = mnTiles * batchCount;
-	constexpr int SM_TARGET = 160;
-	const bool useWideK = (k >= 512) && (totalTiles < SM_TARGET);
+	const int smTarget = GetDeviceSmTarget();
+	const bool useWideK = (k >= 512) && (totalTiles < smTarget);
 	if(useWideK){
 		int splitK = ChooseSplitK(m, n, k, batchCount);
 		if(splitK > 1){
@@ -333,7 +336,6 @@ static CLNNStatusT DispatchGemm(CLNNOpT ta, CLNNOpT tb, const __half* A, const _
 	else if(ta == CLNN_OP_T && tb == CLNN_OP_N) LaunchGemm<true, false>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, batchCount, stream);
 	else if(ta == CLNN_OP_N && tb == CLNN_OP_T) LaunchGemm<false, true>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, batchCount, stream);
 	else LaunchGemm<true, true>(A, B, C, m, n, k, lda, ldb, ldc, alpha, beta, sA, sB, sC, batchCount, stream);
-	checkCUDA(cudaDeviceSynchronize());
 	return (cudaPeekAtLastError() == cudaSuccess) ? CLNN_STATUS_SUCCESS : CLNN_STATUS_EXECUTION_FAILED;
 }
 CLNNStatusT CLNNGemmEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType){
