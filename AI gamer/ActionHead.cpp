@@ -4,7 +4,6 @@
 #include "ConvLayer.h"
 #include "GELULayer.h"
 #include "FCLayer.h"
-#include "AsinhLayer.h"
 #undef min
 #undef max
 ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const int batchSize, const int patchRows, const int patchCols, const int embedSize, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnn_(cudnnHandle), batchSize_(batchSize), nTokens_(patchRows*patchCols), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
