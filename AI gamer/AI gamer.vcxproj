@@ -84,7 +84,7 @@
       <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\inc\;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\samples\Util\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <Optimization>Disabled</Optimization>
+      <Optimization>MaxSpeedHighLevel</Optimization>
       <RecognizeRestrictKeyword>true</RecognizeRestrictKeyword>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>

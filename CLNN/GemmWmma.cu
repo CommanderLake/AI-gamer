@@ -1,8 +1,12 @@
 #define __CUDACC__
+#define CLNN_GEMM_USE_CUBLAS
 #include "CuCommon.cuh"
 #include <mma.h>
 #include <cuda_fp16.h>
 #include <cstdint>
+#ifdef CLNN_GEMM_USE_CUBLAS
+#include <cublas_v2.h>
+#endif
 using namespace nvcuda;
 static constexpr int TILE_M = 64;
 static constexpr int TILE_N = 64;
@@ -248,6 +252,49 @@ bool CanUseWmma(cudaDataType Atype, cudaDataType Btype, cudaDataType Ctype, cuda
 }
 static float ReadAlpha(const void* a){ return a ? *static_cast<const float*>(a) : 1.f; }
 static float ReadBeta(const void* b){ return b ? *static_cast<const float*>(b) : 0.f; }
+#ifdef CLNN_GEMM_USE_CUBLAS
+static cublasOperation_t ToCublasOp(CLNNOpT op){
+	if(op == CLNN_OP_T || op == CLNN_OP_C) return CUBLAS_OP_T;
+	return CUBLAS_OP_N;
+}
+static CLNNStatusT ToClnnStatus(cublasStatus_t status){
+	switch(status){
+		case CUBLAS_STATUS_SUCCESS: return CLNN_STATUS_SUCCESS;
+		case CUBLAS_STATUS_NOT_INITIALIZED: return CLNN_STATUS_NOT_INITIALIZED;
+		case CUBLAS_STATUS_ALLOC_FAILED: return CLNN_STATUS_ALLOC_FAILED;
+		case CUBLAS_STATUS_INVALID_VALUE: return CLNN_STATUS_INVALID_VALUE;
+		case CUBLAS_STATUS_ARCH_MISMATCH: return CLNN_STATUS_ARCH_MISMATCH;
+		case CUBLAS_STATUS_MAPPING_ERROR: return CLNN_STATUS_MAPPING_ERROR;
+		case CUBLAS_STATUS_EXECUTION_FAILED: return CLNN_STATUS_EXECUTION_FAILED;
+		case CUBLAS_STATUS_INTERNAL_ERROR: return CLNN_STATUS_INTERNAL_ERROR;
+		case CUBLAS_STATUS_NOT_SUPPORTED: return CLNN_STATUS_NOT_SUPPORTED;
+		default: return CLNN_STATUS_INTERNAL_ERROR;
+	}
+}
+static CLNNStatusT CublasGemm(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType){
+	cublasHandle_t handle{};
+	cublasStatus_t status = cublasCreate(&handle);
+	if(status != CUBLAS_STATUS_SUCCESS) return ToClnnStatus(status);
+	status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+	if(status == CUBLAS_STATUS_SUCCESS){
+		status = cublasGemmEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
+	}
+	cublasDestroy(handle);
+	return ToClnnStatus(status);
+}
+static CLNNStatusT CublasGemmStridedBatched(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long sA, const void* B, cudaDataType Btype, int ldb, long long sB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long sC, int batchCount,
+	cudaDataType computeType){
+	cublasHandle_t handle{};
+	cublasStatus_t status = cublasCreate(&handle);
+	if(status != CUBLAS_STATUS_SUCCESS) return ToClnnStatus(status);
+	status = cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+	if(status == CUBLAS_STATUS_SUCCESS){
+		status = cublasGemmStridedBatchedEx(handle, ToCublasOp(transa), ToCublasOp(transb), m, n, k, alpha, A, Atype, lda, sA, B, Btype, ldb, sB, beta, C, Ctype, ldc, sC, batchCount, computeType, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
+	}
+	cublasDestroy(handle);
+	return ToClnnStatus(status);
+}
+#endif
 static int ChooseSplitK(int m, int n, int k, int batchCount){
 	int mnTiles = DivCeil(m, TILE_M) * DivCeil(n, TILE_N);
 	int totalTiles = mnTiles * batchCount;
@@ -286,11 +333,19 @@ static CLNNStatusT DispatchGemm(CLNNOpT ta, CLNNOpT tb, const __half* A, const _
 	return (cudaPeekAtLastError() == cudaSuccess) ? CLNN_STATUS_SUCCESS : CLNN_STATUS_EXECUTION_FAILED;
 }
 CLNNStatusT CLNNGemmEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType){
+#ifdef CLNN_GEMM_USE_CUBLAS
+	return CublasGemm(transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc, computeType);
+#else
 	if(!CanUseWmma(Atype, Btype, Ctype, computeType, transa, transb)) return CLNN_STATUS_NOT_SUPPORTED;
 	return DispatchGemm(transa, transb, static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, ReadAlpha(alpha), ReadBeta(beta), 0, 0, 0, 1, nullptr);
+#endif
 }
 CLNNStatusT CLNNGemmStridedBatchedEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long sA, const void* B, cudaDataType Btype, int ldb, long long sB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long sC, int batchCount, cudaDataType computeType){
 	if(batchCount <= 0) return CLNN_STATUS_INVALID_VALUE;
+#ifdef CLNN_GEMM_USE_CUBLAS
+	return CublasGemmStridedBatched(transa, transb, m, n, k, alpha, A, Atype, lda, sA, B, Btype, ldb, sB, beta, C, Ctype, ldc, sC, batchCount, computeType);
+#else
 	if(!CanUseWmma(Atype, Btype, Ctype, computeType, transa, transb)) return CLNN_STATUS_NOT_SUPPORTED;
 	return DispatchGemm(transa, transb, static_cast<const __half*>(A), static_cast<const __half*>(B), static_cast<__half*>(C), m, n, k, lda, ldb, ldc, ReadAlpha(alpha), ReadBeta(beta), sA, sB, sC, batchCount, nullptr);
+#endif
 }
