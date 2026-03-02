@@ -6,7 +6,6 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <mma.h>
-#include <cstdio>
 #include <algorithm>
 using namespace nvcuda;
 namespace{
@@ -41,25 +40,25 @@ namespace{
 	// Validate dimensions before kernel launch
 	__host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim, int heads, size_t& sharedMemRequired){
 		if(batchSize <= 0 || batchSize > kMaxBatch){
-			printf("Invalid batch size: %d (must be 1-%d)\n", batchSize, kMaxBatch);
+			std::cerr << "Invalid batch size: " << batchSize << " (must be 1-" << kMaxBatch << ")" << std::endl;
 			return false;
 		}
 		if(tokens < kMinTokens || tokens > kMaxTokens){
-			printf("Invalid token count: %d (must be %d-%d)\n", tokens, kMinTokens, kMaxTokens);
+			std::cerr << "Invalid token count: " << tokens << " (must be " << kMinTokens << "-" << kMaxTokens << ")" << std::endl;
 			return false;
 		}
 		if(headDim <= 0 || headDim > kMaxHeadDim){
-			printf("Invalid head dimension: %d (must be 1-%d)\n", headDim, kMaxHeadDim);
+			std::cerr << "Invalid head dimension: " << headDim << " (must be 1-" << kMaxHeadDim << ")" << std::endl;
 			return false;
 		}
 		if(heads <= 0 || heads > 128){
-			printf("Invalid head count: %d (must be 1-128)\n", heads);
+			std::cerr << "Invalid head count: " << heads << " (must be 1-128)" << std::endl;
 			return false;
 		}
-		if(headDim % 16 != 0){ printf("Warning: headDim=%d not multiple of 16, padding will be applied\n", headDim); }
+		if(headDim % 16 != 0){ std::cerr << "Warning: headDim=" << headDim << " not multiple of 16, padding will be applied" << std::endl; }
 		const int qBlocks = (headDim + 15)/16;
 		if(qBlocks > kMaxValueBlocks){
-			printf("Head dimension %d requires %d blocks, exceeds limit %d\n", headDim, qBlocks, kMaxValueBlocks);
+			std::cerr << "Head dimension " << headDim << " requires " << qBlocks << " blocks, exceeds limit " << kMaxValueBlocks << std::endl;
 			return false;
 		}
 		// Calculate shared memory requirement
@@ -69,13 +68,13 @@ namespace{
 		const int tileStride = 16 + kSharedMemPad;
 		const int valueBlocks = (headDim + 15)/16;
 		if(valueBlocks > kMaxValueBlocks){
-			printf("Value blocks %d exceed limit %d\n", valueBlocks, kMaxValueBlocks);
+			std::cerr << "Value blocks " << valueBlocks << " exceed limit " << kMaxValueBlocks << std::endl;
 			return false;
 		}
 		const int valueStride = valueBlocks*16;
 		sharedMemRequired = sizeof(__half)*(16*qStride + warpCount*tileStride*16 + tileStride*16) + sizeof(float)*(16*tileCols + 48 + 16*valueStride);
 		if(sharedMemRequired > kMaxSharedMemory){
-			printf("Required shared memory %zu exceeds limit %zu (tokens=%d, headDim=%d)\n", sharedMemRequired, kMaxSharedMemory, tokens, headDim);
+			std::cerr << "Required shared memory " << sharedMemRequired << " exceeds limit " << kMaxSharedMemory << " (tokens=" << tokens << ", headDim=" << headDim << ")" << std::endl;
 			return false;
 		}
 		return true;
@@ -942,16 +941,16 @@ __global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, const int relPosSize, const int batchSize, const int tokens, const int headDim, const int heads, const int maskBatchSize, const int maskHeads){
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
-		printf("WmmaAttention: Invalid dimensions, aborting\n");
+		std::cerr << "WmmaAttention: Invalid dimensions, aborting" << std::endl;
 		return;
 	}
 	if(!Q || !K || !V || !Out){
-		printf("WmmaAttention: Null input/output pointer(s)\n");
+		std::cerr << "WmmaAttention: Null input/output pointer(s)" << std::endl;
 		return;
 	}
 	const int numRowBlocks = DivCeil(tokens, 16);
 	if(numRowBlocks > 65535 || batchSize > 65535 || heads > 65535){
-		printf("WmmaAttention: Grid dimensions exceed limits (blocks=%d, batch=%d, heads=%d)\n", numRowBlocks, batchSize, heads);
+		std::cerr << "WmmaAttention: Grid dimensions exceed limits (blocks=" << numRowBlocks << ", batch=" << batchSize << ", heads=" << heads << ")" << std::endl;
 		return;
 	}
 	dim3 block(kDefaultThreads);
@@ -959,7 +958,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 	const int tileCols = GetAttentionTileCols(tokens);
 	const cudaError_t err = cudaFuncSetAttribute(WmmaAttentionKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
 	if(err != cudaSuccess){
-		printf("WmmaAttention: Failed to set shared memory size: %s\n", cudaGetErrorString(err));
+		std::cerr << "WmmaAttention: Failed to set shared memory size: " << cudaGetErrorString(err) << std::endl;
 		return;
 	}
 	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
@@ -968,17 +967,17 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 }
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, const size_t workspaceElements, const int batchSize, const int tokens, const int headDim, const int heads){
 	if(!Q || !K || !V || !dOut || !Att || !dQ || !dK || !dV || !dAttWorkspace){
-		printf("WmmaAttentionBackward: Null pointer(s) provided\n");
+		std::cerr << "WmmaAttentionBackward: Null pointer(s) provided" << std::endl;
 		return;
 	}
 	const size_t requiredElements = static_cast<size_t>(batchSize)*heads*tokens*tokens;
 	if(requiredElements > workspaceElements){
-		printf("WmmaAttentionBackward: Workspace too small (%zu required, %zu provided)\n", requiredElements, workspaceElements);
+		std::cerr << "WmmaAttentionBackward: Workspace too small (" << requiredElements << " required, " << workspaceElements << " provided)" << std::endl;
 		return;
 	}
 	size_t sharedMemRequired;
 	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
-		printf("WmmaAttentionBackward: Invalid dimensions\n");
+		std::cerr << "WmmaAttentionBackward: Invalid dimensions" << std::endl;
 		return;
 	}
 	const int numRowBlocks = DivCeil(tokens, 16);
@@ -986,7 +985,7 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	const int tileCols = GetAttentionTileCols(tokens);
 	// Validate grid dimensions
 	if(numRowBlocks > 65535 || numKeyBlocks > 65535 || batchSize > 65535 || heads > 65535){
-		printf("WmmaAttentionBackward: Grid dimensions exceed limits\n");
+		std::cerr << "WmmaAttentionBackward: Grid dimensions exceed limits" << std::endl;
 		return;
 	}
 	dim3 block(kDefaultThreads);
@@ -998,7 +997,7 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	const size_t smemDQ = sizeof(float)*(warpCount*paddedTileElements + 16) + sizeof(__half)*((1 + 2*warpCount)*paddedTileElements);
 	const size_t smemKV = sizeof(float)*(warpCount*paddedTileElements) + sizeof(__half)*(2*warpCount*paddedTileElements);
 	if(smemDQ > kMaxSharedMemory || smemKV > kMaxSharedMemory){
-		printf("WmmaAttentionBackward: Shared memory requirements exceed limits\n");
+		std::cerr << "WmmaAttentionBackward: Shared memory requirements exceed limits" << std::endl;
 		return;
 	}
 	// Set shared memory configurations
@@ -1010,20 +1009,19 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	ComputeDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
 	cudaError_t err = cudaGetLastError();
 	if(err != cudaSuccess){
-		printf("WmmaAttentionBackward dAtt+dQ error: %s\n", cudaGetErrorString(err));
+		std::cerr << "WmmaAttentionBackward dAtt+dQ error: " << cudaGetErrorString(err) << std::endl;
 		return;
 	}
 	ComputeDVKernel<<<gridKV, block, smemKV>>>(Att, dOut, dV, batchSize, tokens, headDim, heads);
 	err = cudaGetLastError();
 	if(err != cudaSuccess){
-		printf("WmmaAttentionBackward dV error: %s\n", cudaGetErrorString(err));
+		std::cerr << "WmmaAttentionBackward dV error: " << cudaGetErrorString(err) << std::endl;
 		return;
 	}
 	ComputeDKKernel<<<gridKV, block, smemKV>>>(dAttWorkspace, Q, dK, batchSize, tokens, headDim, heads);
 	err = cudaGetLastError();
-	if(err != cudaSuccess){ printf("WmmaAttentionBackward dK error: %s\n", cudaGetErrorString(err)); }
+	if(err != cudaSuccess){ std::cerr << "WmmaAttentionBackward dK error: " << cudaGetErrorString(err) << std::endl; }
 }
-
 __global__ void RelPosBiasGradKernel(const float* __restrict__ dAtt, const int* __restrict__ relPosIndex, float* __restrict__ gradBias, const int batchSize, const int tokens, const int heads, const int relPosSize, const float scale){
 	const size_t total = static_cast<size_t>(batchSize)*heads*tokens*tokens;
 	const size_t idx = static_cast<size_t>(blockIdx.x)*blockDim.x + threadIdx.x;
@@ -1068,23 +1066,23 @@ __global__ void PackColumnsToHeadsKernel(const __half* __restrict__ inputQ, cons
 }
 void PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(inputQ && !outputQ || inputK && !outputK || inputV && !outputV || !inputQ && outputQ || !inputK && outputK || !inputV && outputV){
-		printf("PackColumnsToHeads: Mismatched input/output pointers\n");
+		std::cerr << "PackColumnsToHeads: Mismatched input/output pointers" << std::endl;
 		return;
 	}
 	if(!inputQ && !inputK && !inputV){
-		printf("PackColumnsToHeads: No input tensors provided\n");
+		std::cerr << "PackColumnsToHeads: No input tensors provided" << std::endl;
 		return;
 	}
 	if(numHeads <= 0 || numHeads > 128){
-		printf("PackColumnsToHeads: Invalid head count %d\n", numHeads);
+		std::cerr << "PackColumnsToHeads: Invalid head count " << numHeads << std::endl;
 		return;
 	}
 	if(embedDim % numHeads != 0){
-		printf("PackColumnsToHeads: embedDim %d not divisible by numHeads %d\n", embedDim, numHeads);
+		std::cerr << "PackColumnsToHeads: embedDim " << embedDim << " not divisible by numHeads " << numHeads << std::endl;
 		return;
 	}
 	if(batch <= 0 || batch > kMaxBatch || tokens <= 0 || tokens > kMaxTokens){
-		printf("PackColumnsToHeads: Invalid dimensions B=%d, T=%d\n", batch, tokens);
+		std::cerr << "PackColumnsToHeads: Invalid dimensions B=" << batch << ", T=" << tokens << std::endl;
 		return;
 	}
 	const int headDim = embedDim/numHeads;
@@ -1096,11 +1094,11 @@ void PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half
 	const int gridSize = std::min(65535, std::max(1, DivCeil(total, blockSize)));
 	PackColumnsToHeadsKernel<<<gridSize, blockSize>>>(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, numHeads, headDim);
 	const cudaError_t err = cudaGetLastError();
-	if(err != cudaSuccess){ printf("PackColumnsToHeads error: %s\n", cudaGetErrorString(err)); }
+	if(err != cudaSuccess){ std::cerr << "PackColumnsToHeads error: " << cudaGetErrorString(err) << std::endl; }
 }
 void PackColumnsToHeads(const __half* input, __half* output, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(!input || !output){
-		printf("PackColumnsToHeads: Null pointer(s)\n");
+		std::cerr << "PackColumnsToHeads: Null pointer(s)" << std::endl;
 		return;
 	}
 	PackColumnsToHeads(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
@@ -1125,23 +1123,23 @@ __global__ void PackHeadsToColumnsKernel(const __half* __restrict__ inputQ, cons
 }
 void PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(inputQ && !outputQ || inputK && !outputK || inputV && !outputV || !inputQ && outputQ || !inputK && outputK || !inputV && outputV){
-		printf("PackHeadsToColumns: Mismatched input/output pointers\n");
+		std::cerr << "PackHeadsToColumns: Mismatched input/output pointers" << std::endl;
 		return;
 	}
 	if(!inputQ && !inputK && !inputV){
-		printf("PackHeadsToColumns: No input tensors provided\n");
+		std::cerr << "PackHeadsToColumns: No input tensors provided" << std::endl;
 		return;
 	}
 	if(numHeads <= 0 || numHeads > 128){
-		printf("PackHeadsToColumns: Invalid head count %d\n", numHeads);
+		std::cerr << "PackHeadsToColumns: Invalid head count " << numHeads << std::endl;
 		return;
 	}
 	if(embedDim % numHeads != 0){
-		printf("PackHeadsToColumns: embedDim %d not divisible by numHeads %d\n", embedDim, numHeads);
+		std::cerr << "PackHeadsToColumns: embedDim " << embedDim << " not divisible by numHeads " << numHeads << std::endl;
 		return;
 	}
 	if(batch <= 0 || batch > kMaxBatch || tokens <= 0 || tokens > kMaxTokens){
-		printf("PackHeadsToColumns: Invalid dimensions B=%d, T=%d\n", batch, tokens);
+		std::cerr << "PackHeadsToColumns: Invalid dimensions B=" << batch << ", T=" << tokens << std::endl;
 		return;
 	}
 	const int headDim = embedDim/numHeads;
@@ -1153,11 +1151,11 @@ void PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half
 	const int gridSize = std::min(65535, std::max(1, DivCeil(total, blockSize)));
 	PackHeadsToColumnsKernel<<<gridSize, blockSize>>>(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, numHeads, headDim);
 	const cudaError_t err = cudaGetLastError();
-	if(err != cudaSuccess){ printf("PackHeadsToColumns error: %s\n", cudaGetErrorString(err)); }
+	if(err != cudaSuccess){ std::cerr << "PackHeadsToColumns error: " << cudaGetErrorString(err) << std::endl; }
 }
 void PackHeadsToColumns(const __half* input, __half* output, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(!input || !output){
-		printf("PackHeadsToColumns: Null pointer(s)\n");
+		std::cerr << "PackHeadsToColumns: Null pointer(s)" << std::endl;
 		return;
 	}
 	PackHeadsToColumns(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
