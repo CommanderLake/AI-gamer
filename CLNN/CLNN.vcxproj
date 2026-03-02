@@ -80,7 +80,7 @@
     <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="DropPath.cu" />
-    <CudaCompile Include="GemmWmma.cu" />
+    <CudaCompile Include="Gemms.cu" />
     <CudaCompile Include="LayerNorm.cu" />
     <CudaCompile Include="Loss.cu" />
     <CudaCompile Include="Optimizers.cu" />

@@ -207,6 +207,6 @@
     <CudaCompile Include="Scale.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />
-    <CudaCompile Include="GemmWmma.cu" />
+    <CudaCompile Include="Gemms.cu" />
   </ItemGroup>
 </Project>
