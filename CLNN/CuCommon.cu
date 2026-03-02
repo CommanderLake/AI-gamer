@@ -24,7 +24,7 @@ const char* clnnGetErrorString(const CLNNStatusT status){
 		case CLNN_STATUS_NOT_SUPPORTED:
 			return "CLNN_STATUS_NOT_SUPPORTED";
 		default:
-			return "Unknown cuBLAS error";
+			return "Unknown CLNN error";
 	}
 }
 int ConvertSmVer2Cores(int major, int minor){

@@ -25,6 +25,7 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	inWidth_ = netWidth;
 	inHeight_ = netHeight;
 	stateSize_ = inWidth_*inHeight_*3;
+	checkCLNN(InitCublas());
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.01f;
 	constexpr auto patchSize = 16;
