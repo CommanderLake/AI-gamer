@@ -75,5 +75,5 @@ void GlobalPoolLayer::SetTrain(bool enable){
 
 void GlobalPoolLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!train_) return;
-	halfTasks.push_back({weights_, gradQuery_, mQuery_, vQuery_, embedSize_});
+	halfTasks.push_back({weights_, gradQuery_, mQuery_, vQuery_, embedSize_, weightDecay_});
 }

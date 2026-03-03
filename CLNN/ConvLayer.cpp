@@ -117,7 +117,7 @@ void ConvLayer::SetTrain(bool enable){
 
 void ConvLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!useAdamW_ || !train_) return;
-	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_)});
+	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_), weightDecay_});
 }
 
 std::pair<int, int> ConvLayer::Padding(const int imageHeight, const int imageWidth, const int kernelSize, const int stride){

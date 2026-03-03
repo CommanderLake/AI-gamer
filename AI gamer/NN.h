@@ -27,6 +27,5 @@ public:
 	int totalAdamWFloatSize_ = 0;
 	int adamWStep_ = 1;
 	int accumStep_ = 0;
-	float adamWWeightDecay_ = 0.01f;
 	void CollectAdamWTasks();
 };

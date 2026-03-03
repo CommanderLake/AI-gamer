@@ -131,6 +131,6 @@ void FCLayer::SetTrain(const bool enable){
 
 void FCLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!useAdamW_ || !train_) return;
-	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_)});
-	if(useBias_){ halfTasks.push_back({biases_, gradBiases_, m_Biases_, v_Biases_, outC_}); }
+	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_), weightDecay_});
+	if(useBias_){ halfTasks.push_back({biases_, gradBiases_, m_Biases_, v_Biases_, outC_, 0.0f}); }
 }

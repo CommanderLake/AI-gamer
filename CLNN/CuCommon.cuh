@@ -66,7 +66,7 @@ struct AdamWHalfTask{
 	__half* m;
 	__half* v;
 	int size;
-	int offset;
+	float weightDecay;
 };
 struct AdamWFloatTask{
 	float* params;
@@ -74,7 +74,7 @@ struct AdamWFloatTask{
 	float* m;
 	float* v;
 	int size;
-	int offset;
+	float weightDecay;
 };
 void LossStats(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
 void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
@@ -87,8 +87,8 @@ void SGDHalf(__half* params, const __half* grads, int size, float learningRate, 
 void SGDFloat(float* params, const float* grads, int size, float learningRate, float weightDecay);
 void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
 void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
-void AdamWHalfMulti(const AdamWHalfTask* tasks, int taskCount, int totalSize, float lr, int t, float weightDecay);
-void AdamWFloatMulti(const AdamWFloatTask* tasks, int taskCount, int totalSize, float lr, int t, float weightDecay);
+void AdamWHalfMulti(const AdamWHalfTask* tasks, int taskCount, int totalSize, float lr, int t);
+void AdamWFloatMulti(const AdamWFloatTask* tasks, int taskCount, int totalSize, float lr, int t);
 void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
 void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, int numCtrls, int numButs, int size);
 void GetPrediction(const __half* predBatch, float* prediction, int numCtrls, int batchSize);
