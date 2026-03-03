@@ -68,7 +68,7 @@ int ConvertSmVer2Cores(int major, int minor){
 void GetLaunchConfigGridStride(const size_t n, size_t& blocks, size_t& tpb){
 	if(tpb == 0 || tpb > 1024) tpb = 256;
 	blocks = std::min(DivCeil(n, tpb), GS);
-	while(blocks < GS && tpb > 16){
+	while(blocks < GS && tpb > 32){
 		tpb /= 2;
 		blocks = DivCeil(n, tpb);
 	}
