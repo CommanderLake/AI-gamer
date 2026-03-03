@@ -25,10 +25,33 @@ float GetLearningRate(const int epoch, const int batch, const int epochBatchCoun
 	const auto warmupSteps = epochBatchCount*1;
 	const auto totalSteps = epochBatchCount*epochs;
 	const auto currentStep = epoch*epochBatchCount + batch;
-	if(currentStep < warmupSteps){ return baseLr*static_cast<float>(currentStep)/static_cast<float>(warmupSteps); }
+	if(currentStep < warmupSteps){
+		const auto lr = baseLr*static_cast<float>(currentStep)/static_cast<float>(warmupSteps);
+		return lr < minLr ? minLr : lr;
+	}
 	const auto progress = static_cast<float>(currentStep - warmupSteps)/static_cast<float>(totalSteps - warmupSteps);
 	const auto cosineDecay = 0.5f*(1.0f + cosf(3.14159f*progress));
 	return minLr + (baseLr - minLr)*cosineDecay;
+}
+double GetRate(){
+	static auto lastTime = std::chrono::high_resolution_clock::now();
+	static int callCount = 0;
+	static bool isFirstCall = true;
+	const auto currentTime = std::chrono::high_resolution_clock::now();
+	callCount++;
+	const double elapsedTime = std::chrono::duration<double>(currentTime - lastTime).count();
+	if(isFirstCall){
+		isFirstCall = false;
+		lastTime = currentTime;
+		return 0.0;
+	}
+	if(elapsedTime > 0){
+		const double rate = callCount / elapsedTime;
+		callCount = 0;
+		lastTime = currentTime;
+		return rate;
+	}
+	return 0.0;
 }
 int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const float lr, const int batchIndex, const int epochBatchCount){
 	for(auto i = 0; i < nn->batchSize_; ++i){
@@ -54,8 +77,8 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 		emaLossButs_ = lossButs_;
 		emaLossAxes_ = lossAxes_;
 	}
-	std::cout << "\rLR: " << lr << " Batch " << (batchIndex + 1) << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_;
-	if(lr == 0.0f) return 0;
+	std::cout << "\rLR: " << lr << " Batch " << batchIndex + 1 << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_ << " Batch rate: " << GetRate();
+	if(lr <= 0.0f) return 0;
 	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 16.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
 	if(IsnanHalf(nn->Backward(dGradient_), nn->stateSize_*nn->batchSize_)){
 		std::cout << " NaN in gradient\n";

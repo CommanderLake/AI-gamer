@@ -1,6 +1,5 @@
 #pragma once
 #include "Layer.h"
-
 class DropPath final : public Layer{
 public:
 	DropPath(float dropRate, int batchSize, int elementsPerBatch, std::string layerName, bool train);
@@ -8,8 +7,6 @@ public:
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
 	void SetTrain(bool enable) override;
-
-private:
 	float dropRate_;
 	float keepProb_;
 	int batchSize_;

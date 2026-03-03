@@ -108,7 +108,7 @@ __global__ void AdamwKernelFloat(float* __restrict__ params, const float* __rest
 	}
 }
 void AdamWFloat(float* params, const float* grads, float* m, float* v, const float learningRate, const int t, const float weightDecay, const int size){
-	size_t blocks, tpb = 16;
+	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	AdamwKernelFloat<<<blocks, tpb>>>(params, grads, m, v, learningRate, t, weightDecay, size);
 	checkCUDA(cudaGetLastError());
@@ -210,7 +210,7 @@ __global__ void AdamwKernelHalf(__half* __restrict__ params, const __half* __res
 	}
 }
 void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, const float lr, const int t, const float weightDecay, const int size){
-	size_t blocks, tpb = 16;
+	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
 	AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
 	checkCUDA(cudaGetLastError());

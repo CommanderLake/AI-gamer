@@ -28,8 +28,8 @@ __global__ void isNaNKernel(const __half* __restrict__ data, int size){
 bool IsnanHalf(const __half* __restrict__ data, int size){
 	int hResult = 0;
 	cudaMemcpyToSymbol(deviceResult, &hResult, sizeof(int));
-	auto gridSize = DivCeil(size, BS);
-	isNaNKernel<<<gridSize, BS>>>(data, size);
+	auto gridSize = DivCeil(size, CPM);
+	isNaNKernel<<<gridSize, CPM>>>(data, size);
 	checkCUDA(cudaGetLastError());
 	cudaMemcpyFromSymbol(&hResult, deviceResult, sizeof(int));
 	return hResult != 0;

@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <ctime>
 curandGenerator_t generator_;
-size_t MPC, GS, BS, RPB, CPB, TPG, maxTPB, smemPB;
+size_t MPC, GS, CPM;
 const char* clnnGetErrorString(const CLNNStatusT status){
 	switch(status){
 		case CLNN_STATUS_SUCCESS:
@@ -65,9 +65,14 @@ int ConvertSmVer2Cores(int major, int minor){
 	printf("MapSMtoCores for SM %d.%d is undefined. Default to use %d Cores/SM\n", major, minor, nGpuArchCoresPerSM[index - 1].Cores);
 	return nGpuArchCoresPerSM[index - 1].Cores;
 }
-void GetLaunchConfigGridStride(size_t n, size_t& blocks, size_t& tpb){
-	if(tpb <= 0 || tpb > 1024) tpb = BS;
-	blocks = std::min(DivCeil(n, tpb*4), GS);
+void GetLaunchConfigGridStride(const size_t n, size_t& blocks, size_t& tpb){
+	if(tpb == 0 || tpb > 1024) tpb = 256;
+	blocks = std::min(DivCeil(n, tpb), GS);
+	while(blocks < GS && tpb > 16){
+		tpb /= 2;
+		blocks = DivCeil(n, tpb);
+	}
+	//std::cout << "\r\nn: " << n << " blocks: " << blocks << " tpb: " << tpb;
 }
 static bool inited = false;
 void InitCUDA(){
@@ -85,21 +90,9 @@ void InitCUDA(){
 	cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, 0);
 	int minor;
 	cuDeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, 0);
-	const auto TPM = ConvertSmVer2Cores(major, minor);
+	CPM = ConvertSmVer2Cores(major, minor);
 	MPC = prop.multiProcessorCount;
-	const auto warps = prop.warpSize;
-	maxTPB = prop.maxThreadsPerBlock;
-	smemPB = prop.sharedMemPerBlock;
-	GS = warps*MPC;
-	BS = TPM;
-	int TPB = maxTPB;
-	TPB = TPB/warps*warps;
-	TPG = warps;
-	while(TPG*2 <= TPB && TPG < warps){ TPG *= 2; }
-	const int groups = TPB/TPG;
-	RPB = sqrt(groups);
-	CPB = groups/RPB;
-	while(RPB*CPB < groups){ if(RPB < CPB){ RPB++; } else{ CPB++; } }
+	GS = 32*MPC;
 	curandCreateGenerator(&generator_, CURAND_RNG_PSEUDO_DEFAULT);
 	curandSetPseudoRandomGeneratorSeed(generator_, static_cast<unsigned long long>(time(nullptr)));
 }
