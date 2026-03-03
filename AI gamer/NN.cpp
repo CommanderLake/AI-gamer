@@ -53,6 +53,8 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
 	}
+	CollectAdamWTasks();
+	std::cout<<"Collected AdamW tasks: half="<<adamWHalfTasks_.size()<<", float="<<adamWFloatTasks_.size()<<"\n";
 	std::cout<<"Done\n";
 	if(ckptFile.is_open()){
 		std::cout<<"Loading weights... ";
@@ -74,6 +76,8 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	}
 }
 NN::~NN(){
+	if(dAdamWHalfTasks_){ cudaFree(dAdamWHalfTasks_); }
+	if(dAdamWFloatTasks_){ cudaFree(dAdamWFloatTasks_); }
 	for(const auto* layer : layers_){
 		delete layer;
 	}
@@ -97,7 +101,11 @@ __half* NN::Backward(__half* grad){
 	return outGrad;
 }
 void NN::UpdateParams(const float lr){
-	for(const auto layer : layers_){ layer->UpdateParameters(lr); }
+	++accumStep_;
+	if(accumStep_%gradAccumLength_>0) return;
+	if(!adamWHalfTasks_.empty()){ AdamWHalfMulti(dAdamWHalfTasks_, static_cast<int>(adamWHalfTasks_.size()), totalAdamWHalfSize_, lr, adamWStep_); }
+	if(!adamWFloatTasks_.empty()){ AdamWFloatMulti(dAdamWFloatTasks_, static_cast<int>(adamWFloatTasks_.size()), totalAdamWFloatSize_, lr, adamWStep_); }
+	++adamWStep_;
 }
 void NN::SaveModel(const std::string& filename){
 	std::ofstream file(filename, std::ios::binary);
@@ -132,5 +140,28 @@ void NN::SaveOptimizerState(const std::string& filename){
 void NN::SetTrain(const bool enable){
 	for(int i = 0; i<layers_.size(); ++i){
 		layers_[i]->SetTrain(enable);
+	}
+	CollectAdamWTasks();
+}
+
+void NN::CollectAdamWTasks(){
+	adamWHalfTasks_.clear();
+	adamWFloatTasks_.clear();
+	totalAdamWHalfSize_ = 0;
+	totalAdamWFloatSize_ = 0;
+	for(const auto layer : layers_){
+		layer->CollectAdamWTasks(adamWHalfTasks_, adamWFloatTasks_);
+	}
+	for(const auto& task : adamWHalfTasks_){ totalAdamWHalfSize_ += task.size; }
+	for(const auto& task : adamWFloatTasks_){ totalAdamWFloatSize_ += task.size; }
+	if(dAdamWHalfTasks_){ cudaFree(dAdamWHalfTasks_); dAdamWHalfTasks_ = nullptr; }
+	if(dAdamWFloatTasks_){ cudaFree(dAdamWFloatTasks_); dAdamWFloatTasks_ = nullptr; }
+	if(!adamWHalfTasks_.empty()){
+		checkCUDA(cudaMalloc(&dAdamWHalfTasks_, adamWHalfTasks_.size()*sizeof(AdamWHalfTask)));
+		checkCUDA(cudaMemcpy(dAdamWHalfTasks_, adamWHalfTasks_.data(), adamWHalfTasks_.size()*sizeof(AdamWHalfTask), cudaMemcpyHostToDevice));
+	}
+	if(!adamWFloatTasks_.empty()){
+		checkCUDA(cudaMalloc(&dAdamWFloatTasks_, adamWFloatTasks_.size()*sizeof(AdamWFloatTask)));
+		checkCUDA(cudaMemcpy(dAdamWFloatTasks_, adamWFloatTasks_.data(), adamWFloatTasks_.size()*sizeof(AdamWFloatTask), cudaMemcpyHostToDevice));
 	}
 }

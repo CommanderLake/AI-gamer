@@ -92,3 +92,7 @@ void EncoderLayer::SetTrain(bool enable){
 	train_ = enable;
 	for(const auto layer : layers_){ layer->SetTrain(enable); }
 }
+
+void EncoderLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	for(const auto layer : layers_){ layer->CollectAdamWTasks(halfTasks, floatTasks); }
+}

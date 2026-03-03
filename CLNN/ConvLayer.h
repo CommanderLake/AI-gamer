@@ -17,6 +17,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	std::pair<int, int> Padding(int imageHeight, int imageWidth, int kernelSize, int stride);
 	cudnnHandle_t cudnnHandle_;
 	cudnnTensorDescriptor_t inDesc_;

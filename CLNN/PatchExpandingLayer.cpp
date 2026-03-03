@@ -77,3 +77,8 @@ void PatchExpandingLayer::SetTrain(const bool enable){
 	norm_->SetTrain(enable);
 	expansion_->SetTrain(enable);
 }
+
+void PatchExpandingLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	norm_->CollectAdamWTasks(halfTasks, floatTasks);
+	expansion_->CollectAdamWTasks(halfTasks, floatTasks);
+}

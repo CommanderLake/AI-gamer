@@ -102,3 +102,9 @@ size_t LayerNorm::GetOptimizerStateSize(){
 void LayerNorm::SetTrain(const bool enable){
 	train_ = enable;
 }
+
+void LayerNorm::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	if(!train_) return;
+	floatTasks.push_back({gamma_, gradGamma_, mGamma_, vGamma_, outC_, 0.0f});
+	floatTasks.push_back({beta_, gradBeta_, mBeta_, vBeta_, outC_, 0.0f});
+}
