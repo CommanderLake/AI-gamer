@@ -3,22 +3,9 @@
 #include <cuda_fp16.h>
 #include <fstream>
 #include <vector>
+#include "CuCommon.cuh"
 class Layer{
 public:
-	struct AdamWHalfTask{
-		__half* params;
-		const __half* grads;
-		__half* m;
-		__half* v;
-		int size;
-	};
-	struct AdamWFloatTask{
-		float* params;
-		const float* grads;
-		float* m;
-		float* v;
-		int size;
-	};
 	virtual ~Layer() = default;
 	virtual __half* Forward(__half* data){ return nullptr; }
 	virtual __half* Backward(__half* grad){ return nullptr; }

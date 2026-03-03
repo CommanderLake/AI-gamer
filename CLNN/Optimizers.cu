@@ -215,3 +215,108 @@ void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, const 
 	AdamwKernelHalf<<<blocks, tpb>>>(params, grads, m, v, lr, t, weightDecay, size);
 	checkCUDA(cudaGetLastError());
 }
+
+__device__ __forceinline__ int FindTaskIndexHalf(const AdamWHalfTask* tasks, const int taskCount, const int globalIdx){
+	int left = 0;
+	int right = taskCount - 1;
+	while(left <= right){
+		const int mid = (left + right) >> 1;
+		const AdamWHalfTask task = tasks[mid];
+		if(globalIdx < task.offset){ right = mid - 1; }
+		else if(globalIdx >= task.offset + task.size){ left = mid + 1; }
+		else{ return mid; }
+	}
+	return -1;
+}
+__device__ __forceinline__ int FindTaskIndexFloat(const AdamWFloatTask* tasks, const int taskCount, const int globalIdx){
+	int left = 0;
+	int right = taskCount - 1;
+	while(left <= right){
+		const int mid = (left + right) >> 1;
+		const AdamWFloatTask task = tasks[mid];
+		if(globalIdx < task.offset){ right = mid - 1; }
+		else if(globalIdx >= task.offset + task.size){ left = mid + 1; }
+		else{ return mid; }
+	}
+	return -1;
+}
+
+__global__ void AdamwKernelHalfMulti(const AdamWHalfTask* __restrict__ tasks, const int taskCount, const int totalSize, const float lr, const int t, const float wd){
+	__shared__ float sBiasCorrection1;
+	__shared__ float sBiasCorrection2;
+	__shared__ float sLrT;
+	__shared__ float sBeta1Complement;
+	__shared__ float sBeta3Complement;
+	__shared__ float sLrWeightDecay;
+	if(threadIdx.x == 0){
+		sBiasCorrection1 = 1.0f - powf(BETA1_F, t);
+		sBiasCorrection2 = 1.0f - powf(BETA2_F, t);
+		sLrT = lr/sBiasCorrection1;
+		sBeta1Complement = 1.0f - BETA1_F;
+		sBeta3Complement = 1.0f - BETA2_F;
+		sLrWeightDecay = lr*wd;
+	}
+	__syncthreads();
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int stride = blockDim.x*gridDim.x;
+	for(int globalIdx = idx; globalIdx < totalSize; globalIdx += stride){
+		const int taskIdx = FindTaskIndexHalf(tasks, taskCount, globalIdx);
+		if(taskIdx < 0){ continue; }
+		const AdamWHalfTask task = tasks[taskIdx];
+		const int localIdx = globalIdx - task.offset;
+		const float grad = fmaxf(fminf(__half2float(task.grads[localIdx]), CLIP), -CLIP);
+		const float mVal = BETA1_F*__half2float(task.m[localIdx]) + sBeta1Complement*grad;
+		const float vVal = BETA2_F*__half2float(task.v[localIdx]) + sBeta3Complement*grad*grad;
+		const float param = __half2float(task.params[localIdx]);
+		const float denom = sqrtf(vVal/sBiasCorrection2) + EPSILON_OPT;
+		const float update = sLrT*mVal/denom;
+		task.params[localIdx] = __float2half(param - update - sLrWeightDecay*param);
+		task.m[localIdx] = __float2half(mVal);
+		task.v[localIdx] = __float2half(vVal);
+	}
+}
+__global__ void AdamwKernelFloatMulti(const AdamWFloatTask* __restrict__ tasks, const int taskCount, const int totalSize, const float lr, const int t, const float wd){
+	__shared__ float sBiasCorrection2;
+	__shared__ float sLrT;
+	__shared__ float sBeta1Complement;
+	__shared__ float sBeta3Complement;
+	if(threadIdx.x == 0){
+		const float biasCorrection1 = 1.0f - powf(BETA1_F, t);
+		sBiasCorrection2 = 1.0f - powf(BETA2_F, t);
+		sLrT = lr/biasCorrection1;
+		sBeta1Complement = 1.0f - BETA1_F;
+		sBeta3Complement = 1.0f - BETA2_F;
+	}
+	__syncthreads();
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int stride = blockDim.x*gridDim.x;
+	const float lrWeightDecay = lr*wd;
+	for(int globalIdx = idx; globalIdx < totalSize; globalIdx += stride){
+		const int taskIdx = FindTaskIndexFloat(tasks, taskCount, globalIdx);
+		if(taskIdx < 0){ continue; }
+		const AdamWFloatTask task = tasks[taskIdx];
+		const int localIdx = globalIdx - task.offset;
+		const float grad = fmaxf(fminf(task.grads[localIdx], CLIP), -CLIP);
+		const float mVal = BETA1_F*task.m[localIdx] + sBeta1Complement*grad;
+		const float vVal = BETA2_F*task.v[localIdx] + sBeta3Complement*grad*grad;
+		const float param = task.params[localIdx];
+		const float update = sLrT*mVal/(sqrtf(vVal/sBiasCorrection2) + EPSILON_OPT);
+		task.params[localIdx] = param - update - lrWeightDecay*param;
+		task.m[localIdx] = mVal;
+		task.v[localIdx] = vVal;
+	}
+}
+void AdamWHalfMulti(const AdamWHalfTask* tasks, const int taskCount, const int totalSize, const float lr, const int t, const float weightDecay){
+	if(taskCount <= 0 || totalSize <= 0) return;
+	size_t blocks, tpb = 256;
+	GetLaunchConfigGridStride(totalSize, blocks, tpb);
+	AdamwKernelHalfMulti<<<blocks, tpb>>>(tasks, taskCount, totalSize, lr, t, weightDecay);
+	checkCUDA(cudaGetLastError());
+}
+void AdamWFloatMulti(const AdamWFloatTask* tasks, const int taskCount, const int totalSize, const float lr, const int t, const float weightDecay){
+	if(taskCount <= 0 || totalSize <= 0) return;
+	size_t blocks, tpb = 256;
+	GetLaunchConfigGridStride(totalSize, blocks, tpb);
+	AdamwKernelFloatMulti<<<blocks, tpb>>>(tasks, taskCount, totalSize, lr, t, weightDecay);
+	checkCUDA(cudaGetLastError());
+}
