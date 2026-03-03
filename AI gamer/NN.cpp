@@ -53,6 +53,8 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());
 	}
+	CollectAdamWTasks();
+	std::cout<<"Collected AdamW tasks: half="<<adamWHalfTasks_.size()<<", float="<<adamWFloatTasks_.size()<<"\n";
 	std::cout<<"Done\n";
 	if(ckptFile.is_open()){
 		std::cout<<"Loading weights... ";
@@ -132,5 +134,14 @@ void NN::SaveOptimizerState(const std::string& filename){
 void NN::SetTrain(const bool enable){
 	for(int i = 0; i<layers_.size(); ++i){
 		layers_[i]->SetTrain(enable);
+	}
+	CollectAdamWTasks();
+}
+
+void NN::CollectAdamWTasks(){
+	adamWHalfTasks_.clear();
+	adamWFloatTasks_.clear();
+	for(const auto layer : layers_){
+		layer->CollectAdamWTasks(adamWHalfTasks_, adamWFloatTasks_);
 	}
 }

@@ -374,3 +374,17 @@ void SwinUnetLayer::SetTrain(const bool enable){
 	postNorm_->SetTrain(enable);
 	postGELU_->SetTrain(enable);
 }
+
+void SwinUnetLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	patchEmbed_->CollectAdamWTasks(halfTasks, floatTasks);
+	for(auto& stage : encoderStages_){
+		for(auto* block : stage.blocks){ block->CollectAdamWTasks(halfTasks, floatTasks); }
+		stage.merge->CollectAdamWTasks(halfTasks, floatTasks);
+	}
+	for(auto& stage : decoderStages_){
+		stage.expand->CollectAdamWTasks(halfTasks, floatTasks);
+		for(auto* block : stage.blocks){ block->CollectAdamWTasks(halfTasks, floatTasks); }
+	}
+	postNorm_->CollectAdamWTasks(halfTasks, floatTasks);
+	postGELU_->CollectAdamWTasks(halfTasks, floatTasks);
+}

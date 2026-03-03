@@ -16,6 +16,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	cudnnHandle_t cudnn_;
 	int batchSize_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;

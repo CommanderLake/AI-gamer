@@ -114,6 +114,12 @@ size_t ConvLayer::GetOptimizerStateSize(){
 void ConvLayer::SetTrain(bool enable){
 	train_ = enable;
 }
+
+void ConvLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	if(!useAdamW_ || !train_) return;
+	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_)});
+}
+
 std::pair<int, int> ConvLayer::Padding(const int imageHeight, const int imageWidth, const int kernelSize, const int stride){
 	return {std::max(0, (imageHeight - kernelSize)/stride*stride + (kernelSize - 1) - (imageHeight - 1)), std::max(0, (imageWidth - kernelSize)/stride*stride + (kernelSize - 1) - (imageWidth - 1))};
 }

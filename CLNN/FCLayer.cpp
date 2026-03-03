@@ -128,3 +128,9 @@ size_t FCLayer::GetOptimizerStateSize(){
 void FCLayer::SetTrain(const bool enable){
 	train_ = enable;
 }
+
+void FCLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	if(!useAdamW_ || !train_) return;
+	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_)});
+	if(useBias_){ halfTasks.push_back({biases_, gradBiases_, m_Biases_, v_Biases_, outC_}); }
+}

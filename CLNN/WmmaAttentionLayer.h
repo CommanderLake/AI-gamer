@@ -18,6 +18,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	void SetAttentionMask(const float* attentionMask, int maskBatchSize, int maskHeads);
 	void InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex);
 	cudnnHandle_t cudnnHandle_;

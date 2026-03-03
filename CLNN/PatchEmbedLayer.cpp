@@ -195,3 +195,13 @@ void PatchEmbedLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buf
 size_t PatchEmbedLayer::GetParameterSize(){ return (weightCount_ + posCount_ + offsetCount_ + offsetEmbedCount_)*sizeof(__half); }
 size_t PatchEmbedLayer::GetOptimizerStateSize(){ return useAdamW_ ? (weightCount_ + posCount_ + offsetCount_ + offsetEmbedCount_)*sizeof(__half)*2 + sizeof(int) : 0; }
 void PatchEmbedLayer::SetTrain(const bool enable){ train_ = enable; }
+
+void PatchEmbedLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	if(!useAdamW_ || !train_) return;
+	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_)});
+	halfTasks.push_back({posEmbed_, gradPosEmbed_, m_PosEmbed_, v_PosEmbed_, posCount_});
+	if(offsetCount_ > 0){
+		halfTasks.push_back({offsetWeights_, gradOffsetWeights_, m_OffsetWeights_, v_OffsetWeights_, offsetCount_});
+		halfTasks.push_back({offsetEmbedWeights_, gradOffsetEmbedWeights_, m_OffsetEmbed_, v_OffsetEmbed_, offsetEmbedCount_});
+	}
+}

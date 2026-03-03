@@ -19,4 +19,7 @@ public:
 	int inWidth_ = 0, inHeight_ = 0;
 	size_t maxBufferSize_ = 0;
 	int gradAccumLength_;
+	std::vector<Layer::AdamWHalfTask> adamWHalfTasks_;
+	std::vector<Layer::AdamWFloatTask> adamWFloatTasks_;
+	void CollectAdamWTasks();
 };

@@ -72,3 +72,8 @@ size_t GlobalPoolLayer::GetOptimizerStateSize(){
 void GlobalPoolLayer::SetTrain(bool enable){
 	train_ = enable;
 }
+
+void GlobalPoolLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	if(!train_) return;
+	halfTasks.push_back({weights_, gradQuery_, mQuery_, vQuery_, embedSize_});
+}

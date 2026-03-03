@@ -142,3 +142,9 @@ void BatchNorm::SetTrain(const bool enable){
 		checkCUDA(cudaMemcpy(bnRunningVarInfer_, bnRunningVarTrain_, outC_*sizeof(float), cudaMemcpyDeviceToDevice));
 	}
 }
+
+void BatchNorm::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	if(!useAdamW_ || !train_) return;
+	floatTasks.push_back({bnScale_, gradBnScale_, m_BnScale_, v_BnScale_, outC_});
+	floatTasks.push_back({bnBias_, gradBnBias_, m_BnBias_, v_BnBias_, outC_});
+}

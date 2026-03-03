@@ -81,3 +81,9 @@ void ActionHead::SetTrain(const bool enable){
 	for(auto* layer : buttonLayers_){ layer->SetTrain(enable); }
 	for(auto* layer : axisLayers_){ layer->SetTrain(enable); }
 }
+
+void ActionHead::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	for(auto* layer : buttonLayers_){ layer->CollectAdamWTasks(halfTasks, floatTasks); }
+	for(auto* layer : axisLayers_){ layer->CollectAdamWTasks(halfTasks, floatTasks); }
+}
+

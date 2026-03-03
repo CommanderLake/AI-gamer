@@ -16,6 +16,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	int batchSize_, inC_, outC_;
 	__half* outData_ = nullptr;
 	__half* outGrad_ = nullptr;

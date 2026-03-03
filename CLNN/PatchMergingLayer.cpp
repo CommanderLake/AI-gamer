@@ -62,3 +62,8 @@ void PatchMergingLayer::SetTrain(const bool enable){
 	norm_->SetTrain(enable);
 	reduction_->SetTrain(enable);
 }
+
+void PatchMergingLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	norm_->CollectAdamWTasks(halfTasks, floatTasks);
+	reduction_->CollectAdamWTasks(halfTasks, floatTasks);
+}

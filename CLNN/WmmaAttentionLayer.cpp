@@ -264,6 +264,20 @@ size_t WmmaAttentionLayer::GetOptimizerStateSize(){
 	return size + sizeof(int);
 }
 void WmmaAttentionLayer::SetTrain(bool enable){ train_ = enable; }
+
+void WmmaAttentionLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
+	if(!train_) return;
+	const int matrixElems = embedDim_*embedDim_;
+	halfTasks.push_back({qWeights_, gradQ_, m_Q_, v_Q_, matrixElems});
+	halfTasks.push_back({kWeights_, gradK_, m_K_, v_K_, matrixElems});
+	halfTasks.push_back({vWeights_, gradV_, m_V_, v_V_, matrixElems});
+	halfTasks.push_back({oWeights_, gradOut_, m_O_, v_O_, matrixElems});
+	if(useRelPosBias_ && relPosBias_){
+		const int biasElems = numHeads_ * relPosSize_;
+		floatTasks.push_back({relPosBias_, gradRelPosBias_, m_relPosBias_, v_relPosBias_, biasElems});
+	}
+}
+
 void WmmaAttentionLayer::SetAttentionMask(const float* attentionMask, const int maskBatchSize, const int maskHeads){
 	attentionMask_ = attentionMask;
 	maskBatchSize_ = maskBatchSize;

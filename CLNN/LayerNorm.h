@@ -14,6 +14,7 @@ public:
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
+	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	int batchSize_, outC_, outHW_, height_, width_;
 	int normSize_;
 	bool spatialMode_;
