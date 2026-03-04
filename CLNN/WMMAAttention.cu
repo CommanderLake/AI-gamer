@@ -113,7 +113,7 @@ namespace{
 // ============================================================================
 // FORWARD KERNEL
 // ============================================================================
-__global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask, const float* __restrict__ RelPosBias, const int* __restrict__ RelPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int tileCols, int maskBatchSize, int maskHeads){
+__global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, __half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask, const float* __restrict__ RelPosBias, const int* __restrict__ RelPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int tileCols, int maskBatchSize, int maskHeads){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -313,7 +313,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 			float scalePrev = 0.0f;
 			if(prevSum > 0.0f){
 				const float diff = prevMax - newMax;
-				if(diff > -20.0f && diff < 20.0f){ scalePrev = expf(diff); }
+				if(diff > -20.0f && diff < 20.0f){ scalePrev = __expf(diff); }
 			}
 			float localSum = 0.0f;
 #pragma unroll 4
@@ -322,7 +322,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 				if(globalCol < tokens){
 					const float val = scoresTile[row*tileCols + col];
 					const float diff = val - newMax;
-					if(diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT){ localSum += expf(diff); }
+					if(diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT){ localSum += __expf(diff); }
 				}
 			}
 			localSum = WarpReduceSum(localSum);
@@ -354,7 +354,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 					const float logit = scoresTile[row*tileCols + col];
 					const float diff = logit - maxVal;
 					float expVal = 0.0f;
-					if(diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT){ expVal = expf(diff); }
+					if(diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT){ expVal = __expf(diff); }
 					scoresTile[row*tileCols + col] = expVal;
 					if(AttentionWeights != nullptr){
 						float normalized = 0.0f;
@@ -451,7 +451,7 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 // ============================================================================
 // BACKWARD KERNELS
 // ============================================================================
-__global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const __half* __restrict__ attention, float* __restrict__ dAtt, __half* __restrict__ dQ, int batchSize, int tokens, int headDim, int heads, int tileCols){
+__global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const __half* __restrict__ attention, float* __restrict__ dAtt, __half* __restrict__ dQ, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int rowBlock = blockIdx.x;
@@ -734,7 +734,7 @@ __global__ void ComputeDAttDQKernel(const __half* __restrict__ Q, const __half* 
 		__syncthreads();
 	}
 }
-__global__ void ComputeDVKernel(const __half* __restrict__ attention, const __half* __restrict__ dOut, __half* __restrict__ dV, int batchSize, int tokens, int headDim, int heads){
+__global__ void WmmaAttDVKernel(const __half* __restrict__ attention, const __half* __restrict__ dOut, __half* __restrict__ dV, int batchSize, int tokens, int headDim, int heads){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int keyBlock = blockIdx.x;
@@ -834,7 +834,7 @@ __global__ void ComputeDVKernel(const __half* __restrict__ attention, const __ha
 		__syncthreads();
 	}
 }
-__global__ void ComputeDKKernel(const float* __restrict__ dAtt, const __half* __restrict__ Q, __half* __restrict__ dK, int batchSize, int tokens, int headDim, int heads){
+__global__ void WmmaAttDKKernel(const float* __restrict__ dAtt, const __half* __restrict__ Q, __half* __restrict__ dK, int batchSize, int tokens, int headDim, int heads){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int keyBlock = blockIdx.x;
@@ -956,13 +956,13 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 	dim3 block(kDefaultThreads);
 	dim3 grid(numRowBlocks, batchSize, heads);
 	const int tileCols = GetAttentionTileCols(tokens);
-	const cudaError_t err = cudaFuncSetAttribute(WmmaAttentionKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
+	const cudaError_t err = cudaFuncSetAttribute(WmmaAttKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
 	if(err != cudaSuccess){
 		std::cerr << "WmmaAttention: Failed to set shared memory size: " << cudaGetErrorString(err) << std::endl;
 		return;
 	}
 	//cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols, maskBatchSize, maskHeads);
+	WmmaAttKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols, maskBatchSize, maskHeads);
 	checkCUDA(cudaGetLastError());
 }
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, const size_t workspaceElements, const int batchSize, const int tokens, const int headDim, const int heads){
@@ -1001,24 +1001,24 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 		return;
 	}
 	// Set shared memory configurations
-	cudaFuncSetAttribute(ComputeDAttDQKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
-	cudaFuncSetAttribute(ComputeDVKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
-	cudaFuncSetAttribute(ComputeDKKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
+	cudaFuncSetAttribute(WmmaAttDAttDQKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
+	cudaFuncSetAttribute(WmmaAttDVKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
+	cudaFuncSetAttribute(WmmaAttDKKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
 	//cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 	// Launch kernels
-	ComputeDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
+	WmmaAttDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
 	cudaError_t err = cudaGetLastError();
 	if(err != cudaSuccess){
 		std::cerr << "WmmaAttentionBackward dAtt+dQ error: " << cudaGetErrorString(err) << std::endl;
 		return;
 	}
-	ComputeDVKernel<<<gridKV, block, smemKV>>>(Att, dOut, dV, batchSize, tokens, headDim, heads);
+	WmmaAttDVKernel<<<gridKV, block, smemKV>>>(Att, dOut, dV, batchSize, tokens, headDim, heads);
 	err = cudaGetLastError();
 	if(err != cudaSuccess){
 		std::cerr << "WmmaAttentionBackward dV error: " << cudaGetErrorString(err) << std::endl;
 		return;
 	}
-	ComputeDKKernel<<<gridKV, block, smemKV>>>(dAttWorkspace, Q, dK, batchSize, tokens, headDim, heads);
+	WmmaAttDKKernel<<<gridKV, block, smemKV>>>(dAttWorkspace, Q, dK, batchSize, tokens, headDim, heads);
 	err = cudaGetLastError();
 	if(err != cudaSuccess){ std::cerr << "WmmaAttentionBackward dK error: " << cudaGetErrorString(err) << std::endl; }
 }

@@ -33,8 +33,8 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	constexpr auto embedW = 16;
 	auto embedSize = embedH*embedW;
 	constexpr int baseHeads = 8;
-	constexpr int blocksPerStage = 4;
-	constexpr int numMergeStages = 2;
+	constexpr int blocksPerStage = 2;
+	constexpr int numMergeStages = 4;
 	constexpr int baseWindowSize = 8;
 	constexpr float maxDropPathRate = 0.1f;
 	constexpr int scaledHeight = 256;
