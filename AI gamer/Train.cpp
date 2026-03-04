@@ -134,21 +134,21 @@ void Train::TrainModel(const int width, const int height){
 		threadPool.WaitAll();
 		nn->SaveModel(ckptFileName);
 		nn->SaveOptimizerState(optFileName);
-		//emaLossButs_ = emaLossAxes_ = 0;
-		//std::cout << "\nRunning validation...\n";
-		//nn->SetTrain(false);
-		//fetchBatch(true);
-		//for(auto batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
-		//	threadPool.WaitAll();
-		//	fetchBatch(true);
-		//	const auto result = TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);
-		//	if(result == -1){ stopTraining = true; }
-		//}
-		//nn->SetTrain(true);
-		//if(stopTraining){
-		//	std::cout << "\nNaN encountered during validation. Stopping.\n";
-		//	break;
-		//}
+		emaLossButs_ = emaLossAxes_ = 0;
+		std::cout << "\nRunning validation...\n";
+		nn->SetTrain(false);
+		fetchBatch(true);
+		for(auto batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
+			threadPool.WaitAll();
+			fetchBatch(true);
+			const auto result = TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);
+			if(result == -1){ stopTraining = true; }
+		}
+		nn->SetTrain(true);
+		if(stopTraining){
+			std::cout << "\nNaN encountered during validation. Stopping.\n";
+			break;
+		}
 	}
 	threadPool.WaitAll();
 	Free();
