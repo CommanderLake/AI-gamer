@@ -220,40 +220,40 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 				// Collaborative K tile loading
 				const int rowPairs = 8;
 				const int vectorsPerWarp = 16*rowPairs;
-				const int totalVectors = vectorsPerWarp*activeWarps;
-				for(int vec = threadIdx.x; vec < totalVectors; vec += blockDim.x){
-					const int warpLocal = vec/vectorsPerWarp;
-					const int warpOffset = vec % vectorsPerWarp;
-					const int col = warpOffset/rowPairs;
-					const int pair = warpOffset % rowPairs;
-					const int row = pair*2;
-					const int localCol = warpLocal*16 + col;
-					const int globalCol = tileStart + colBlock + localCol;
-					const int baseIdx = warpLocal*tileStride*16 + col*tileStride + row;
-					__half first = __float2half(0.0f);
-					__half second = __float2half(0.0f);
-					const bool validCol = warpLocal < activeWarps && localCol < remainingCols && globalCol < tokens;
-					if(validCol){
-						const int globalRow0 = kBlock*16 + row;
-						const int globalRow1 = globalRow0 + 1;
-						if(globalRow0 < headDim){
-							const size_t idx0 = batchHeadOffset + static_cast<size_t>(globalCol)*headDim + globalRow0;
-							if(idx0 < totalElements){ first = K[idx0]; }
+				if(warpId < activeWarps){
+					for(int vec = laneId; vec < vectorsPerWarp; vec += 32){
+						const int warpOffset = vec;
+						const int col = warpOffset/rowPairs;
+						const int pair = warpOffset % rowPairs;
+						const int row = pair*2;
+						const int localCol = warpId*16 + col;
+						const int globalCol = tileStart + colBlock + localCol;
+						const int baseIdx = warpId*tileStride*16 + col*tileStride + row;
+						__half first = __float2half(0.0f);
+						__half second = __float2half(0.0f);
+						const bool validCol = localCol < remainingCols && globalCol < tokens;
+						if(validCol){
+							const int globalRow0 = kBlock*16 + row;
+							const int globalRow1 = globalRow0 + 1;
+							if(globalRow0 < headDim){
+								const size_t idx0 = batchHeadOffset + static_cast<size_t>(globalCol)*headDim + globalRow0;
+								if(idx0 < totalElements){ first = K[idx0]; }
+							}
+							if(globalRow1 < headDim){
+								const size_t idx1 = batchHeadOffset + static_cast<size_t>(globalCol)*headDim + globalRow1;
+								if(idx1 < totalElements){ second = K[idx1]; }
+							}
 						}
-						if(globalRow1 < headDim){
-							const size_t idx1 = batchHeadOffset + static_cast<size_t>(globalCol)*headDim + globalRow1;
-							if(idx1 < totalElements){ second = K[idx1]; }
-						}
+						reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
 					}
-					reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
+					__syncwarp();
 				}
-				__syncthreads();
 				if(warpId < activeWarps){
 					load_matrix_sync(q_frag, qShared + kBlock*16, qStride);
 					load_matrix_sync(k_frag, warpTiles + warpId*tileStride*16, tileStride);
 					mma_sync(warpScores, q_frag, k_frag, warpScores);
+					__syncwarp();
 				}
-				__syncthreads();
 			}
 			if(warpId < activeWarps){ store_matrix_sync(scoresTile + colBlock + warpId*16, warpScores, tileCols, wmma::mem_row_major); }
 		}
@@ -390,31 +390,31 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 				// Load V tile
 				const int colPairs = 8;
 				const int totalPairs = 16*colPairs;
-				for(int pairIdx = threadIdx.x; pairIdx < totalPairs; pairIdx += blockDim.x){
-					const int row = pairIdx/colPairs;
-					const int pair = pairIdx % colPairs;
-					const int col = pair*2;
-					const int keyIdx = tileStart + colBlock + row;
-					const int baseIdx = row*tileStride + col;
-					__half first = __float2half(0.0f);
-					__half second = __float2half(0.0f);
-					if(row < remaining && keyIdx < tokens){
-						const int valueIdx0 = vb*16 + col;
-						if(valueIdx0 < headDim){
-							const size_t vIdx0 = batchHeadOffset + static_cast<size_t>(keyIdx)*headDim + valueIdx0;
-							if(vIdx0 < totalElements){ first = V[vIdx0]; }
+				if(vb % numWarps == warpId){
+					for(int pairIdx = laneId; pairIdx < totalPairs; pairIdx += 32){
+						const int row = pairIdx/colPairs;
+						const int pair = pairIdx % colPairs;
+						const int col = pair*2;
+						const int keyIdx = tileStart + colBlock + row;
+						const int baseIdx = warpId*tileStride*16 + row*tileStride + col;
+						__half first = __float2half(0.0f);
+						__half second = __float2half(0.0f);
+						if(row < remaining && keyIdx < tokens){
+							const int valueIdx0 = vb*16 + col;
+							if(valueIdx0 < headDim){
+								const size_t vIdx0 = batchHeadOffset + static_cast<size_t>(keyIdx)*headDim + valueIdx0;
+								if(vIdx0 < totalElements){ first = V[vIdx0]; }
+							}
+							const int valueIdx1 = valueIdx0 + 1;
+							if(valueIdx1 < headDim){
+								const size_t vIdx1 = batchHeadOffset + static_cast<size_t>(keyIdx)*headDim + valueIdx1;
+								if(vIdx1 < totalElements){ second = V[vIdx1]; }
+							}
 						}
-						const int valueIdx1 = valueIdx0 + 1;
-						if(valueIdx1 < headDim){
-							const size_t vIdx1 = batchHeadOffset + static_cast<size_t>(keyIdx)*headDim + valueIdx1;
-							if(vIdx1 < totalElements){ second = V[vIdx1]; }
-						}
+						reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
 					}
-					reinterpret_cast<__half2*>(warpTiles + baseIdx)[0] = __halves2half2(first, second);
-				}
-				__syncthreads();
-				if(warpId < numWarps && vb % numWarps == warpId){
-					load_matrix_sync(v_frag, warpTiles, tileStride);
+					__syncwarp();
+					load_matrix_sync(v_frag, warpTiles + warpId*tileStride*16, tileStride);
 					wmma::fragment<wmma::accumulator, 16, 16, 16, float> outFrag;
 					fill_fragment(outFrag, 0.0f);
 					mma_sync(outFrag, att_frag, v_frag, outFrag);
@@ -428,8 +428,8 @@ __global__ void WmmaAttentionKernel(const __half* __restrict__ Q, const __half* 
 							outAccum[outIdx] += outFrag.x[i];
 						}
 					}
+					__syncwarp();
 				}
-				__syncthreads();
 			}
 		}
 	}
