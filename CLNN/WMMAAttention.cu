@@ -961,7 +961,7 @@ void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Ou
 		std::cerr << "WmmaAttention: Failed to set shared memory size: " << cudaGetErrorString(err) << std::endl;
 		return;
 	}
-	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
+	//cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 	WmmaAttentionKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols, maskBatchSize, maskHeads);
 	checkCUDA(cudaGetLastError());
 }
@@ -1004,7 +1004,7 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	cudaFuncSetAttribute(ComputeDAttDQKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
 	cudaFuncSetAttribute(ComputeDVKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
 	cudaFuncSetAttribute(ComputeDKKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
-	cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
+	//cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 	// Launch kernels
 	ComputeDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
 	cudaError_t err = cudaGetLastError();
