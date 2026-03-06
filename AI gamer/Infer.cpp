@@ -111,8 +111,8 @@ void Infer::ProcessOutput(const float* predictions){
 		inputs[inputIndex].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
 		inputIndex++;
 	}
-	const int mouseX = static_cast<int>(predictions[NUM_BUTS_]*AXIS_SCALE_);
-	const int mouseY = static_cast<int>(predictions[NUM_BUTS_ + 1]*AXIS_SCALE_);
+	const int mouseX = static_cast<int>(std::sinh(predictions[NUM_BUTS_])*AXIS_SCALE_);
+	const int mouseY = static_cast<int>(std::sinh(predictions[NUM_BUTS_ + 1])*AXIS_SCALE_);
 	if(mouseX != 0 || mouseY != 0){
 		inputs[inputIndex].type = INPUT_MOUSE;
 		inputs[inputIndex].mi.dx = mouseX;

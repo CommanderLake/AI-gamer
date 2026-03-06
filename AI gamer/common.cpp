@@ -5,7 +5,7 @@
 #include <vector>
 #include <sstream>
 //std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\DeltaHalo0X11.bin", "E:\\TrainingData\\DeltaHalo1X14.bin"};
-std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\TrainingData.bin"};
+std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\MBU0.bin", "E:\\TrainingData\\MBU1.bin"};
 std::string valDataFile = "E:\\TrainingData\\DeltaHaloValidation.bin";
 std::string trainDataOutFileName = "E:\\TrainingData.bin";
 std::string ckptFileName = "E:\\AIGamer.ckpt";
