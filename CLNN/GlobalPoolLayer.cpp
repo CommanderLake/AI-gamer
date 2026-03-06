@@ -1,22 +1,22 @@
 #include "GlobalPoolLayer.h"
 #include "CuCommon.cuh"
-GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, std::string layerName, bool train) : batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize){
+GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, int numQueries, std::string layerName, bool train) : batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize), numQueries_(numQueries){
 	layerName_ = layerName;
 	train_ = train;
 	invSqrtDim_ = 1.0f/std::sqrt(static_cast<float>(embedSize_));
-	outNCHW_ = batchSize_*embedSize_;
-	weightCount_ = embedSize_;
+	outNCHW_ = static_cast<size_t>(batchSize_)*numQueries_*embedSize_;
+	weightCount_ = static_cast<size_t>(numQueries_)*embedSize_;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
-	CUDAMallocZero(&attnWeights_, batchSize_*nTokens_*sizeof(float));
-	CUDAMallocZero(&scratchBuffer_, batchSize_*nTokens_*sizeof(float));
+	CUDAMallocZero(&attnWeights_, static_cast<size_t>(batchSize_)*numQueries_*nTokens_*sizeof(float));
+	CUDAMallocZero(&scratchBuffer_, static_cast<size_t>(batchSize_)*numQueries_*nTokens_*sizeof(float));
 	if(train_){
-		WeightInit(weights_, weightCount_, embedSize_, embedSize_, Xavier);
-		CUDAMallocZero(&outGrad_, batchSize_*nTokens_*embedSize_*sizeof(__half));
+		WeightInit(weights_, static_cast<int>(weightCount_), embedSize_, embedSize_, Xavier);
+		CUDAMallocZero(&outGrad_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
 		CUDAMallocZero(&gradQuery_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&mQuery_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&vQuery_, weightCount_*sizeof(__half));
-		CUDAMallocZero(&batchSums_, batchSize_*sizeof(float));
+		CUDAMallocZero(&batchSums_, static_cast<size_t>(batchSize_)*numQueries_*sizeof(float));
 	}
 }
 GlobalPoolLayer::~GlobalPoolLayer(){
@@ -34,15 +34,15 @@ GlobalPoolLayer::~GlobalPoolLayer(){
 }
 __half* GlobalPoolLayer::Forward(__half* data){
 	inData_ = data;
-	AttentionPoolForward(data, weights_, outData_, attnWeights_, scratchBuffer_, batchSize_, nTokens_, embedSize_, invSqrtDim_);
+	AttentionPoolForward(data, weights_, outData_, attnWeights_, scratchBuffer_, batchSize_, nTokens_, embedSize_, numQueries_, invSqrtDim_);
 	return outData_;
 }
 __half* GlobalPoolLayer::Backward(__half* grad){
-	AttentionPoolBackward(grad, inData_, weights_, attnWeights_, scratchBuffer_, batchSums_, outGrad_, gradQuery_, batchSize_, nTokens_, embedSize_, invSqrtDim_);
+	AttentionPoolBackward(grad, inData_, weights_, attnWeights_, scratchBuffer_, batchSums_, outGrad_, gradQuery_, batchSize_, nTokens_, embedSize_, numQueries_, invSqrtDim_);
 	return outGrad_;
 }
 void GlobalPoolLayer::UpdateParameters(float learningRate){
-	AdamWHalf(weights_, gradQuery_, mQuery_, vQuery_, learningRate, t_, weightDecay_, embedSize_);
+	AdamWHalf(weights_, gradQuery_, mQuery_, vQuery_, learningRate, t_, weightDecay_, static_cast<int>(weightCount_));
 	++t_;
 }
 void GlobalPoolLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
@@ -66,14 +66,9 @@ void GlobalPoolLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buf
 	cudaMemcpy(vQuery_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 }
 size_t GlobalPoolLayer::GetParameterSize(){ return weightCount_*sizeof(__half); }
-size_t GlobalPoolLayer::GetOptimizerStateSize(){
-	return 2*weightCount_*sizeof(__half);
-}
-void GlobalPoolLayer::SetTrain(bool enable){
-	train_ = enable;
-}
-
+size_t GlobalPoolLayer::GetOptimizerStateSize(){ return 2*weightCount_*sizeof(__half); }
+void GlobalPoolLayer::SetTrain(bool enable){ train_ = enable; }
 void GlobalPoolLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!train_) return;
-	halfTasks.push_back({weights_, gradQuery_, mQuery_, vQuery_, embedSize_, weightDecay_});
+	halfTasks.push_back({weights_, gradQuery_, mQuery_, vQuery_, static_cast<int>(weightCount_), weightDecay_});
 }

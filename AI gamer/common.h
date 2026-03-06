@@ -62,3 +62,4 @@ void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation)
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
 void ResetLoadBatchFailureCount();
 int GetLoadBatchFailureCount();
+void ShuffleBatchOrder(bool validation);

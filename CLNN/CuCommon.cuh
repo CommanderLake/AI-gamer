@@ -115,8 +115,8 @@ void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, boo
 void AddPerTokenEmbedding(__half* output, const __half* embed, int batch, int tokens, int embedDim);
 void TanhInPlace(__half* data, int size);
 void TanhBackward(__half* grad, const __half* activations, int size);
-void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim);
-void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim);
+void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
+void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
 void ScaleArrayHalf(__half* data, size_t count, float scale);
 void AddBias(__half* output, const __half* bias, int channels, int batchSize);
 void AddTensor(float alpha, __half* A, float beta, const __half* B, int size);

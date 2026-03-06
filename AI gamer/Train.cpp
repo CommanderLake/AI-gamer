@@ -20,8 +20,8 @@ void Train::Free(){
 	cudaFree(dStateBatchBytes);
 }
 float GetLearningRate(const int epoch, const int batch, const int epochBatchCount, const int epochs){
-	constexpr auto baseLr = 0.00002f;
-	constexpr auto minLr = 0.0000001f;
+	constexpr auto baseLr = 0.00001f;
+	constexpr auto minLr = 0.000001f;
 	const auto warmupSteps = epochBatchCount*1;
 	const auto totalSteps = epochBatchCount*epochs;
 	const auto currentStep = epoch*epochBatchCount + batch;
@@ -79,7 +79,7 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 	}
 	std::cout << "\rLR: " << lr << " Batch " << batchIndex + 1 << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_ << " Batch rate: " << GetRate();
 	if(lr <= 0.0f) return 0;
-	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 16.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
+	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 8.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
 	if(IsnanHalf(nn->Backward(dGradient_), nn->stateSize_*nn->batchSize_)){
 		std::cout << " NaN in gradient\n";
 		return -1;
@@ -107,12 +107,13 @@ void Train::TrainModel(const int width, const int height){
 		threadPool.Enqueue([&, nextBatch, validation]{ LoadBatch(nextBatch, nn->batchSize_, nn->stateSize_, validation); });
 		sbRead = sbSwitch ? &sb0 : &sb1;
 	};
-	fetchBatch(false);
 	Allocate(nn->batchSize_, nn->stateSize_);
 	bool stopTraining = false;
-	const auto epochBatchCount = trainRecordIndices.size()/nn->batchSize_;
-	const auto epochBatchCountVal = valRecordIndices.size()/nn->batchSize_;
+	const auto epochBatchCount = (trainRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
+	const auto epochBatchCountVal = (valRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
 	for(auto epoch = 0; epoch < epochs; ++epoch){
+		ShuffleBatchOrder(false);
+		fetchBatch(false);
 		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nEpoch: " << epoch << "\n";
 		for(auto batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
@@ -134,9 +135,10 @@ void Train::TrainModel(const int width, const int height){
 		threadPool.WaitAll();
 		nn->SaveModel(ckptFileName);
 		nn->SaveOptimizerState(optFileName);
-		emaLossButs_ = emaLossAxes_ = 0;
+		/*emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
+		ShuffleBatchOrder(true);
 		fetchBatch(true);
 		for(auto batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
 			threadPool.WaitAll();
@@ -148,7 +150,7 @@ void Train::TrainModel(const int width, const int height){
 		if(stopTraining){
 			std::cout << "\nNaN encountered during validation. Stopping.\n";
 			break;
-		}
+		}*/
 	}
 	threadPool.WaitAll();
 	Free();

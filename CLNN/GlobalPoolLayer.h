@@ -2,7 +2,7 @@
 #include "Layer.h"
 class GlobalPoolLayer final : public Layer{
 public:
-	GlobalPoolLayer(int batchSize, int nTokens, int embedSize, std::string layerName, bool train);
+	GlobalPoolLayer(int batchSize, int nTokens, int embedSize, int numQueries, std::string layerName, bool train);
 	~GlobalPoolLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -15,7 +15,7 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
-	int batchSize_, nTokens_, embedSize_;
+	int batchSize_, nTokens_, embedSize_, numQueries_;
 	float invSqrtDim_;
 	float weightDecay_ = 0.0f;
 	int t_ = 1;

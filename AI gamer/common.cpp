@@ -1,10 +1,11 @@
 #include "common.h"
 #include <fstream>
 #include <iostream>
+#include <numeric>
 #include <vector>
 #include <sstream>
-std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\DeltaHalo0X11.bin", "E:\\TrainingData\\DeltaHalo1X14.bin"};
-//std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\TrainingData.bin"};
+//std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\DeltaHalo0X11.bin", "E:\\TrainingData\\DeltaHalo1X14.bin"};
+std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\TrainingData.bin"};
 std::string valDataFile = "E:\\TrainingData\\DeltaHaloValidation.bin";
 std::string trainDataOutFileName = "E:\\TrainingData.bin";
 std::string ckptFileName = "E:\\AIGamer.ckpt";
@@ -13,6 +14,11 @@ std::vector<RecordIndex> trainRecordIndices;
 std::vector<RecordIndex> valRecordIndices;
 ThreadPool threadPool(8);
 static std::atomic<int> gLoadBatchFailureCount{0};
+static std::mutex gBatchOrderMutex;
+static std::vector<size_t> gTrainBatchOrder;
+static std::vector<size_t> gValBatchOrder;
+static size_t gTrainBatchCursor = 0;
+static size_t gValBatchCursor = 0;
 unsigned char keyMap[] = {
 	0x11, // W
 	0x1E, // A
@@ -51,17 +57,30 @@ static std::ifstream& GetThreadFile(const std::string& fileName){
 	it->second->clear();
 	return *it->second;
 }
+static void GetBatchRecords(const std::vector<RecordIndex>* recordIndices, const bool validation, const int batchSize, std::vector<RecordIndex>* batchRecords){
+	std::lock_guard<std::mutex> lock(gBatchOrderMutex);
+	std::vector<size_t>& batchOrder = validation ? gValBatchOrder : gTrainBatchOrder;
+	size_t& cursor = validation ? gValBatchCursor : gTrainBatchCursor;
+	if(batchOrder.size() != recordIndices->size()){
+		batchOrder.resize(recordIndices->size());
+		std::iota(batchOrder.begin(), batchOrder.end(), 0);
+	}
+	for(size_t i = 0; i < static_cast<size_t>(batchSize); ++i){
+		if(cursor >= batchOrder.size()){ cursor = 0; }
+		(*batchRecords)[i] = (*recordIndices)[batchOrder[cursor]];
+		++cursor;
+	}
+}
 void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, const bool validation){
 	const std::vector<RecordIndex>* recordIndices = validation ? &valRecordIndices : &trainRecordIndices;
-	if(recordIndices->size() < batchSize){
-		std::cerr << "Not enough records to fill the batch\n";
+	if(recordIndices->empty()){
+		std::cerr << "No records available to fill the batch\n";
 		return;
 	}
-	for(size_t i = 0; i < batchSize; ++i){
-		threadPool.Enqueue([i, batch, stateSize, recordIndices]{
-			const std::uniform_int_distribution<size_t> dist(0, recordIndices->size() - 1);
-			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
-			const RecordIndex record = (*recordIndices)[randomIndex];
+	std::vector<RecordIndex> batchRecords(batchSize);
+	GetBatchRecords(recordIndices, validation, batchSize, &batchRecords);
+	for(size_t i = 0; i < static_cast<size_t>(batchSize); ++i){
+		threadPool.Enqueue([i, batch, stateSize, record = batchRecords[i]]{
 			try{
 				auto& file = GetThreadFile(*record.fileName);
 				file.seekg(record.position);
@@ -92,7 +111,7 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 		return;
 	}
 	std::uniform_int_distribution<size_t> dist(0, states.size() - 1);
-	for(size_t i = 0; i < batchSize; ++i){
+	for(int i = 0; i < batchSize; ++i){
 		threadPool.Enqueue([i, batch, stateSize, &states, dist]() mutable{
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
 			const auto& record = states[randomIndex];
@@ -111,4 +130,15 @@ void ResetLoadBatchFailureCount(){
 }
 int GetLoadBatchFailureCount(){
 	return gLoadBatchFailureCount.load(std::memory_order_relaxed);
+}
+void ShuffleBatchOrder(const bool validation){
+	const std::vector<RecordIndex>* recordIndices = validation ? &valRecordIndices : &trainRecordIndices;
+	std::lock_guard<std::mutex> lock(gBatchOrderMutex);
+	std::vector<size_t>& batchOrder = validation ? gValBatchOrder : gTrainBatchOrder;
+	size_t& cursor = validation ? gValBatchCursor : gTrainBatchCursor;
+	batchOrder.resize(recordIndices->size());
+	std::iota(batchOrder.begin(), batchOrder.end(), 0);
+	static std::mt19937 shuffleGenerator(std::random_device{}());
+	std::shuffle(batchOrder.begin(), batchOrder.end(), shuffleGenerator);
+	cursor = 0;
 }

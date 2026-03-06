@@ -53,120 +53,158 @@ __host__ __device__ inline int NextPow2Clamp(int value){
 	while(pow2 < value && pow2 < 256){ pow2 <<= 1; }
 	return pow2;
 }
-__global__ void AttentionPoolScoresKernel(const __half* input, const __half* query, float* scores, int batchSize, int tokens, int embedDim, float invSqrtDim){
-	const int b = blockIdx.x;
-	const int t = blockIdx.y * blockDim.x + threadIdx.x;
-	if(b >= batchSize || t >= tokens){ return; }
-	const int base = (b * tokens + t) * embedDim;
-	const __half* inputRow = input + base;
-	float sum = 0.0f;
-	for(int c = 0; c < embedDim; ++c){ sum = fmaf(__half2float(inputRow[c]), __half2float(query[c]), sum); }
-	scores[b * tokens + t] = sum * invSqrtDim;
-}
-__global__ void AttentionPoolSoftmaxKernel(float* scores, float* attnWeights, int batchSize, int tokens){
-	const int b = blockIdx.x;
-	if(b >= batchSize){ return; }
-	float localMax = -FLT_MAX;
-	for(int t = threadIdx.x; t < tokens; t += blockDim.x){ localMax = fmaxf(localMax, scores[b * tokens + t]); }
-	const float maxVal = BlockReduceMax(localMax);
-	__shared__ float sharedMax;
-	if(threadIdx.x == 0){ sharedMax = maxVal; }
-	__syncthreads();
-	const float maxScore = sharedMax;
-	float localSum = 0.0f;
-	for(int t = threadIdx.x; t < tokens; t += blockDim.x){
-		const int idx = b * tokens + t;
-		const float expVal = expf(scores[idx] - maxScore);
-		attnWeights[idx] = expVal;
-		localSum += expVal;
+__global__ void AttentionPoolScoresKernel(const __half* input, const __half* query, float* scores, int tokens, int embedDim, int numQueries, float invSqrtDim, int totalRows){
+	const int stride = blockDim.x * gridDim.x;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < totalRows * tokens; idx += stride){
+		const int row = idx / tokens;
+		const int t = idx % tokens;
+		const int b = row / numQueries;
+		const int q = row % numQueries;
+		const __half* inputRow = input + (b * tokens + t) * embedDim;
+		const __half* queryRow = query + q * embedDim;
+		float sum = 0.0f;
+		for(int c = 0; c < embedDim; ++c){ sum = fmaf(__half2float(inputRow[c]), __half2float(queryRow[c]), sum); }
+		scores[idx] = sum * invSqrtDim;
 	}
-	const float sum = BlockReduceSum(localSum);
-	__shared__ float sharedInvSum;
-	if(threadIdx.x == 0){ sharedInvSum = sum > 0.0f ? 1.0f / sum : 0.0f; }
-	__syncthreads();
-	const float invSum = sharedInvSum;
-	for(int t = threadIdx.x; t < tokens; t += blockDim.x){ attnWeights[b * tokens + t] *= invSum; }
 }
-__global__ void AttentionPoolWeightedSumKernel(const __half* input, const float* attnWeights, __half* output, int batchSize, int tokens, int embedDim){
-	const int b = blockIdx.x;
-	const int c = blockIdx.y * blockDim.x + threadIdx.x;
-	if(b >= batchSize || c >= embedDim){ return; }
-	float sum = 0.0f;
-	const float* weightRow = attnWeights + b * tokens;
-	const __half* inputCol = input + (b * tokens) * embedDim + c;
-	for(int t = 0; t < tokens; ++t){ sum = fmaf(weightRow[t], __half2float(inputCol[t * embedDim]), sum); }
-	output[b * embedDim + c] = __float2half(sum);
+__global__ void AttentionPoolSoftmaxKernel(float* scores, float* attnWeights, int tokens, int totalRows){
+	for(int row = blockIdx.x; row < totalRows; row += gridDim.x){
+		float localMax = -FLT_MAX;
+		for(int t = threadIdx.x; t < tokens; t += blockDim.x){ localMax = fmaxf(localMax, scores[row * tokens + t]); }
+		const float maxVal = BlockReduceMax(localMax);
+		__shared__ float sharedMax;
+		if(threadIdx.x == 0){ sharedMax = maxVal; }
+		__syncthreads();
+		const float maxScore = sharedMax;
+		float localSum = 0.0f;
+		for(int t = threadIdx.x; t < tokens; t += blockDim.x){
+			const int idx = row * tokens + t;
+			const float expVal = expf(scores[idx] - maxScore);
+			attnWeights[idx] = expVal;
+			localSum += expVal;
+		}
+		const float sum = BlockReduceSum(localSum);
+		__shared__ float sharedInvSum;
+		if(threadIdx.x == 0){ sharedInvSum = sum > 0.0f ? 1.0f / sum : 0.0f; }
+		__syncthreads();
+		const float invSum = sharedInvSum;
+		for(int t = threadIdx.x; t < tokens; t += blockDim.x){ attnWeights[row * tokens + t] *= invSum; }
+		__syncthreads();
+	}
 }
-void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, float invSqrtDim){
-	dim3 scoreGrid(batchSize, DivCeil(tokens, CPM));
-	AttentionPoolScoresKernel<<<scoreGrid, CPM>>>(input, query, tempBuffer, batchSize, tokens, embedDim, invSqrtDim);
+__global__ void AttentionPoolWeightedSumKernel(const __half* input, const float* attnWeights, __half* output, int tokens, int embedDim, int numQueries, int totalRows){
+	const int stride = blockDim.x * gridDim.x;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < totalRows * embedDim; idx += stride){
+		const int row = idx / embedDim;
+		const int c = idx % embedDim;
+		const int b = row / numQueries;
+		float sum = 0.0f;
+		const float* weightRow = attnWeights + row * tokens;
+		const __half* inputCol = input + (b * tokens) * embedDim + c;
+		for(int t = 0; t < tokens; ++t){ sum = fmaf(weightRow[t], __half2float(inputCol[t * embedDim]), sum); }
+		output[idx] = __float2half(sum);
+	}
+}
+void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim){
+	const int totalRows = batchSize * numQueries;
+	size_t blocks = 0, tpb = 0;
+	GetLaunchConfigGridStride(static_cast<size_t>(totalRows) * tokens, blocks, tpb);
+	AttentionPoolScoresKernel<<<blocks, tpb>>>(input, query, tempBuffer, tokens, embedDim, numQueries, invSqrtDim, totalRows);
 	checkCUDA(cudaGetLastError());
-	int softmaxThreads = NextPow2Clamp(tokens);
-	AttentionPoolSoftmaxKernel<<<batchSize, softmaxThreads>>>(tempBuffer, attnWeights, batchSize, tokens);
+	size_t softmaxBlocks = 0, softmaxTpb = 0;
+	GetLaunchConfigGridStride(totalRows, softmaxBlocks, softmaxTpb);
+	softmaxTpb = static_cast<size_t>(NextPow2Clamp(tokens));
+	AttentionPoolSoftmaxKernel<<<softmaxBlocks, softmaxTpb>>>(tempBuffer, attnWeights, tokens, totalRows);
 	checkCUDA(cudaGetLastError());
-	dim3 sumGrid(batchSize, DivCeil(embedDim, CPM));
-	AttentionPoolWeightedSumKernel<<<sumGrid, CPM>>>(input, attnWeights, output, batchSize, tokens, embedDim);
+	tpb = 0;
+	GetLaunchConfigGridStride(static_cast<size_t>(totalRows) * embedDim, blocks, tpb);
+	AttentionPoolWeightedSumKernel<<<blocks, tpb>>>(input, attnWeights, output, tokens, embedDim, numQueries, totalRows);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void AttentionPoolGradWeightsKernel(const __half* grad, const __half* input, float* gradWeights, int batchSize, int tokens, int embedDim){
-	const int b = blockIdx.x;
-	const int t = blockIdx.y * blockDim.x + threadIdx.x;
-	if(b >= batchSize || t >= tokens){ return; }
-	const int tokenBase = (b * tokens + t) * embedDim;
-	const __half* gradVec = grad + b * embedDim;
-	const __half* inputVec = input + tokenBase;
-	float dot = 0.0f;
-	for(int c = 0; c < embedDim; ++c){ dot = fmaf(__half2float(gradVec[c]), __half2float(inputVec[c]), dot); }
-	gradWeights[b * tokens + t] = dot;
+__global__ void AttentionPoolGradWeightsKernel(const __half* grad, const __half* input, float* gradWeights, int tokens, int embedDim, int numQueries, int totalRows){
+	const int stride = blockDim.x * gridDim.x;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < totalRows * tokens; idx += stride){
+		const int row = idx / tokens;
+		const int t = idx % tokens;
+		const int b = row / numQueries;
+		const int tokenBase = (b * tokens + t) * embedDim;
+		const __half* gradVec = grad + row * embedDim;
+		const __half* inputVec = input + tokenBase;
+		float dot = 0.0f;
+		for(int c = 0; c < embedDim; ++c){ dot = fmaf(__half2float(gradVec[c]), __half2float(inputVec[c]), dot); }
+		gradWeights[idx] = dot;
+	}
 }
-__global__ void AttentionPoolBatchSumKernel(const float* gradWeights, const float* attnWeights, float* batchSums, int batchSize, int tokens){
-	const int b = blockIdx.x;
-	if(b >= batchSize){ return; }
-	float sum = 0.0f;
-	for(int t = 0; t < tokens; ++t){ sum += gradWeights[b * tokens + t] * attnWeights[b * tokens + t]; }
-	batchSums[b] = sum;
+__global__ void AttentionPoolBatchSumKernel(const float* gradWeights, const float* attnWeights, float* batchSums, int tokens, int totalRows){
+	for(int row = blockIdx.x * blockDim.x + threadIdx.x; row < totalRows; row += blockDim.x * gridDim.x){
+		float sum = 0.0f;
+		for(int t = 0; t < tokens; ++t){ sum += gradWeights[row * tokens + t] * attnWeights[row * tokens + t]; }
+		batchSums[row] = sum;
+	}
 }
-__global__ void AttentionPoolGradScoresKernel(float* gradScores, const float* gradWeights, const float* attnWeights, const float* batchSums, int batchSize, int tokens){
-	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-	const int total = batchSize * tokens;
-	if(idx >= total){ return; }
-	const int b = idx / tokens;
-	gradScores[idx] = attnWeights[idx] * (gradWeights[idx] - batchSums[b]);
+__global__ void AttentionPoolGradScoresKernel(float* gradScores, const float* gradWeights, const float* attnWeights, const float* batchSums, int totalRows, int tokens){
+	const int total = totalRows * tokens;
+	const int stride = blockDim.x * gridDim.x;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int row = idx / tokens;
+		gradScores[idx] = attnWeights[idx] * (gradWeights[idx] - batchSums[row]);
+	}
 }
-__global__ void AttentionPoolGradQueryKernel(const float* gradScores, const __half* input, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim){
-	const int c = blockIdx.x * blockDim.x + threadIdx.x;
-	if(c >= embedDim){ return; }
-	float sum = 0.0f;
-	const int totalTokens = batchSize * tokens;
-	const __half* inputPtr = input + c;
-	for(int idx = 0; idx < totalTokens; ++idx, inputPtr += embedDim){ sum = fmaf(gradScores[idx], __half2float(*inputPtr), sum); }
-	gradQuery[c] = __float2half(sum * invSqrtDim);
+__global__ void AttentionPoolGradQueryKernel(const float* gradScores, const __half* input, __half* gradQuery, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim){
+	const int total = numQueries * embedDim;
+	const int stride = blockDim.x * gridDim.x;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int q = idx / embedDim;
+		const int c = idx % embedDim;
+		float sum = 0.0f;
+		for(int b = 0; b < batchSize; ++b){
+			const float* scoreRow = gradScores + (b * numQueries + q) * tokens;
+			const __half* inputPtr = input + (b * tokens) * embedDim + c;
+			for(int t = 0; t < tokens; ++t, inputPtr += embedDim){ sum = fmaf(scoreRow[t], __half2float(*inputPtr), sum); }
+		}
+		gradQuery[idx] = __float2half(sum * invSqrtDim);
+	}
 }
-__global__ void AttentionPoolGradInputKernel(__half* gradInput, const __half* gradOutput, const float* attnWeights, const float* gradScores, const __half* query, int batchSize, int tokens, int embedDim, float invSqrtDim){
-	const int b = blockIdx.x;
-	const int t = blockIdx.y;
-	const int c = blockIdx.z * blockDim.x + threadIdx.x;
-	if(b >= batchSize || t >= tokens || c >= embedDim){ return; }
-	const int idx = (b * tokens + t) * embedDim + c;
-	const float gradY = __half2float(gradOutput[b * embedDim + c]);
-	const float weight = attnWeights[b * tokens + t];
-	const float scoreGrad = gradScores[b * tokens + t];
-	const float scaledQuery = __half2float(query[c]) * invSqrtDim;
-	const float value = fmaf(scoreGrad, scaledQuery, weight * gradY);
-	gradInput[idx] = __float2half(value);
+__global__ void AttentionPoolGradInputKernel(__half* gradInput, const __half* gradOutput, const float* attnWeights, const float* gradScores, const __half* query, int tokens, int embedDim, int numQueries, int totalRows, float invSqrtDim){
+	const int total = (totalRows / numQueries) * tokens * embedDim;
+	const int stride = blockDim.x * gridDim.x;
+	for(int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int c = idx % embedDim;
+		const int bt = idx / embedDim;
+		const int t = bt % tokens;
+		const int b = bt / tokens;
+		float value = 0.0f;
+		for(int q = 0; q < numQueries; ++q){
+			const int row = b * numQueries + q;
+			const float gradY = __half2float(gradOutput[row * embedDim + c]);
+			const float weight = attnWeights[row * tokens + t];
+			const float scoreGrad = gradScores[row * tokens + t];
+			const float scaledQuery = __half2float(query[q * embedDim + c]) * invSqrtDim;
+			value = fmaf(scoreGrad, scaledQuery, value + weight * gradY);
+		}
+		gradInput[idx] = __float2half(value);
+	}
 }
-void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, float invSqrtDim){
-	dim3 gradWeightGrid(batchSize, DivCeil(tokens, CPM));
-	AttentionPoolGradWeightsKernel<<<gradWeightGrid, CPM>>>(grad, input, tempBuffer, batchSize, tokens, embedDim);
+void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim){
+	const int totalRows = batchSize * numQueries;
+	size_t blocks = 0, tpb = 0;
+	GetLaunchConfigGridStride(static_cast<size_t>(totalRows) * tokens, blocks, tpb);
+	AttentionPoolGradWeightsKernel<<<blocks, tpb>>>(grad, input, tempBuffer, tokens, embedDim, numQueries, totalRows);
 	checkCUDA(cudaGetLastError());
-	AttentionPoolBatchSumKernel<<<batchSize, 1>>>(tempBuffer, attnWeights, batchSums, batchSize, tokens);
+	tpb = 0;
+	GetLaunchConfigGridStride(totalRows, blocks, tpb);
+	AttentionPoolBatchSumKernel<<<blocks, tpb>>>(tempBuffer, attnWeights, batchSums, tokens, totalRows);
 	checkCUDA(cudaGetLastError());
-	const int totalTokens = batchSize * tokens;
-	AttentionPoolGradScoresKernel<<<DivCeil(totalTokens, CPM), CPM>>>(tempBuffer, tempBuffer, attnWeights, batchSums, batchSize, tokens);
+	tpb = 0;
+	GetLaunchConfigGridStride(static_cast<size_t>(totalRows) * tokens, blocks, tpb);
+	AttentionPoolGradScoresKernel<<<blocks, tpb>>>(tempBuffer, tempBuffer, attnWeights, batchSums, totalRows, tokens);
 	checkCUDA(cudaGetLastError());
-	AttentionPoolGradQueryKernel<<<DivCeil(embedDim, CPM), CPM>>>(tempBuffer, input, gradQuery, batchSize, tokens, embedDim, invSqrtDim);
+	tpb = 0;
+	GetLaunchConfigGridStride(static_cast<size_t>(numQueries) * embedDim, blocks, tpb);
+	AttentionPoolGradQueryKernel<<<blocks, tpb>>>(tempBuffer, input, gradQuery, batchSize, tokens, embedDim, numQueries, invSqrtDim);
 	checkCUDA(cudaGetLastError());
-	dim3 gradInputGrid(batchSize, tokens, DivCeil(embedDim, CPM));
-	AttentionPoolGradInputKernel<<<gradInputGrid, CPM>>>(outGrad, grad, attnWeights, tempBuffer, query, batchSize, tokens, embedDim, invSqrtDim);
+	tpb = 0;
+	GetLaunchConfigGridStride(static_cast<size_t>(batchSize) * tokens * embedDim, blocks, tpb);
+	AttentionPoolGradInputKernel<<<blocks, tpb>>>(outGrad, grad, attnWeights, tempBuffer, query, tokens, embedDim, numQueries, totalRows, invSqrtDim);
 	checkCUDA(cudaGetLastError());
 }
