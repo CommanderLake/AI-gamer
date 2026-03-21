@@ -582,7 +582,7 @@ __global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* 
 			}
 			if(warpId < activeWarps){ store_matrix_sync(scoreTiles + warpId*paddedTileElements, warpScores, tileStride, wmma::mem_row_major); }
 			__syncthreads();
-			// Store dAtt and compute row sums
+			// Store raw dAtt and compute row sums
 #pragma unroll 4
 			for(int idx = threadIdx.x; idx < activeWarps*16*16; idx += blockDim.x){
 				const int warpLocal = idx/(16*16);
@@ -596,13 +596,13 @@ __global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* 
 					if(attIdx < totalAttElements){ dAtt[attIdx] = scoreTiles[warpLocal*paddedTileElements + r*tileStride + c]; }
 				}
 			}
-			__syncthreads();
 			// Accumulate row sums
 #pragma unroll 2
 			for(int row = warpId; row < 16; row += numWarps){
 				const int globalRow = rowStart + row;
 				if(globalRow >= tokens) continue;
 				float accum = 0.0f;
+				const size_t rowAttBase = attOffset + static_cast<size_t>(globalRow)*tokens;
 				for(int warpLocal = 0; warpLocal < activeWarps; ++warpLocal){
 					const int warpColBase = warpLocal*16;
 					const int validCols = remainingCols - warpColBase < 16 ? remainingCols - warpColBase : 16;
@@ -612,17 +612,13 @@ __global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* 
 					for(int c = laneId; c < validCols; c += 32){
 						const int globalCol = tileStart + colBlock + warpColBase + c;
 						if(globalCol < tokens){
-							const size_t attIdx = attOffset + globalRow*tokens + globalCol;
-							if(attIdx < totalAttElements){
-								const float rawVal = tile[c];
-								const float attVal = __half2float(attention[attIdx]);
-								accum += rawVal*attVal;
-							}
+							const size_t attIdx = rowAttBase + globalCol;
+							if(attIdx < totalAttElements){ accum += tile[c]*__half2float(attention[attIdx]); }
 						}
 					}
 				}
 				accum = WarpReduceSum(accum);
-				if(laneId == 0){ atomicAdd(&rowSums[row], accum); }
+				if(laneId == 0){ rowSums[row] += accum; }
 			}
 			__syncthreads();
 		}
@@ -636,26 +632,39 @@ __global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* 
 			const int remainingCols = remaining - colBlock < 16*numWarps ? remaining - colBlock : 16*numWarps;
 			if(remainingCols <= 0) continue;
 			const int activeWarps = (remainingCols + 15)/16;
-#pragma unroll 4
-			for(int idx = threadIdx.x; idx < activeWarps*16*16; idx += blockDim.x){
-				const int warpLocal = idx/(16*16);
-				const int tileIndex = idx % (16*16);
-				const int r = tileIndex/16;
-				const int c = tileIndex % 16;
+#pragma unroll 2
+			for(int pairIdx = threadIdx.x; pairIdx < activeWarps*16*8; pairIdx += blockDim.x){
+				const int warpLocal = pairIdx/(16*8);
+				const int tileIndex = pairIdx % (16*8);
+				const int r = tileIndex/8;
+				const int c = (tileIndex % 8)*2;
 				const int globalRow = rowStart + r;
 				const int globalCol = tileStart + colBlock + warpLocal*16 + c;
 				if(globalRow < tokens && globalCol < tokens && warpLocal*16 + c < remainingCols){
-					const size_t attIdx = attOffset + globalRow*tokens + globalCol;
-					if(attIdx < totalAttElements){
+					const size_t attIdx = attOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
+					const float rowSum = rowSums[r];
+					const bool hasPair = warpLocal*16 + c + 1 < remainingCols && globalCol + 1 < tokens && attIdx + 1 < totalAttElements;
+					if(hasPair && (attIdx & 1) == 0){
+						const float2 rawVals = reinterpret_cast<const float2*>(dAtt + attIdx)[0];
+						const __half2 attPair = reinterpret_cast<const __half2*>(attention + attIdx)[0];
+						const float2 attVals = __half22float2(attPair);
+						float2 gradVals;
+						gradVals.x = attVals.x*(rawVals.x - rowSum);
+						gradVals.y = attVals.y*(rawVals.y - rowSum);
+						reinterpret_cast<float2*>(dAtt + attIdx)[0] = gradVals;
+					} else if(attIdx < totalAttElements){
 						const float rawVal = dAtt[attIdx];
 						const float attVal = __half2float(attention[attIdx]);
-						const float gradVal = attVal*(rawVal - rowSums[r]);
-						dAtt[attIdx] = gradVal;
+						dAtt[attIdx] = attVal*(rawVal - rowSum);
+						if(hasPair){
+							const float rawVal1 = dAtt[attIdx + 1];
+							const float attVal1 = __half2float(attention[attIdx + 1]);
+							dAtt[attIdx + 1] = attVal1*(rawVal1 - rowSum);
+						}
 					}
 				}
 			}
 		}
-		__syncthreads();
 	}
 	// Compute dQ = scale*(dAtt @ K)
 	const float scale = rsqrtf(fmaxf(static_cast<float>(headDim), 1.0f));
@@ -668,26 +677,27 @@ __global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* 
 			if(keyBase >= tokens) continue;
 			__half* attTile = attTiles + warpId*paddedTileElements;
 			__half* kTile = valueTiles + warpId*paddedTileElements;
-			// Load attention tile using half2 stores
+			// Load attention tile using float2 reads when aligned
 			constexpr int kVecCols = 8;
 			for(int pairIdx = laneId; pairIdx < 16*kVecCols; pairIdx += 32){
 				const int r = pairIdx/kVecCols;
 				const int vec = pairIdx % kVecCols;
 				const int c0 = vec*2;
-				const int c1 = c0 + 1;
 				const int globalRow = rowStart + r;
 				const int globalCol0 = keyBase + c0;
-				const int globalCol1 = keyBase + c1;
 				float val0 = 0.0f;
 				float val1 = 0.0f;
 				if(globalRow < tokens){
 					if(globalCol0 < tokens){
 						const size_t attIdx0 = attOffset + static_cast<size_t>(globalRow)*tokens + globalCol0;
-						if(attIdx0 < totalAttElements){ val0 = dAtt[attIdx0]; }
-					}
-					if(globalCol1 < tokens){
-						const size_t attIdx1 = attOffset + static_cast<size_t>(globalRow)*tokens + globalCol1;
-						if(attIdx1 < totalAttElements){ val1 = dAtt[attIdx1]; }
+						if(globalCol0 + 1 < tokens && attIdx0 + 1 < totalAttElements && (attIdx0 & 1) == 0){
+							const float2 vals = reinterpret_cast<const float2*>(dAtt + attIdx0)[0];
+							val0 = vals.x;
+							val1 = vals.y;
+						} else if(attIdx0 < totalAttElements){
+							val0 = dAtt[attIdx0];
+							if(globalCol0 + 1 < tokens && attIdx0 + 1 < totalAttElements){ val1 = dAtt[attIdx0 + 1]; }
+						}
 					}
 				}
 				__half2 packed = __halves2half2(__float2half(val0), __float2half(val1));

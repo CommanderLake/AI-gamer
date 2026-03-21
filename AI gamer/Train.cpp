@@ -22,7 +22,7 @@ void Train::Free(){
 float GetLearningRate(const int epoch, const int batch, const int epochBatchCount, const int epochs){
 	constexpr auto baseLr = 0.00001f;
 	constexpr auto minLr = 0.000001f;
-	const auto warmupSteps = epochBatchCount*1;
+	const auto warmupSteps = epochBatchCount;
 	const auto totalSteps = epochBatchCount*epochs;
 	const auto currentStep = epoch*epochBatchCount + batch;
 	if(currentStep < warmupSteps){
@@ -135,7 +135,7 @@ void Train::TrainModel(const int width, const int height){
 		threadPool.WaitAll();
 		nn->SaveModel(ckptFileName);
 		nn->SaveOptimizerState(optFileName);
-		/*emaLossButs_ = emaLossAxes_ = 0;
+		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
 		ShuffleBatchOrder(true);
@@ -150,7 +150,7 @@ void Train::TrainModel(const int width, const int height){
 		if(stopTraining){
 			std::cout << "\nNaN encountered during validation. Stopping.\n";
 			break;
-		}*/
+		}
 	}
 	threadPool.WaitAll();
 	Free();

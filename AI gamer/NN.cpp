@@ -27,13 +27,13 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	stateSize_ = inWidth_*inHeight_*3;
 	checkCLNN(InitCublas());
 	std::cout<<"Initializing layers...\n";
-	constexpr auto wd = 0.01f;
+	constexpr auto wd = 0.1f;
 	constexpr auto patchSize = 16;
 	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
 	auto embedSize = embedH*embedW;
 	constexpr int baseHeads = 8;
-	constexpr int blocksPerStage = 2;
+	constexpr int blocksPerStage = 1;
 	constexpr int numMergeStages = 4;
 	constexpr int baseWindowSize = 8;
 	constexpr float maxDropPathRate = 0.1f;
@@ -143,7 +143,6 @@ void NN::SetTrain(const bool enable){
 	}
 	CollectAdamWTasks();
 }
-
 void NN::CollectAdamWTasks(){
 	adamWHalfTasks_.clear();
 	adamWFloatTasks_.clear();

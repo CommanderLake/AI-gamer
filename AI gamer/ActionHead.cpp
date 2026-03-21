@@ -12,7 +12,7 @@ ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const int batchSize, con
 	outNCHW_ = batchSize_*NUM_CTRLS_;
 	CUDAMallocZero(&predictions_, batchSize_*NUM_CTRLS_*sizeof(__half));
 	inC_ = embedSize_*patchRows_*patchCols_;
-	constexpr auto hiddenC = 2048;
+	constexpr auto hiddenC = 1024;
 	buttonLayers_.push_back(new FCLayer(batchSize_, inC_, hiddenC, "Buttons FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	buttonLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Buttons GELU"));
 	buttonLayers_.push_back(new FCLayer(batchSize_, hiddenC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
