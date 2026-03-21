@@ -460,7 +460,6 @@ void SwinUnetLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std
 }
 void SwinUnetLayer::ResetState(){
 	temporalFilled_ = 0;
-	if(temporalCache_){ checkCUDA(cudaMemset(temporalCache_, 0, static_cast<size_t>(batchSize_) * temporalContext_ * bottleneckEmbedDim_ * sizeof(__half))); }
 	if(temporalValidCounts_){ checkCUDA(cudaMemset(temporalValidCounts_, 0, static_cast<size_t>(batchSize_) * sizeof(int))); }
 	std::fill(temporalValidCountsHost_.begin(), temporalValidCountsHost_.end(), 0);
 }
