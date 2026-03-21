@@ -9,6 +9,7 @@ class PatchMergingLayer;
 class PatchExpandingLayer;
 class SwinBlockLayer;
 class LayerNorm;
+class TemporalMemoryLayer;
 class SwinUnetLayer final : public Layer{
 public:
 	SwinUnetLayer(cudnnHandle_t cudnnHandle, int batchSize, int inChannels, int inHeight, int inWidth, int patchSize, int embedH, int embedW, int blocksPerStage, int numStages, int baseHeads, int baseWindowSize, float maxDropPathRate, std::string layerName, bool train,
@@ -25,6 +26,7 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
+	void ResetState() override;
 private:
 	struct SwinBlockWorkspace{
 		size_t windowBytes = 0;
@@ -81,9 +83,18 @@ private:
 	PatchEmbedLayer* patchEmbed_ = nullptr;
 	LayerNorm* postNorm_ = nullptr;
 	GELULayer* postGELU_ = nullptr;
+	LayerNorm* temporalNorm_ = nullptr;
+	TemporalMemoryLayer* temporalMemory_ = nullptr;
 	std::vector<EncoderStage> encoderStages_;
 	std::vector<DecoderStage> decoderStages_;
 	std::unordered_map<unsigned long long, float*> attentionMaskCache_;
 	SwinBlockWorkspace blockWorkspace_;
 	AttentionWorkspace attentionWorkspace_;
+	int bottleneckTokens_ = 0;
+	int bottleneckEmbedDim_ = 0;
+	int temporalContext_ = 0;
+	__half* temporalCache_ = nullptr;
+	int* temporalValidCounts_ = nullptr;
+	std::vector<int> temporalValidCountsHost_;
+	int temporalFilled_ = 0;
 };

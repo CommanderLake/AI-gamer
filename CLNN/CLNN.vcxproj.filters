@@ -75,6 +75,9 @@
     <ClCompile Include="SwinBlockLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TemporalMemoryLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="SwinUnetLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -171,6 +174,9 @@
     <ClInclude Include="SwinUnetLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TemporalMemoryLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="SwishLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -205,6 +211,7 @@
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="Scale.cu" />
+    <CudaCompile Include="TemporalMemory.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />
     <CudaCompile Include="Gemms.cu" />

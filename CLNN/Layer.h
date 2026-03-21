@@ -17,6 +17,7 @@ public:
 	virtual size_t GetParameterSize(){ return 0; }
 	virtual size_t GetOptimizerStateSize(){ return 0; }
 	virtual void SetTrain(bool enable){}
+	virtual void ResetState(){}
 	virtual void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){}
 	cudnnTensorDescriptor_t outDesc_;
 	size_t outNCHW_ = 0;

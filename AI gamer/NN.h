@@ -12,6 +12,7 @@ public:
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
 	void SetTrain(bool enable);
+	void ResetState();
 	cudnnHandle_t cudnn_;
 	std::vector<Layer*> layers_;
 	int batchSize_;
