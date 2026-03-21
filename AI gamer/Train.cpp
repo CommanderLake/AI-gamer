@@ -101,67 +101,65 @@ void Train::TrainModel(const int width, const int height){
 	StateBatch sb1(nn->batchSize_, nn->stateSize_);
 	Allocate(nn->batchSize_, nn->stateSize_);
 	bool stopTraining = false;
-	std::vector<size_t> sequenceStarts;
-	std::vector<size_t> valSequenceStarts;
 	const auto trainSequenceStartCount = GetSequenceStartCount(false, kTemporalSequenceLength);
 	const auto valSequenceStartCount = GetSequenceStartCount(true, kTemporalSequenceLength);
 	const auto epochBatchCount = std::max(1, static_cast<int>((trainSequenceStartCount + static_cast<size_t>(nn->batchSize_) - 1)/static_cast<size_t>(nn->batchSize_)));
 	const auto epochBatchCountVal = std::max(1, static_cast<int>((valSequenceStartCount + static_cast<size_t>(nn->batchSize_) - 1)/static_cast<size_t>(nn->batchSize_)));
-	for(auto epoch = 0; epoch < epochs; ++epoch){
-		ShuffleSequenceOrder(false, kTemporalSequenceLength);
-		emaLossButs_ = emaLossAxes_ = 0;
-		std::cout << "\nEpoch: " << epoch << "\n";
+	auto primeSequenceBatch = [&](StateBatch* batch, std::vector<size_t>* sequenceStarts, const bool validation){
+		if(!GetSequenceBatchStarts(sequenceStarts, nn->batchSize_, kTemporalSequenceLength, validation)){ return false; }
+		ResetLoadBatchFailureCount();
+		LoadSequenceBatchStep(batch, *sequenceStarts, 0, nn->stateSize_, validation);
+		return true;
+	};
+	auto runSequencePhase = [&](const bool validation, const int phaseBatchCount, const auto& getBatchLr){
+		std::vector<size_t> currentStarts;
+		std::vector<size_t> nextStarts;
+		ShuffleSequenceOrder(validation, kTemporalSequenceLength);
 		auto* sbRead = &sb0;
 		auto* sbPrefetch = &sb1;
-		bool batchPrimed = false;
-		if(GetSequenceBatchStarts(&sequenceStarts, nn->batchSize_, kTemporalSequenceLength, false)){
-			ResetLoadBatchFailureCount();
-			LoadSequenceBatchStep(sbRead, sequenceStarts, 0, nn->stateSize_, false);
-			batchPrimed = true;
-		}
-		for(auto batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
-			if(!batchPrimed){
-				if(!GetSequenceBatchStarts(&sequenceStarts, nn->batchSize_, kTemporalSequenceLength, false)){
-					std::cerr << "\nNo valid training sequences available\n";
-					stopTraining = true;
-					break;
-				}
-				ResetLoadBatchFailureCount();
-				LoadSequenceBatchStep(sbRead, sequenceStarts, 0, nn->stateSize_, false);
+		bool batchPrimed = primeSequenceBatch(sbRead, &currentStarts, validation);
+		for(int batch = 0; batch < phaseBatchCount && !stopTraining; ++batch){
+			if(!batchPrimed && !primeSequenceBatch(sbRead, &currentStarts, validation)){
+				std::cerr << (validation ? "\nNo valid validation sequences available\n" : "\nNo valid training sequences available\n");
+				stopTraining = true;
+				break;
 			}
 			batchPrimed = false;
 			nn->ResetState();
-			const float lr = GetLearningRate(epoch, batch, epochBatchCount, epochs);
+			const float lr = getBatchLr(batch);
 			for(int step = 0; step < kTemporalSequenceLength && !stopTraining; ++step){
 				threadPool.WaitAll();
 				const auto loadBatchFailures = GetLoadBatchFailureCount();
 				if(loadBatchFailures > 0){
-					std::cerr << "\nWarning: skipped sequence batch " << (batch + 1) << "/" << epochBatchCount << " at step " << (step + 1) << " due to " << loadBatchFailures << " load failures\n";
+					std::cerr << (validation ? "\nWarning: skipped validation sequence batch " : "\nWarning: skipped sequence batch ") << (batch + 1) << "/" << phaseBatchCount << " at step " << (step + 1) << " due to " << loadBatchFailures << " load failures\n";
 					break;
 				}
 				bool prefetchedNextBatch = false;
 				if(step + 1 < kTemporalSequenceLength){
 					ResetLoadBatchFailureCount();
-					LoadSequenceBatchStep(sbPrefetch, sequenceStarts, step + 1, nn->stateSize_, false);
-				} else if(batch + 1 < epochBatchCount){
-					if(GetSequenceBatchStarts(&valSequenceStarts, nn->batchSize_, kTemporalSequenceLength, false)){
-						ResetLoadBatchFailureCount();
-						LoadSequenceBatchStep(sbPrefetch, valSequenceStarts, 0, nn->stateSize_, false);
-						prefetchedNextBatch = true;
-					}
+					LoadSequenceBatchStep(sbPrefetch, currentStarts, step + 1, nn->stateSize_, validation);
+				} else if(batch + 1 < phaseBatchCount && GetSequenceBatchStarts(&nextStarts, nn->batchSize_, kTemporalSequenceLength, validation)){
+					ResetLoadBatchFailureCount();
+					LoadSequenceBatchStep(sbPrefetch, nextStarts, 0, nn->stateSize_, validation);
+					prefetchedNextBatch = true;
 				}
-				const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
+				const auto result = TrainBatch(nn, sbRead, true, lr, batch, phaseBatchCount);
 				if(result == -1){ stopTraining = true; }
 				if(step + 1 < kTemporalSequenceLength){
 					std::swap(sbRead, sbPrefetch);
 				} else if(prefetchedNextBatch){
-					sequenceStarts.swap(valSequenceStarts);
+					currentStarts.swap(nextStarts);
 					std::swap(sbRead, sbPrefetch);
 					batchPrimed = true;
 				}
 			}
 		}
-		if(stopTraining){
+		return !stopTraining;
+	};
+	for(auto epoch = 0; epoch < epochs; ++epoch){
+		emaLossButs_ = emaLossAxes_ = 0;
+		std::cout << "\nEpoch: " << epoch << "\n";
+		if(!runSequencePhase(false, epochBatchCount, [&](const int batch){ return GetLearningRate(epoch, batch, epochBatchCount, epochs); })){
 			std::cout << "\nNaN encountered during training. Stopping.\n";
 			break;
 		}
@@ -171,56 +169,7 @@ void Train::TrainModel(const int width, const int height){
 		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
-		ShuffleSequenceOrder(true, kTemporalSequenceLength);
-		sbRead = &sb0;
-		sbPrefetch = &sb1;
-		batchPrimed = false;
-		if(GetSequenceBatchStarts(&valSequenceStarts, nn->batchSize_, kTemporalSequenceLength, true)){
-			ResetLoadBatchFailureCount();
-			LoadSequenceBatchStep(sbRead, valSequenceStarts, 0, nn->stateSize_, true);
-			batchPrimed = true;
-		}
-		for(auto batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
-			if(!batchPrimed){
-				if(!GetSequenceBatchStarts(&valSequenceStarts, nn->batchSize_, kTemporalSequenceLength, true)){
-					std::cerr << "\nNo valid validation sequences available\n";
-					stopTraining = true;
-					break;
-				}
-				ResetLoadBatchFailureCount();
-				LoadSequenceBatchStep(sbRead, valSequenceStarts, 0, nn->stateSize_, true);
-			}
-			batchPrimed = false;
-			nn->ResetState();
-			for(int step = 0; step < kTemporalSequenceLength && !stopTraining; ++step){
-				threadPool.WaitAll();
-				const auto loadBatchFailures = GetLoadBatchFailureCount();
-				if(loadBatchFailures > 0){
-					std::cerr << "\nWarning: skipped validation sequence batch " << (batch + 1) << "/" << epochBatchCountVal << " at step " << (step + 1) << " due to " << loadBatchFailures << " load failures\n";
-					break;
-				}
-				bool prefetchedNextBatch = false;
-				if(step + 1 < kTemporalSequenceLength){
-					ResetLoadBatchFailureCount();
-					LoadSequenceBatchStep(sbPrefetch, valSequenceStarts, step + 1, nn->stateSize_, true);
-				} else if(batch + 1 < epochBatchCountVal){
-					if(GetSequenceBatchStarts(&sequenceStarts, nn->batchSize_, kTemporalSequenceLength, true)){
-						ResetLoadBatchFailureCount();
-						LoadSequenceBatchStep(sbPrefetch, sequenceStarts, 0, nn->stateSize_, true);
-						prefetchedNextBatch = true;
-					}
-				}
-				const auto result = TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);
-				if(result == -1){ stopTraining = true; }
-				if(step + 1 < kTemporalSequenceLength){
-					std::swap(sbRead, sbPrefetch);
-				} else if(prefetchedNextBatch){
-					valSequenceStarts.swap(sequenceStarts);
-					std::swap(sbRead, sbPrefetch);
-					batchPrimed = true;
-				}
-			}
-		}
+		runSequencePhase(true, epochBatchCountVal, [](const int){ return 0.0f; });
 		nn->SetTrain(true);
 		if(stopTraining){
 			std::cout << "\nNaN encountered during validation. Stopping.\n";
