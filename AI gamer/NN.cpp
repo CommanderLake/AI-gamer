@@ -143,6 +143,9 @@ void NN::SetTrain(const bool enable){
 	}
 	CollectAdamWTasks();
 }
+void NN::ResetState(){
+	for(auto* layer : layers_){ layer->ResetState(); }
+}
 void NN::CollectAdamWTasks(){
 	adamWHalfTasks_.clear();
 	adamWFloatTasks_.clear();

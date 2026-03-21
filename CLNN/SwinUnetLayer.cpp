@@ -6,8 +6,20 @@
 #include "PatchMergingLayer.h"
 #include "SwinBlockLayer.h"
 #include "GELULayer.h"
+#include "TemporalMemoryLayer.h"
 #include <algorithm>
 #include <stdexcept>
+namespace{
+bool StreamHasRemainingBytes(std::ifstream& file, const size_t bytes){
+	const auto currentPos = file.tellg();
+	if(currentPos == std::streampos(-1)){ return false; }
+	file.seekg(0, std::ios::end);
+	const auto endPos = file.tellg();
+	file.seekg(currentPos);
+	if(endPos == std::streampos(-1)){ return false; }
+	return static_cast<size_t>(endPos - currentPos) >= bytes;
+}
+}
 SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inChannels, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), inChannels_(inChannels), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
 	layerName_ = layerName;
 	train_ = train;
@@ -165,6 +177,9 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSiz
 		embedDim *= 2;
 		ffDim = embedDim * 4;
 	}
+	bottleneckTokens_ = nTokens;
+	bottleneckEmbedDim_ = embedDim;
+	temporalContext_ = 3;
 	decoderStages_.reserve(numStages_);
 	for(int stage = 0; stage < numStages_; ++stage){
 		DecoderStage decoderStage;
@@ -195,12 +210,19 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSiz
 		}
 		decoderStages_.push_back(decoderStage);
 	}
+	temporalNorm_ = new LayerNorm(batchSize_ * bottleneckTokens_, bottleneckEmbedDim_, 1, 1, "Temporal norm", train_);
+	temporalMemory_ = new TemporalMemoryLayer(batchSize_, bottleneckEmbedDim_, std::max(1, baseHeads_ << std::max(0, numStages_ - 1)), temporalContext_, "Temporal memory", train_, weightDecay_, gradAccumLength_);
+	temporalValidCountsHost_.assign(batchSize_, 0);
+	CUDAMallocZero(&temporalValidCounts_, static_cast<size_t>(batchSize_) * sizeof(int));
+	CUDAMallocZero(&temporalCache_, static_cast<size_t>(batchSize_) * temporalContext_ * bottleneckEmbedDim_ * sizeof(__half));
 	postNorm_ = new LayerNorm(batchSize_ * nTokens, embedDim, 1, 1, "Post-encoder norm", train_);
 	postGELU_ = new GELULayer(batchSize_*nTokens, embedDim, 1, 1, "Post-encoder GELU");
 	outNCHW_ = static_cast<size_t>(batchSize_) * nTokens * embedDim;
 }
 SwinUnetLayer::~SwinUnetLayer(){
 	delete patchEmbed_;
+	delete temporalNorm_;
+	delete temporalMemory_;
 	delete postNorm_;
 	delete postGELU_;
 	for(auto& stage : encoderStages_){
@@ -224,6 +246,8 @@ SwinUnetLayer::~SwinUnetLayer(){
 	cudaFree(attentionWorkspace_.dKPacked);
 	cudaFree(attentionWorkspace_.dVPacked);
 	cudaFree(attentionWorkspace_.gradWorkspace);
+	cudaFree(temporalCache_);
+	cudaFree(temporalValidCounts_);
 	for(const auto& entry : attentionMaskCache_){ cudaFree(entry.second); }
 	attentionMaskCache_.clear();
 }
@@ -235,6 +259,20 @@ __half* SwinUnetLayer::Forward(__half* data){
 		checkCUDA(cudaMemcpy(encoderStage.skip.scratch, data, encoderStage.skip.bytes, cudaMemcpyDeviceToDevice));
 		encoderStage.skip.isActivation = true;
 		data = encoderStage.merge->Forward(data);
+	}
+	if(temporalMemory_){
+		auto* residual = data;
+		temporalMemory_->SetMemory(temporalCache_, temporalValidCounts_);
+		data = temporalNorm_->Forward(data);
+		data = temporalMemory_->Forward(data);
+		AddTensor(1.0f, data, 1.0f, residual, static_cast<int>(batchSize_ * bottleneckTokens_ * bottleneckEmbedDim_));
+		const int cacheBlockElems = batchSize_ * bottleneckEmbedDim_;
+		const int blocksToShift = std::min(temporalFilled_ + 1, temporalContext_);
+		if(blocksToShift > 1){ BlockShiftHalf(temporalCache_, cacheBlockElems, blocksToShift); }
+		checkCUDA(cudaMemcpy(temporalCache_, residual, static_cast<size_t>(cacheBlockElems) * sizeof(__half), cudaMemcpyDeviceToDevice));
+		temporalFilled_ = std::min(temporalFilled_ + 1, temporalContext_);
+		std::fill(temporalValidCountsHost_.begin(), temporalValidCountsHost_.end(), temporalFilled_);
+		checkCUDA(cudaMemcpy(temporalValidCounts_, temporalValidCountsHost_.data(), static_cast<size_t>(batchSize_) * sizeof(int), cudaMemcpyHostToDevice));
 	}
 	for(size_t stage = 0; stage < decoderStages_.size(); ++stage){
 		auto& decoderStage = decoderStages_[stage];
@@ -266,6 +304,11 @@ __half* SwinUnetLayer::Backward(__half* grad){
 		AddTensor(0.0f, skip.scratch, 1.0f, grad, skip.elements);
 		grad = decoderStage.expand->Backward(grad);
 	}
+	if(temporalMemory_){
+		auto* temporalGrad = temporalNorm_->Backward(temporalMemory_->Backward(grad));
+		AddTensor(1.0f, temporalGrad, 1.0f, grad, static_cast<int>(batchSize_ * bottleneckTokens_ * bottleneckEmbedDim_));
+		grad = temporalGrad;
+	}
 	for(size_t stage = encoderStages_.size(); stage-- > 0;){
 		auto& encoderStage = encoderStages_[stage];
 		grad = encoderStage.merge->Backward(grad);
@@ -284,6 +327,10 @@ void SwinUnetLayer::UpdateParameters(const float lr){
 		stage.expand->UpdateParameters(lr);
 		for(auto* block : stage.blocks){ block->UpdateParameters(lr); }
 	}
+	if(temporalMemory_){
+		temporalNorm_->UpdateParameters(lr);
+		temporalMemory_->UpdateParameters(lr);
+	}
 	postNorm_->UpdateParameters(lr);
 }
 void SwinUnetLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
@@ -297,6 +344,10 @@ void SwinUnetLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
 		for(auto* block : stage.blocks){ block->SaveParameters(file, buffer); }
 	}
 	postNorm_->SaveParameters(file, buffer);
+	if(temporalMemory_){
+		temporalNorm_->SaveParameters(file, buffer);
+		temporalMemory_->SaveParameters(file, buffer);
+	}
 }
 void SwinUnetLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	patchEmbed_->LoadParameters(file, buffer);
@@ -309,6 +360,10 @@ void SwinUnetLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 		for(auto* block : stage.blocks){ block->LoadParameters(file, buffer); }
 	}
 	postNorm_->LoadParameters(file, buffer);
+	if(temporalMemory_ && StreamHasRemainingBytes(file, temporalNorm_->GetParameterSize() + temporalMemory_->GetParameterSize())){
+		temporalNorm_->LoadParameters(file, buffer);
+		temporalMemory_->LoadParameters(file, buffer);
+	}
 }
 void SwinUnetLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	patchEmbed_->SaveOptimizerState(file, buffer);
@@ -321,6 +376,10 @@ void SwinUnetLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffe
 		for(auto* block : stage.blocks){ block->SaveOptimizerState(file, buffer); }
 	}
 	postNorm_->SaveOptimizerState(file, buffer);
+	if(temporalMemory_){
+		temporalNorm_->SaveOptimizerState(file, buffer);
+		temporalMemory_->SaveOptimizerState(file, buffer);
+	}
 }
 void SwinUnetLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	patchEmbed_->LoadOptimizerState(file, buffer);
@@ -333,6 +392,10 @@ void SwinUnetLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffe
 		for(auto* block : stage.blocks){ block->LoadOptimizerState(file, buffer); }
 	}
 	postNorm_->LoadOptimizerState(file, buffer);
+	if(temporalMemory_ && StreamHasRemainingBytes(file, temporalNorm_->GetOptimizerStateSize() + temporalMemory_->GetOptimizerStateSize())){
+		temporalNorm_->LoadOptimizerState(file, buffer);
+		temporalMemory_->LoadOptimizerState(file, buffer);
+	}
 }
 size_t SwinUnetLayer::GetParameterSize(){
 	size_t maxSize = patchEmbed_->GetParameterSize();
@@ -343,6 +406,10 @@ size_t SwinUnetLayer::GetParameterSize(){
 	for(auto& stage : decoderStages_){
 		maxSize = std::max(maxSize, stage.expand->GetParameterSize());
 		for(auto* block : stage.blocks){ maxSize = std::max(maxSize, block->GetParameterSize()); }
+	}
+	if(temporalMemory_){
+		maxSize = std::max(maxSize, temporalNorm_->GetParameterSize());
+		maxSize = std::max(maxSize, temporalMemory_->GetParameterSize());
 	}
 	maxSize = std::max(maxSize, postNorm_->GetParameterSize());
 	return maxSize;
@@ -356,6 +423,10 @@ size_t SwinUnetLayer::GetOptimizerStateSize(){
 	for(auto& stage : decoderStages_){
 		maxSize = std::max(maxSize, stage.expand->GetOptimizerStateSize());
 		for(auto* block : stage.blocks){ maxSize = std::max(maxSize, block->GetOptimizerStateSize()); }
+	}
+	if(temporalMemory_){
+		maxSize = std::max(maxSize, temporalNorm_->GetOptimizerStateSize());
+		maxSize = std::max(maxSize, temporalMemory_->GetOptimizerStateSize());
 	}
 	maxSize = std::max(maxSize, postNorm_->GetOptimizerStateSize());
 	return maxSize;
@@ -371,6 +442,10 @@ void SwinUnetLayer::SetTrain(const bool enable){
 		stage.expand->SetTrain(enable);
 		for(auto* block : stage.blocks){ block->SetTrain(enable); }
 	}
+	if(temporalMemory_){
+		temporalNorm_->SetTrain(enable);
+		temporalMemory_->SetTrain(enable);
+	}
 	postNorm_->SetTrain(enable);
 	postGELU_->SetTrain(enable);
 }
@@ -384,6 +459,16 @@ void SwinUnetLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std
 		stage.expand->CollectAdamWTasks(halfTasks, floatTasks);
 		for(auto* block : stage.blocks){ block->CollectAdamWTasks(halfTasks, floatTasks); }
 	}
+	if(temporalMemory_){
+		temporalNorm_->CollectAdamWTasks(halfTasks, floatTasks);
+		temporalMemory_->CollectAdamWTasks(halfTasks, floatTasks);
+	}
 	postNorm_->CollectAdamWTasks(halfTasks, floatTasks);
 	postGELU_->CollectAdamWTasks(halfTasks, floatTasks);
+}
+void SwinUnetLayer::ResetState(){
+	temporalFilled_ = 0;
+	if(temporalCache_){ checkCUDA(cudaMemset(temporalCache_, 0, static_cast<size_t>(batchSize_) * temporalContext_ * bottleneckEmbedDim_ * sizeof(__half))); }
+	if(temporalValidCounts_){ checkCUDA(cudaMemset(temporalValidCounts_, 0, static_cast<size_t>(batchSize_) * sizeof(int))); }
+	std::fill(temporalValidCountsHost_.begin(), temporalValidCountsHost_.end(), 0);
 }

@@ -33,6 +33,7 @@
     <ClCompile Include="ResizeLayer.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
     <ClCompile Include="SwinBlockLayer.cpp" />
+    <ClCompile Include="TemporalMemoryLayer.cpp" />
     <ClCompile Include="SwinUnetLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />
     <ClCompile Include="TokensToSpatialLayer.cpp" />
@@ -66,6 +67,7 @@
     <ClInclude Include="SigmoidLayer.h" />
     <ClInclude Include="SwinBlockLayer.h" />
     <ClInclude Include="SwinUnetLayer.h" />
+    <ClInclude Include="TemporalMemoryLayer.h" />
     <ClInclude Include="SwishLayer.h" />
     <ClInclude Include="TokensToSpatialLayer.h" />
     <ClInclude Include="TransposeLayer.h" />
@@ -86,6 +88,7 @@
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="Scale.cu" />
+    <CudaCompile Include="TemporalMemory.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />
   </ItemGroup>

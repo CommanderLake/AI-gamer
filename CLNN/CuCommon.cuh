@@ -117,6 +117,8 @@ void TanhInPlace(__half* data, int size);
 void TanhBackward(__half* grad, const __half* activations, int size);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
+void TemporalMemoryForward(const __half* query, const __half* keys, const __half* values, const int* validCounts, float* attnWeights, __half* output, int batchSize, int maxContext, int numHeads, int headDim);
+void TemporalMemoryBackward(const __half* query, const __half* keys, const __half* values, const __half* gradOut, const float* attnWeights, const int* validCounts, __half* gradQuery, __half* gradKeys, __half* gradValues, float* gradScores, int batchSize, int maxContext, int numHeads, int headDim);
 void ScaleArrayHalf(__half* data, size_t count, float scale);
 void AddBias(__half* output, const __half* bias, int channels, int batchSize);
 void AddTensor(float alpha, __half* A, float beta, const __half* B, int size);

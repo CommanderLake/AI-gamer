@@ -66,9 +66,9 @@ void LayerNorm::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	file.write(reinterpret_cast<const char*>(buffer), outC_*sizeof(float));
 }
 void LayerNorm::LoadParameters(std::ifstream& file, unsigned char* buffer){
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	if(!file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float))){ file.clear(); return; }
 	cudaMemcpy(gamma_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	if(!file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float))){ file.clear(); return; }
 	cudaMemcpy(beta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 }
 void LayerNorm::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
@@ -83,21 +83,21 @@ void LayerNorm::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void LayerNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	if(!file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float))){ file.clear(); return; }
 	cudaMemcpy(mGamma_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	if(!file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float))){ file.clear(); return; }
 	cudaMemcpy(vGamma_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	if(!file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float))){ file.clear(); return; }
 	cudaMemcpy(mBeta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
+	if(!file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float))){ file.clear(); return; }
 	cudaMemcpy(vBeta_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
+	if(!file.read(reinterpret_cast<char*>(&t_), sizeof(int))){ file.clear(); return; }
 }
 size_t LayerNorm::GetParameterSize(){
 	return 2*outC_*sizeof(float);
 }
 size_t LayerNorm::GetOptimizerStateSize(){
-	return 4*outC_*sizeof(float);
+	return 4*outC_*sizeof(float) + sizeof(int);
 }
 void LayerNorm::SetTrain(const bool enable){
 	train_ = enable;

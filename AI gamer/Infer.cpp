@@ -63,11 +63,13 @@ void Infer::ListenForKey(){
 	}
 }
 void Infer::StartInfer(){
+	nn_->ResetState();
 	inferEnable_ = true;
 	std::cout << "Inference started\n";
 }
 void Infer::PauseInfer(){
 	inferEnable_ = false;
+	nn_->ResetState();
 	std::cout << "Inference paused\n";
 }
 void Infer::ProcessOutput(const float* predictions){
