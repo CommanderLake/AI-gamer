@@ -251,6 +251,7 @@ __half* SwinUnetLayer::Forward(__half* data){
 	}
 	if(temporalMemory_){
 		auto* residual = data;
+		checkCUDA(cudaMemcpy(temporalValidCounts_, temporalValidCountsHost_.data(), static_cast<size_t>(batchSize_) * sizeof(int), cudaMemcpyHostToDevice));
 		temporalMemory_->SetMemory(temporalCache_, temporalValidCounts_);
 		data = temporalNorm_->Forward(data);
 		data = temporalMemory_->Forward(data);
@@ -264,7 +265,6 @@ __half* SwinUnetLayer::Forward(__half* data){
 		}
 		checkCUDA(cudaMemcpy(temporalCache_ + static_cast<size_t>(batchSize_) * cacheInsertIndex * bottleneckEmbedDim_, residual, static_cast<size_t>(batchSize_) * bottleneckEmbedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
 		std::fill(temporalValidCountsHost_.begin(), temporalValidCountsHost_.end(), temporalFilled_);
-		checkCUDA(cudaMemcpy(temporalValidCounts_, temporalValidCountsHost_.data(), static_cast<size_t>(batchSize_) * sizeof(int), cudaMemcpyHostToDevice));
 	}
 	for(size_t stage = 0; stage < decoderStages_.size(); ++stage){
 		auto& decoderStage = decoderStages_[stage];
@@ -460,6 +460,5 @@ void SwinUnetLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std
 }
 void SwinUnetLayer::ResetState(){
 	temporalFilled_ = 0;
-	if(temporalValidCounts_){ checkCUDA(cudaMemset(temporalValidCounts_, 0, static_cast<size_t>(batchSize_) * sizeof(int))); }
 	std::fill(temporalValidCountsHost_.begin(), temporalValidCountsHost_.end(), 0);
 }
