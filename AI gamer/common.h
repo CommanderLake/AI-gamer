@@ -66,3 +66,4 @@ int GetLoadBatchFailureCount();
 void ShuffleBatchOrder(bool validation);
 void ShuffleSequenceOrder(bool validation, int sequenceLength);
 bool GetSequenceBatchStarts(std::vector<size_t>* starts, int batchSize, int sequenceLength, bool validation);
+size_t GetSequenceStartCount(bool validation, int sequenceLength);

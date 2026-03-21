@@ -141,6 +141,12 @@ void ShuffleSequenceOrder(const bool validation, const int sequenceLength){
 	std::shuffle(sequenceOrder.begin(), sequenceOrder.end(), shuffleGenerator);
 	cursor = 0;
 }
+size_t GetSequenceStartCount(const bool validation, const int sequenceLength){
+	std::lock_guard<std::mutex> lock(gBatchOrderMutex);
+	EnsureSequenceStarts(validation, sequenceLength);
+	const std::vector<size_t>& starts = validation ? gValSequenceStarts : gTrainSequenceStarts;
+	return starts.size();
+}
 bool GetSequenceBatchStarts(std::vector<size_t>* starts, const int batchSize, const int sequenceLength, const bool validation){
 	std::lock_guard<std::mutex> lock(gBatchOrderMutex);
 	EnsureSequenceStarts(validation, sequenceLength);

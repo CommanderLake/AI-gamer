@@ -103,8 +103,10 @@ void Train::TrainModel(const int width, const int height){
 	bool stopTraining = false;
 	std::vector<size_t> sequenceStarts;
 	std::vector<size_t> valSequenceStarts;
-	const auto epochBatchCount = std::max(1, static_cast<int>((trainRecordIndices.size() / std::max(1, kTemporalSequenceLength) + nn->batchSize_ - 1)/nn->batchSize_));
-	const auto epochBatchCountVal = std::max(1, static_cast<int>((valRecordIndices.size() / std::max(1, kTemporalSequenceLength) + nn->batchSize_ - 1)/nn->batchSize_));
+	const auto trainSequenceCount = GetSequenceStartCount(false, kTemporalSequenceLength);
+	const auto valSequenceCount = GetSequenceStartCount(true, kTemporalSequenceLength);
+	const auto epochBatchCount = std::max(1, static_cast<int>((trainSequenceCount + static_cast<size_t>(nn->batchSize_) - 1)/nn->batchSize_));
+	const auto epochBatchCountVal = std::max(1, static_cast<int>((valSequenceCount + static_cast<size_t>(nn->batchSize_) - 1)/nn->batchSize_));
 	for(auto epoch = 0; epoch < epochs; ++epoch){
 		ShuffleSequenceOrder(false, kTemporalSequenceLength);
 		emaLossButs_ = emaLossAxes_ = 0;

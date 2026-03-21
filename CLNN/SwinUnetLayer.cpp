@@ -255,9 +255,14 @@ __half* SwinUnetLayer::Forward(__half* data){
 		data = temporalNorm_->Forward(data);
 		data = temporalMemory_->Forward(data);
 		AddTensor(1.0f, data, 1.0f, residual, static_cast<int>(batchSize_ * bottleneckTokens_ * bottleneckEmbedDim_));
-		if(temporalContext_ > 1){ BlockShiftHalf(temporalCache_, batchSize_ * bottleneckEmbedDim_, temporalContext_ - 1); }
-		checkCUDA(cudaMemcpy(temporalCache_ + static_cast<size_t>(batchSize_) * (temporalContext_ - 1) * bottleneckEmbedDim_, residual, static_cast<size_t>(batchSize_) * bottleneckEmbedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
-		temporalFilled_ = std::min(temporalFilled_ + 1, temporalContext_);
+		int cacheInsertIndex = temporalFilled_;
+		if(temporalFilled_ >= temporalContext_){
+			if(temporalContext_ > 1){ BlockShiftHalf(temporalCache_, batchSize_ * bottleneckEmbedDim_, temporalContext_ - 1); }
+			cacheInsertIndex = temporalContext_ - 1;
+		} else{
+			++temporalFilled_;
+		}
+		checkCUDA(cudaMemcpy(temporalCache_ + static_cast<size_t>(batchSize_) * cacheInsertIndex * bottleneckEmbedDim_, residual, static_cast<size_t>(batchSize_) * bottleneckEmbedDim_ * sizeof(__half), cudaMemcpyDeviceToDevice));
 		std::fill(temporalValidCountsHost_.begin(), temporalValidCountsHost_.end(), temporalFilled_);
 		checkCUDA(cudaMemcpy(temporalValidCounts_, temporalValidCountsHost_.data(), static_cast<size_t>(batchSize_) * sizeof(int), cudaMemcpyHostToDevice));
 	}
