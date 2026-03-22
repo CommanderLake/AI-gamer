@@ -210,30 +210,28 @@ void TemporalUnfusePatchGrads(const __half* fusedGrad, __half* patchGrad, int ba
 	if(blocks > 0 && tpb > 0) TemporalUnfusePatchGradsKernel<<<blocks, tpb>>>(fusedGrad, patchGrad, batchTokens, framesPerSample, channelsPerFrame, patchArea, temporalWeights);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void TemporalWeightGradKernel(const __half* __restrict__ patchBuffer, const __half* __restrict__ fusedGrad, __half* __restrict__ gradTemporalWeights, int batchTokens, int framesPerSample, int channelsPerFrame, int patchArea, bool first, float scale){
-	const int total = channelsPerFrame*framesPerSample;
-	const int stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
-		const int c = idx/framesPerSample;
-		const int t = idx - c*framesPerSample;
-		float sum = 0.0f;
-		for(int token = 0; token < batchTokens; ++token){
-			const long fusedBase = token*static_cast<long>(channelsPerFrame)*patchArea + c*patchArea;
-			const long rawBase = token*static_cast<long>(framesPerSample)*channelsPerFrame*patchArea + t*static_cast<long>(channelsPerFrame)*patchArea + c*patchArea;
-			for(int p = 0; p < patchArea; ++p){
-				sum += __half2float(fusedGrad[fusedBase + p]) * __half2float(patchBuffer[rawBase + p]);
-			}
-		}
-		const float scaled = sum*scale;
-		if(first) gradTemporalWeights[idx] = __float2half(scaled);
-		else gradTemporalWeights[idx] = __float2half(__half2float(gradTemporalWeights[idx]) + scaled);
+__global__ void TemporalWeightGradKernel(const __half* __restrict__ patchBuffer, const __half* __restrict__ fusedGrad, float* __restrict__ gradTemporalWeights, int batchTokens, int framesPerSample, int channelsPerFrame, int patchArea, float scale){
+	const size_t total = static_cast<size_t>(batchTokens)*framesPerSample*channelsPerFrame*patchArea;
+	const size_t stride = static_cast<size_t>(blockDim.x)*gridDim.x;
+	for(size_t idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int patchOffset = static_cast<int>(idx % patchArea);
+		const size_t rem0 = idx/patchArea;
+		const int c = static_cast<int>(rem0 % channelsPerFrame);
+		const size_t rem1 = rem0/channelsPerFrame;
+		const int t = static_cast<int>(rem1 % framesPerSample);
+		const int token = static_cast<int>(rem1/framesPerSample);
+		const long fusedIdx = token*static_cast<long>(channelsPerFrame)*patchArea + c*patchArea + patchOffset;
+		const long rawIdx = token*static_cast<long>(framesPerSample)*channelsPerFrame*patchArea + t*static_cast<long>(channelsPerFrame)*patchArea + c*patchArea + patchOffset;
+		atomicAdd(&gradTemporalWeights[c*framesPerSample + t], __half2float(fusedGrad[fusedIdx]) * __half2float(patchBuffer[rawIdx]) * scale);
 	}
 }
-void TemporalWeightGrad(const __half* patchBuffer, const __half* fusedGrad, __half* gradTemporalWeights, int batchTokens, int framesPerSample, int channelsPerFrame, int patchArea, bool first, float scale){
-	const int total = channelsPerFrame*framesPerSample;
-	if(total == 0) return;
+void TemporalWeightGrad(const __half* patchBuffer, const __half* fusedGrad, float* gradTemporalWeights, int batchTokens, int framesPerSample, int channelsPerFrame, int patchArea, bool first, float scale){
+	const size_t total = static_cast<size_t>(batchTokens)*framesPerSample*channelsPerFrame*patchArea;
+	const int gradCount = channelsPerFrame*framesPerSample;
+	if(total == 0 || gradCount == 0) return;
+	if(first) checkCUDA(cudaMemset(gradTemporalWeights, 0, gradCount*sizeof(float)));
 	size_t blocks = 0, tpb = 0;
 	GetLaunchConfigGridStride(total, blocks, tpb);
-	if(blocks > 0 && tpb > 0) TemporalWeightGradKernel<<<blocks, tpb>>>(patchBuffer, fusedGrad, gradTemporalWeights, batchTokens, framesPerSample, channelsPerFrame, patchArea, first, scale);
+	if(blocks > 0 && tpb > 0) TemporalWeightGradKernel<<<blocks, tpb>>>(patchBuffer, fusedGrad, gradTemporalWeights, batchTokens, framesPerSample, channelsPerFrame, patchArea, scale);
 	checkCUDA(cudaGetLastError());
 }

@@ -55,6 +55,7 @@ PatchEmbedLayer::PatchEmbedLayer(cudnnHandle_t cudnnHandle, int batchSize, int i
 		CUDAMallocZero(&gradOffsetWeights_, offsetCount_*sizeof(__half));
 		CUDAMallocZero(&gradOffsetEmbedWeights_, offsetEmbedCount_*sizeof(__half));
 		CUDAMallocZero(&gradTemporalWeights_, temporalWeightCount_*sizeof(__half));
+		CUDAMallocZero(&gradTemporalWeightsFloat_, temporalWeightCount_*sizeof(float));
 		CUDAMallocZero(&outGrad_, batchSize_*inC_*inH_*inW_*sizeof(__half));
 		CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
@@ -88,6 +89,7 @@ PatchEmbedLayer::~PatchEmbedLayer(){
 		cudaFree(gradOffsetWeights_);
 		cudaFree(gradOffsetEmbedWeights_);
 		cudaFree(gradTemporalWeights_);
+		cudaFree(gradTemporalWeightsFloat_);
 		cudaFree(outGrad_);
 		cudaFree(m_Weights_);
 		cudaFree(v_Weights_);
@@ -128,7 +130,8 @@ __half* PatchEmbedLayer::Backward(__half* grad){
 		checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, patchDim_, batchSize_*numPatches_, offsetDim_, &alpha_, offsetWeights_, CUDA_R_16F, offsetDim_, offsetGrad_, CUDA_R_16F, offsetDim_, &beta1_, fusedPatchBuffer_, CUDA_R_16F, patchDim_, CUDA_R_32F));
 	}
 	const bool zeroPos = ((accumCount_ - 1) % gradAccumLength_) == 0;
-	TemporalWeightGrad(patchBuffer_, fusedPatchBuffer_, gradTemporalWeights_, batchSize_*numPatches_, framesPerSample_, channelsPerFrame_, patchArea_, zeroPos, alphaWeights_);
+	TemporalWeightGrad(patchBuffer_, fusedPatchBuffer_, gradTemporalWeightsFloat_, batchSize_*numPatches_, framesPerSample_, channelsPerFrame_, patchArea_, zeroPos, alphaWeights_);
+	ConvertFloatToHalf(gradTemporalWeightsFloat_, gradTemporalWeights_, temporalWeightCount_);
 	TemporalUnfusePatchGrads(fusedPatchBuffer_, patchGradBuffer_, batchSize_*numPatches_, framesPerSample_, channelsPerFrame_, patchArea_, temporalWeights_);
 	SumPositionalGrad(grad, gradPosEmbed_, batchSize_, embedDim_, numPatches_, zeroPos, alphaWeights_);
 	CombinePatchGrads(patchGradBuffer_, outGrad_, batchSize_, inC_, inH_, inW_, patchSize_);

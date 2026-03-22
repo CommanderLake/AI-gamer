@@ -48,6 +48,7 @@ public:
 	__half* gradOffsetEmbedWeights_ = nullptr;
 	__half* temporalWeights_ = nullptr;
 	__half* gradTemporalWeights_ = nullptr;
+	float* gradTemporalWeightsFloat_ = nullptr;
 	__half* offsetActivations_ = nullptr;
 	__half* offsetGrad_ = nullptr;
 	const __half* inData_ = nullptr;
