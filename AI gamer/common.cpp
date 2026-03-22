@@ -4,6 +4,7 @@
 #include <numeric>
 #include <vector>
 #include <sstream>
+#include <cstring>
 std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\DeltaHalo0X11.bin", "E:\\TrainingData\\DeltaHalo1X14.bin"};
 //std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\MBU0.bin", "E:\\TrainingData\\MBU1.bin"};
 std::string valDataFile = "E:\\TrainingData\\DeltaHaloValidation.bin";
@@ -71,7 +72,7 @@ static void GetBatchRecords(const std::vector<RecordIndex>* recordIndices, const
 		++cursor;
 	}
 }
-void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, const bool validation){
+void LoadBatch(StateBatch* batch, const int batchSize, const int frameStateSize, const int framesPerSample, const bool validation){
 	const std::vector<RecordIndex>* recordIndices = validation ? &valRecordIndices : &trainRecordIndices;
 	if(recordIndices->empty()){
 		std::cerr << "No records available to fill the batch\n";
@@ -80,7 +81,7 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 	std::vector<RecordIndex> batchRecords(batchSize);
 	GetBatchRecords(recordIndices, validation, batchSize, &batchRecords);
 	for(size_t i = 0; i < static_cast<size_t>(batchSize); ++i){
-		threadPool.Enqueue([i, batch, stateSize, record = batchRecords[i]]{
+		threadPool.Enqueue([i, batch, frameStateSize, framesPerSample, record = batchRecords[i]]{
 			try{
 				auto& file = GetThreadFile(*record.fileName);
 				file.seekg(record.position);
@@ -94,9 +95,31 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData + i*stateSize), stateSize)){
-					std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n";
+				const size_t sampleBase = static_cast<size_t>(i)*frameStateSize*framesPerSample;
+				unsigned char* sampleDst = batch->stateData + sampleBase;
+				unsigned char* currentFrameDst = sampleDst + static_cast<size_t>(framesPerSample - 1)*frameStateSize;
+				if(!file.read(reinterpret_cast<char*>(currentFrameDst), frameStateSize)){
+					std::cerr << "Failed to read current frame at index " << i << " from file: " << *record.fileName << "\n";
 					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+					return;
+				}
+				const auto recordStride = static_cast<std::streamoff>(sizeof(InputState) + frameStateSize);
+				const auto currentPos = static_cast<std::streamoff>(record.position);
+				for(int frame = framesPerSample - 2; frame >= 0; --frame){
+					const auto historyOffset = static_cast<std::streamoff>(framesPerSample - 1 - frame)*recordStride;
+					const auto sourcePos = currentPos - historyOffset;
+					unsigned char* frameDst = sampleDst + static_cast<size_t>(frame)*frameStateSize;
+					if(sourcePos < 0){
+						std::memcpy(frameDst, frameDst + frameStateSize, frameStateSize);
+						continue;
+					}
+					file.clear();
+					file.seekg(sourcePos);
+					InputState ignoredState{};
+					if(file.fail() || !file.read(reinterpret_cast<char*>(&ignoredState), sizeof(InputState)) || !file.read(reinterpret_cast<char*>(frameDst), frameStateSize)){
+						file.clear();
+						std::memcpy(frameDst, frameDst + frameStateSize, frameStateSize);
+					}
 				}
 			} catch(const std::exception& e){
 				std::cerr << "LoadBatch exception for file " << *record.fileName << " at batch index " << i << ": " << e.what() << "\n";
@@ -105,24 +128,26 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 		});
 	}
 }
-void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, const int batchSize, const int stateSize){
+void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, const int batchSize, const int frameStateSize, const int framesPerSample){
 	if(states.size() < batchSize){
 		std::cerr << "Not enough RecordState instances to fill the batch\n";
 		return;
 	}
 	std::uniform_int_distribution<size_t> dist(0, states.size() - 1);
 	for(int i = 0; i < batchSize; ++i){
-		threadPool.Enqueue([i, batch, stateSize, &states, dist]() mutable{
+		threadPool.Enqueue([i, batch, frameStateSize, framesPerSample, &states, dist]() mutable{
 			const size_t randomIndex = dist(threadPool.GetThreadGenerator());
 			const auto& record = states[randomIndex];
 			batch->inputStates[i] = record->inputState;
 			if(batch->stateData && record->stateData){
-				std::memcpy(batch->stateData + i*stateSize, record->stateData, stateSize);
+				for(int frame = 0; frame < framesPerSample; ++frame){
+					std::memcpy(batch->stateData + static_cast<size_t>(i*framesPerSample + frame)*frameStateSize, record->stateData, frameStateSize);
+				}
 			} else{
 				std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << " (batch index " << i << ")\n";
 				gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
 			}
-			});
+		});
 	}
 }
 void ResetLoadBatchFailureCount(){

@@ -8,9 +8,8 @@ Train::~Train(){}
 void Train::Allocate(const int batchSize, const int stateSize, const int framesPerSample){
 	framesPerSample_ = framesPerSample;
 	const size_t byteBatchSize = static_cast<size_t>(batchSize)*stateSize;
-	const size_t halfBatchSize = byteBatchSize*framesPerSample_;
 	CUDAMallocZero(&dStateBatchBytes, byteBatchSize*sizeof(unsigned char));
-	CUDAMallocZero(&dStateBatchHalf, halfBatchSize*sizeof(__half));
+	CUDAMallocZero(&dStateBatchHalf, byteBatchSize*sizeof(__half));
 	checkCUDA(cudaMallocHost(&hTargetBatchFloat, batchSize*NUM_CTRLS_*sizeof(float)));
 	CUDAMallocZero(&dTargetBatchFloat, batchSize*NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&dGradient_, batchSize*NUM_CTRLS_*sizeof(__half));
@@ -63,10 +62,9 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 		hTargetBatchFloat[axisBase] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX)/AXIS_SCALE_);
 		hTargetBatchFloat[axisBase + 1] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY)/AXIS_SCALE_);
 	}
-	const int frameStateSize = nn->inWidth_*nn->inHeight_*nn->channelsPerFrame_;
-	const size_t byteBatchSize = static_cast<size_t>(frameStateSize)*nn->batchSize_;
+	const size_t byteBatchSize = static_cast<size_t>(nn->stateSize_)*nn->batchSize_;
 	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, byteBatchSize, cudaMemcpyHostToDevice));
-	ConvertByteBatchToTemporalHalf(dStateBatchBytes, dStateBatchHalf, nn->batchSize_, frameStateSize, nn->framesPerSample_, true);
+	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, byteBatchSize, true);
 	checkCUDA(cudaMemcpy(dTargetBatchFloat, hTargetBatchFloat, NUM_CTRLS_*nn->batchSize_*sizeof(float), cudaMemcpyHostToDevice));
 	const auto dPredictions = nn->Forward(dStateBatchHalf);
 	if(IsnanHalf(dPredictions, NUM_CTRLS_*nn->batchSize_)){
@@ -102,18 +100,18 @@ void Train::TrainModel(const int width, const int height){
 	cudnnCreate(&cudnn);
 	const auto nn = new NN(cudnn, width, height, true);
 	const int frameStateSize = nn->inWidth_*nn->inHeight_*nn->channelsPerFrame_;
-	StateBatch sb0(nn->batchSize_, frameStateSize);
-	StateBatch sb1(nn->batchSize_, frameStateSize);
+	StateBatch sb0(nn->batchSize_, nn->stateSize_);
+	StateBatch sb1(nn->batchSize_, nn->stateSize_);
 	auto sbRead = &sb0;
 	bool sbSwitch = false;
 	auto fetchBatch = [&](const bool validation){
 		ResetLoadBatchFailureCount();
 		sbSwitch = !sbSwitch;
 		StateBatch* nextBatch = sbSwitch ? &sb1 : &sb0;
-		threadPool.Enqueue([&, nextBatch, validation, frameStateSize]{ LoadBatch(nextBatch, nn->batchSize_, frameStateSize, validation); });
+		threadPool.Enqueue([&, nextBatch, validation, frameStateSize]{ LoadBatch(nextBatch, nn->batchSize_, frameStateSize, nn->framesPerSample_, validation); });
 		sbRead = sbSwitch ? &sb0 : &sb1;
 	};
-	Allocate(nn->batchSize_, nn->inWidth_*nn->inHeight_*nn->channelsPerFrame_, nn->framesPerSample_);
+	Allocate(nn->batchSize_, nn->stateSize_, nn->framesPerSample_);
 	bool stopTraining = false;
 	const auto epochBatchCount = (trainRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
 	const auto epochBatchCountVal = (valRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
