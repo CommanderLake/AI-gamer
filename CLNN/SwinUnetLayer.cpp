@@ -8,7 +8,7 @@
 #include "GELULayer.h"
 #include <algorithm>
 #include <stdexcept>
-SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inChannels, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), inChannels_(inChannels), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
+SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
 	layerName_ = layerName;
 	train_ = train;
 	const int embedSize = embedH_ * embedW_;
@@ -76,7 +76,6 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSiz
 			if(attentionWorkspace_.gradWorkspaceBytes > 0){ CUDAMallocZero(&attentionWorkspace_.gradWorkspace, attentionWorkspace_.gradWorkspaceBytes); }
 		}
 	}
-	patchEmbed_ = new PatchEmbedLayer(cudnnHandle_, batchSize_, inChannels_, inHeight_, inWidth_, patchSize_, embedSize, "PatchEmbed", train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 	int nTokens = patchRows * patchCols;
 	int embedDim = embedSize;
 	int ffDim = embedDim * 4;
@@ -200,7 +199,6 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSiz
 	outNCHW_ = static_cast<size_t>(batchSize_) * nTokens * embedDim;
 }
 SwinUnetLayer::~SwinUnetLayer(){
-	delete patchEmbed_;
 	delete postNorm_;
 	delete postGELU_;
 	for(auto& stage : encoderStages_){
@@ -228,7 +226,6 @@ SwinUnetLayer::~SwinUnetLayer(){
 	attentionMaskCache_.clear();
 }
 __half* SwinUnetLayer::Forward(__half* data){
-	data = patchEmbed_->Forward(data);
 	for(size_t stage = 0; stage < encoderStages_.size(); ++stage){
 		auto& encoderStage = encoderStages_[stage];
 		for(auto* block : encoderStage.blocks){ data = block->Forward(data); }
@@ -272,10 +269,9 @@ __half* SwinUnetLayer::Backward(__half* grad){
 		AddTensor(1.0f, grad, 1.0f, encoderStage.skip.scratch, encoderStage.skip.elements);
 		for(size_t i = encoderStage.blocks.size(); i-- > 0;){ grad = encoderStage.blocks[i]->Backward(grad); }
 	}
-	return patchEmbed_->Backward(grad);
+	return grad;
 }
 void SwinUnetLayer::UpdateParameters(const float lr){
-	patchEmbed_->UpdateParameters(lr);
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ block->UpdateParameters(lr); }
 		stage.merge->UpdateParameters(lr);
@@ -287,7 +283,6 @@ void SwinUnetLayer::UpdateParameters(const float lr){
 	postNorm_->UpdateParameters(lr);
 }
 void SwinUnetLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
-	patchEmbed_->SaveParameters(file, buffer);
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ block->SaveParameters(file, buffer); }
 		stage.merge->SaveParameters(file, buffer);
@@ -299,7 +294,6 @@ void SwinUnetLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
 	postNorm_->SaveParameters(file, buffer);
 }
 void SwinUnetLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
-	patchEmbed_->LoadParameters(file, buffer);
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ block->LoadParameters(file, buffer); }
 		stage.merge->LoadParameters(file, buffer);
@@ -311,7 +305,6 @@ void SwinUnetLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
 	postNorm_->LoadParameters(file, buffer);
 }
 void SwinUnetLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
-	patchEmbed_->SaveOptimizerState(file, buffer);
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ block->SaveOptimizerState(file, buffer); }
 		stage.merge->SaveOptimizerState(file, buffer);
@@ -323,7 +316,6 @@ void SwinUnetLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffe
 	postNorm_->SaveOptimizerState(file, buffer);
 }
 void SwinUnetLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
-	patchEmbed_->LoadOptimizerState(file, buffer);
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ block->LoadOptimizerState(file, buffer); }
 		stage.merge->LoadOptimizerState(file, buffer);
@@ -335,7 +327,7 @@ void SwinUnetLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffe
 	postNorm_->LoadOptimizerState(file, buffer);
 }
 size_t SwinUnetLayer::GetParameterSize(){
-	size_t maxSize = patchEmbed_->GetParameterSize();
+	size_t maxSize = 0;
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ maxSize = std::max(maxSize, block->GetParameterSize()); }
 		maxSize = std::max(maxSize, stage.merge->GetParameterSize());
@@ -348,7 +340,7 @@ size_t SwinUnetLayer::GetParameterSize(){
 	return maxSize;
 }
 size_t SwinUnetLayer::GetOptimizerStateSize(){
-	size_t maxSize = patchEmbed_->GetOptimizerStateSize();
+	size_t maxSize = 0;
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ maxSize = std::max(maxSize, block->GetOptimizerStateSize()); }
 		maxSize = std::max(maxSize, stage.merge->GetOptimizerStateSize());
@@ -362,7 +354,6 @@ size_t SwinUnetLayer::GetOptimizerStateSize(){
 }
 void SwinUnetLayer::SetTrain(const bool enable){
 	train_ = enable;
-	patchEmbed_->SetTrain(enable);
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ block->SetTrain(enable); }
 		stage.merge->SetTrain(enable);
@@ -375,7 +366,6 @@ void SwinUnetLayer::SetTrain(const bool enable){
 	postGELU_->SetTrain(enable);
 }
 void SwinUnetLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
-	patchEmbed_->CollectAdamWTasks(halfTasks, floatTasks);
 	for(auto& stage : encoderStages_){
 		for(auto* block : stage.blocks){ block->CollectAdamWTasks(halfTasks, floatTasks); }
 		stage.merge->CollectAdamWTasks(halfTasks, floatTasks);

@@ -11,8 +11,7 @@ class SwinBlockLayer;
 class LayerNorm;
 class SwinUnetLayer final : public Layer{
 public:
-	SwinUnetLayer(cudnnHandle_t cudnnHandle, int batchSize, int inChannels, int inHeight, int inWidth, int patchSize, int embedH, int embedW, int blocksPerStage, int numStages, int baseHeads, int baseWindowSize, float maxDropPathRate, std::string layerName, bool train,
-				float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	SwinUnetLayer(cudnnHandle_t cudnnHandle, int batchSize, int inHeight, int inWidth, int patchSize, int embedH, int embedW, int blocksPerStage, int numStages, int baseHeads, int baseWindowSize, float maxDropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~SwinUnetLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -64,7 +63,6 @@ private:
 	};
 	cudnnHandle_t cudnnHandle_;
 	int batchSize_;
-	int inChannels_;
 	int inHeight_;
 	int inWidth_;
 	int patchSize_;
@@ -78,7 +76,6 @@ private:
 	float weightDecay_;
 	int gradAccumLength_;
 	WeightInitMethod weightInitMethod_;
-	PatchEmbedLayer* patchEmbed_ = nullptr;
 	LayerNorm* postNorm_ = nullptr;
 	GELULayer* postGELU_ = nullptr;
 	std::vector<EncoderStage> encoderStages_;
