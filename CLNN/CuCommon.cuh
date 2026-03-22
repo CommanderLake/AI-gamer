@@ -79,6 +79,8 @@ struct AdamWFloatTask{
 void LossStats(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
 void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
 void ConvertByteToHalf(const unsigned char* input, __half* output, size_t size, bool normalize);
+void ConvertByteBatchToTemporalHalf(const unsigned char* input, __half* output, int batchSize, int frameSize, int framesPerSample, bool normalize);
+void UpdateFrameHistoryFromByte(const __half* prevHistory, const unsigned char* latestFrame, __half* nextHistory, int frameSize, int framesPerSample, bool normalize, bool seedAll);
 void ConvertHalfToByte(const __half* input, unsigned char* output, size_t size, bool normalize);
 void ConvertFloatToHalf(const float* input, __half* output, size_t size);
 void ConvertHalfToFloat(const __half* input, float* output, size_t size);

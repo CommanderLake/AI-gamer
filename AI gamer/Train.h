@@ -15,7 +15,6 @@ public:
 	float emaLossButs_ = 0.0f;
 	float emaLossAxes_ = 0.0f;
 	unsigned char* dStateBatchBytes = nullptr;
-	unsigned char* hStateBatchStackBytes = nullptr;
 	__half* dStateBatchHalf = nullptr;
 	float* hTargetBatchFloat = nullptr;
 	float* dTargetBatchFloat = nullptr;

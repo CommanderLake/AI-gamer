@@ -39,6 +39,48 @@ void ConvertByteToHalf(const unsigned char* input, __half* output, const size_t 
 	ConvertByteToHalfKernel<<<blocks, tpb>>>(input, output, size, normalize ? 255.0 : 1.0f);
 	checkCUDA(cudaGetLastError());
 }
+
+__global__ void ConvertByteBatchToTemporalHalfKernel(const unsigned char* input, __half* output, int batchSize, int frameSize, int framesPerSample, float scale){
+	const size_t total = static_cast<size_t>(batchSize)*framesPerSample*frameSize;
+	const size_t stride = static_cast<size_t>(blockDim.x)*gridDim.x;
+	for(size_t idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int element = static_cast<int>(idx % frameSize);
+		const size_t temp = idx/frameSize;
+		const int frame = static_cast<int>(temp % framesPerSample);
+		const int sample = static_cast<int>(temp/framesPerSample);
+		const int sourceSample = sample > (framesPerSample - 1 - frame) ? sample - (framesPerSample - 1 - frame) : 0;
+		output[idx] = __float2half(input[static_cast<size_t>(sourceSample)*frameSize + element]/scale);
+	}
+}
+void ConvertByteBatchToTemporalHalf(const unsigned char* input, __half* output, int batchSize, int frameSize, int framesPerSample, bool normalize){
+	const size_t total = static_cast<size_t>(batchSize)*framesPerSample*frameSize;
+	if(total == 0) return;
+	size_t blocks = 0, tpb = 256;
+	GetLaunchConfigGridStride(total, blocks, tpb);
+	ConvertByteBatchToTemporalHalfKernel<<<blocks, tpb>>>(input, output, batchSize, frameSize, framesPerSample, normalize ? 255.0f : 1.0f);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void UpdateFrameHistoryFromByteKernel(const __half* prevHistory, const unsigned char* latestFrame, __half* nextHistory, int frameSize, int framesPerSample, float scale, bool seedAll){
+	const size_t total = static_cast<size_t>(framesPerSample)*frameSize;
+	const size_t stride = static_cast<size_t>(blockDim.x)*gridDim.x;
+	for(size_t idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int element = static_cast<int>(idx % frameSize);
+		const int frame = static_cast<int>(idx/frameSize);
+		if(seedAll || frame == framesPerSample - 1){
+			nextHistory[idx] = __float2half(latestFrame[element]/scale);
+		} else{
+			nextHistory[idx] = prevHistory[static_cast<size_t>(frame + 1)*frameSize + element];
+		}
+	}
+}
+void UpdateFrameHistoryFromByte(const __half* prevHistory, const unsigned char* latestFrame, __half* nextHistory, int frameSize, int framesPerSample, bool normalize, bool seedAll){
+	const size_t total = static_cast<size_t>(framesPerSample)*frameSize;
+	if(total == 0) return;
+	size_t blocks = 0, tpb = 256;
+	GetLaunchConfigGridStride(total, blocks, tpb);
+	UpdateFrameHistoryFromByteKernel<<<blocks, tpb>>>(prevHistory, latestFrame, nextHistory, frameSize, framesPerSample, normalize ? 255.0f : 1.0f, seedAll);
+	checkCUDA(cudaGetLastError());
+}
 __global__ void ConvertHalfToByteKernel(const __half* input, unsigned char* output, const size_t size, const float scale){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = static_cast<unsigned char>(__half2float(input[idx])*scale); }
