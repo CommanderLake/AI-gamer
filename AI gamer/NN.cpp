@@ -25,7 +25,11 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	}
 	inWidth_ = netWidth;
 	inHeight_ = netHeight;
-	stateSize_ = inWidth_*inHeight_*3;
+	constexpr int framesPerSample = 2;
+	constexpr int channelsPerFrame = 3;
+	framesPerSample_ = framesPerSample;
+	channelsPerFrame_ = channelsPerFrame;
+	stateSize_ = inWidth_*inHeight_*channelsPerFrame_*framesPerSample_;
 	checkCLNN(InitCublas());
 	std::cout<<"Initializing layers...\n";
 	constexpr auto wd = 0.1f;
@@ -43,11 +47,11 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	auto patchRows = DivCeil(scaledHeight, patchSize);
 	auto patchCols = DivCeil(scaledWidth, patchSize);
 	constexpr bool enableViewerLayers = false;
-	layers_.push_back(new ResizeLayer(batchSize_, 3, netHeight, netWidth, scaledHeight, scaledWidth, "Input Resize 256x256", train));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*3*scaledHeight*scaledWidth, 3, scaledHeight, scaledWidth, 3, "Input Viewer", true, 1.0f, false));
+	layers_.push_back(new ResizeLayer(batchSize_, channelsPerFrame_*framesPerSample_, netHeight, netWidth, scaledHeight, scaledWidth, "Input Resize 256x256", train));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*channelsPerFrame_*framesPerSample_*scaledHeight*scaledWidth, channelsPerFrame_*framesPerSample_, scaledHeight, scaledWidth, channelsPerFrame_, "Input Viewer", true, 1.0f, false));
 	auto nTokens = patchRows*patchCols;
 	auto embedDim = embedSize;
-	layers_.push_back(new PatchEmbedLayer(cudnn_, batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new PatchEmbedLayer(cudnn_, batchSize_, channelsPerFrame_*framesPerSample_, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier, framesPerSample_, channelsPerFrame_));
 	layers_.push_back(new SwinUnetLayer(cudnn_, batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new ActionHead(cudnn_, batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));

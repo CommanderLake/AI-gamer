@@ -17,6 +17,8 @@ public:
 	int batchSize_;
 	int stateSize_;
 	int inWidth_ = 0, inHeight_ = 0;
+	int framesPerSample_ = 2;
+	int channelsPerFrame_ = 3;
 	size_t maxBufferSize_ = 0;
 	int gradAccumLength_;
 	std::vector<AdamWHalfTask> adamWHalfTasks_;

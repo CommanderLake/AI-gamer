@@ -111,6 +111,9 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 void AccumulateRelPosBiasGrad(const float* dAtt, const int* relPosIndex, float* gradBias, int batchSize, int tokens, int heads, int relPosSize, float scale);
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
+void TemporalFusePatches(const __half* in, __half* out, int batchTokens, int framesPerSample, int channelsPerFrame, int patchArea, const __half* temporalWeights);
+void TemporalUnfusePatchGrads(const __half* fusedGrad, __half* patchGrad, int batchTokens, int framesPerSample, int channelsPerFrame, int patchArea, const __half* temporalWeights);
+void TemporalWeightGrad(const __half* patchBuffer, const __half* fusedGrad, __half* gradTemporalWeights, int batchTokens, int framesPerSample, int channelsPerFrame, int patchArea, bool first, float scale);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
 void AddPerTokenEmbedding(__half* output, const __half* embed, int batch, int tokens, int embedDim);
 void TanhInPlace(__half* data, int size);

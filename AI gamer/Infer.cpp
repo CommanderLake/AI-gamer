@@ -4,6 +4,7 @@
 #include "NN.h"
 #include "NvDisplayCap.h"
 #include <csignal>
+#include <cstring>
 #undef min
 #undef max
 constexpr int kKbdButs = 11;
@@ -13,6 +14,14 @@ constexpr int kMouseMiddle = kKbdButs + 2;
 static_assert(NUM_BUTS_ == 14, "Update inference output mapping constants for new NUM_BUTS_");
 static_assert(kMouseMiddle == NUM_BUTS_ - 1, "Mouse button indices must match end of button outputs");
 static Infer* this_ = nullptr;
+static void PushFrameHistory(unsigned char* frameHistoryBytes, const unsigned char* latestFrame, int frameStateSize, int framesPerSample){
+	if(framesPerSample <= 1){
+		std::memcpy(frameHistoryBytes, latestFrame, frameStateSize);
+		return;
+	}
+	std::memmove(frameHistoryBytes, frameHistoryBytes + frameStateSize, static_cast<size_t>(frameStateSize)*(framesPerSample - 1));
+	std::memcpy(frameHistoryBytes + static_cast<size_t>(frameStateSize)*(framesPerSample - 1), latestFrame, frameStateSize);
+}
 void InferSig(const int sig){
 	if(sig == SIGINT){
 		this_->stop_ = true;
@@ -27,6 +36,8 @@ Infer::Infer(){
 	nn_ = new NN(cudnn_, 0, 0, false);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
+	checkCUDA(cudaMallocHost(reinterpret_cast<void**>(&frameHistoryBytes_), nn_->stateSize_));
+	std::memset(frameHistoryBytes_, 0, nn_->stateSize_);
 	int width, height;
 	GrabFrameUInt8(&width, &height, true, false);
 	scaleFactor_ = width/TGT_STATE_WIDTH_;
@@ -40,7 +51,8 @@ Infer::~Infer(){
 void Infer::Dispose(){
 	delete nn_;
 	cudaFree(frameHalf_);
-	cudaFree(predictionsF_);
+	cudaFreeHost(frameHistoryBytes_);
+	cudaFreeHost(predictionsF_);
 	cudnnDestroy(cudnn_);
 	FreeHost();
 	FreeGPU();
@@ -130,7 +142,9 @@ void Infer::Step(){
 			PauseInfer();
 			std::cerr << "Capture resolution mismatch\n";
 		}
-		ConvertByteToHalf(frame, frameHalf_, nn_->stateSize_, true);
+		const int frameStateSize = nn_->inWidth_*nn_->inHeight_*nn_->channelsPerFrame_;
+		PushFrameHistory(frameHistoryBytes_, frame, frameStateSize, nn_->framesPerSample_);
+		ConvertByteToHalf(frameHistoryBytes_, frameHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(frameHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchSize_);
 		ProcessOutput(predictionsF_);

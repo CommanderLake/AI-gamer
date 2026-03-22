@@ -26,6 +26,7 @@ public:
 	std::thread listenThread_;
 	float* predictionsF_ = nullptr;
 	__half* frameHalf_ = nullptr;
+	unsigned char* frameHistoryBytes_ = nullptr;
 	int scaleFactor_ = 2;
 	bool inferEnable_ = false;
 	bool inferLast_ = false;
