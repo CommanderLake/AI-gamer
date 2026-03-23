@@ -52,11 +52,18 @@ extern std::string optFileName;
 extern std::vector<RecordIndex> trainRecordIndices;
 extern std::vector<RecordIndex> valRecordIndices;
 extern ThreadPool threadPool;
+constexpr int TGT_STATE_WIDTH_ = 320;
 constexpr int NUM_BUTS_ = 14;
 constexpr int NUM_AXES_ = 2;
 constexpr int NUM_CTRLS_ = NUM_BUTS_ + NUM_AXES_;
-constexpr float AXIS_SCALE_ = 256.0f;
-constexpr int TGT_STATE_WIDTH_ = 320;
+constexpr float AXIS_SCALE_ = 1024.0f;
+constexpr float COMP_SCALE_ = 1024.0f;
+inline float CompressAxisDelta(const float delta){
+	return std::copysign(std::log1pf(std::fabs(delta)/COMP_SCALE_), delta)/AXIS_SCALE_;
+}
+inline float DecompressAxisDelta(const float encoded){
+	return std::copysign(COMP_SCALE_*std::expm1f(std::fabs(encoded)*AXIS_SCALE_), encoded);
+}
 extern unsigned char keyMap[14];
 void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation);
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);

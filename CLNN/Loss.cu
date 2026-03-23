@@ -38,9 +38,8 @@ __global__ void LossStatsKernel(const __half* predictions, const float* targets,
 		if(isKey){
 			sumKeys += BceWithLogitsLoss(pred, target);
 		} else{
-			const float diff = pred - target;
 			const float w = AxisLossWeight(target);
-			sumMouse += w*AxisSmoothL1Loss(diff);
+			sumMouse += w*AxisSmoothL1Loss(pred - target);
 		}
 		idx += gridDim.x*blockDim.x;
 	}
@@ -74,8 +73,7 @@ void LossStats(const __half* dPredictions, const float* dTargets, const int numB
 }
 __device__ inline float Sigmoidf(const float x){
 	if(x >= 0.0f){
-		const float z = __expf(-x);
-		return 1.0f/(1.0f + z);
+		return 1.0f/(1.0f + __expf(-x));
 	}
 	const float z = __expf(x);
 	return z/(1.0f + z);
@@ -87,9 +85,8 @@ __global__ void LossBackpropKernel(__half* gradients, const __half* predictions,
 		const int ctrlId = idx % numCtrls;
 		const float target = targets[idx];
 		if(ctrlId < numButs){
-			const float logit = __half2float(predictions[idx]);
-			const float prob = Sigmoidf(logit);
-			gradients[batchId*numButs + ctrlId] = __float2half(fmaxf(-clip, fminf(clip, prob - target)));
+			const float pred = Sigmoidf(__half2float(predictions[idx]));
+			gradients[batchId*numButs + ctrlId] = __float2half(fmaxf(-clip, fminf(clip, pred - target)));
 		} else{
 			const float pred = __half2float(predictions[idx]);
 			const float w = AxisLossWeight(target);

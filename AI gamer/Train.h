@@ -9,7 +9,7 @@ public:
 	void Allocate(int batchSize, int stateSize);
 	void Free();
 	int Train::TrainBatch(NN* nn, const StateBatch* sb, bool smoothLoss, float lr, int batchIndex, int epochBatchCount);
-	void TrainModel(int width, int height);
+	void TrainModel(int width, int height, bool validate = false);
 	float lossButs_ = 0.0f;
 	float lossAxes_ = 0.0f;
 	float emaLossButs_ = 0.0f;

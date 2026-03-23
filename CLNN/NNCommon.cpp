@@ -265,7 +265,8 @@ void PrintDataCharHost(const unsigned char* data, const size_t size, const char*
 	output << "\n";
 	std::cout << output.str();
 }
-void SummarizeHalfDevice(const __half* data, const size_t size, const char* label){
+std::ostringstream summaryStr;
+void SummarizeHalfDevice(const __half* data, const size_t size, const std::string label){
 	if(printDataCount < size){
 		if(hData)
 			_mm_free(hData);
@@ -291,12 +292,12 @@ void SummarizeHalfDevice(const __half* data, const size_t size, const char* labe
 	if(minVal == std::numeric_limits<float>::infinity()) minVal = 0.0f;
 	if(maxVal == -std::numeric_limits<float>::infinity()) maxVal = 0.0f;
 	std::ostringstream output;
-	output << label << " summary: min=" << minVal << " max=" << maxVal
+	output << label.c_str() << " summary: min=" << minVal << " max=" << maxVal
 		<< " NaN=" << (hasNaN ? "true" : "false")
 		<< " Inf=" << (hasInf ? "true" : "false") << "\n";
-	std::cout << output.str();
+	summaryStr << output.str();
 }
-void SummarizeFloatDevice(const float* data, const size_t size, const char* label){
+void SummarizeFloatDevice(const float* data, const size_t size, const std::string label){
 	if(printDataCount < size){
 		if(fData) _mm_free(fData);
 		fData = static_cast<float*>(_mm_malloc(size*sizeof(float), 64));
@@ -317,10 +318,16 @@ void SummarizeFloatDevice(const float* data, const size_t size, const char* labe
 	if(minVal == std::numeric_limits<float>::infinity()) minVal = 0.0f;
 	if(maxVal == -std::numeric_limits<float>::infinity()) maxVal = 0.0f;
 	std::ostringstream output;
-	output << label << " summary: min=" << minVal << " max=" << maxVal
+	output << label.c_str() << " summary: min=" << minVal << " max=" << maxVal
 		<< " NaN=" << (hasNaN ? "true" : "false")
 		<< " Inf=" << (hasInf ? "true" : "false") << "\n";
-	std::cout << output.str();
+	summaryStr << output.str();
+}
+void SummaryPrint(){
+	if(summaryStr.str().empty()) return;
+	std::cout << "\n" << summaryStr.str() << "\n";
+	summaryStr.clear();
+	summaryStr.str("");
 }
 void ClearScreen(char fill){
 	const COORD tl = {0, 0};

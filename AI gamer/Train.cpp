@@ -1,6 +1,7 @@
 #include "Train.h"
 #include "NN.h"
 #include "CuCommon.cuh"
+#include "NNCommon.h"
 #include <iostream>
 #include <string>
 Train::Train(){}
@@ -59,6 +60,8 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 		const auto axisBase = i*NUM_CTRLS_ + NUM_BUTS_;
 		hTargetBatchFloat[axisBase] = std::asinh(static_cast<float>(sb->inputStates[i].deltaX)/AXIS_SCALE_);
 		hTargetBatchFloat[axisBase + 1] = std::asinh(static_cast<float>(sb->inputStates[i].deltaY)/AXIS_SCALE_);
+		//hTargetBatchFloat[axisBase] = CompressAxisDelta(static_cast<float>(sb->inputStates[i].deltaX));
+		//hTargetBatchFloat[axisBase + 1] = CompressAxisDelta(static_cast<float>(sb->inputStates[i].deltaY));
 	}
 	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->stateData, nn->stateSize_*nn->batchSize_, cudaMemcpyHostToDevice));
 	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, nn->stateSize_*nn->batchSize_, true);
@@ -79,15 +82,17 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 	}
 	std::cout << "\rLR: " << lr << " Batch " << batchIndex + 1 << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_ << " Batch rate: " << GetRate();
 	if(lr <= 0.0f) return 0;
-	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 8.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
-	if(IsnanHalf(nn->Backward(dGradient_), nn->stateSize_*nn->batchSize_)){
+	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 4.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
+	const auto result = IsnanHalf(nn->Backward(dGradient_), nn->stateSize_*nn->batchSize_);
+	SummaryPrint();
+	if(result){
 		std::cout << " NaN in gradient\n";
 		return -1;
 	}
 	nn->UpdateParams(lr);
 	return 0;
 }
-void Train::TrainModel(const int width, const int height){
+void Train::TrainModel(const int width, const int height, const bool validate){
 	int epochs = 10;
 	std::cout << "How many epochs: ";
 	std::cin >> epochs;
@@ -135,6 +140,7 @@ void Train::TrainModel(const int width, const int height){
 		threadPool.WaitAll();
 		nn->SaveModel(ckptFileName);
 		nn->SaveOptimizerState(optFileName);
+		if(!validate) continue;
 		emaLossButs_ = emaLossAxes_ = 0;
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);

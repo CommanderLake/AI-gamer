@@ -17,9 +17,9 @@ EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const int batchSize,
 	layers_.push_back(new WmmaAttentionLayer(cudnnHandle_, batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay, gradAccumLength_, Xavier));
 	layers_.push_back(new Dropout(cudnnHandle_, 0.1f, batchSize_*tokens_, embedDim_, 1, 1, "Attn_Dropout", train));
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm2", train));
-	layers_.push_back(new FCLayer(batchSize_*tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_, Xavier));
+	layers_.push_back(new FCLayer(batchSize_*tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_, Xavier, true));
 	layers_.push_back(new GELULayer(batchSize_*tokens_, ffDim_, 1, 1, "GELU"));
-	layers_.push_back(new FCLayer(batchSize_*tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_, Xavier));
+	layers_.push_back(new FCLayer(batchSize_*tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_, Xavier, true));
 	layers_.push_back(new Dropout(cudnnHandle_, 0.1f, batchSize_*tokens_, embedDim_, 1, 1, "FF_Dropout", train));
 }
 EncoderLayer::~EncoderLayer(){

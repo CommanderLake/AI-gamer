@@ -18,7 +18,7 @@ ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const int batchSize, con
 	buttonLayers_.push_back(new FCLayer(batchSize_, hiddenC, NUM_BUTS_, "Buttons FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new FCLayer(batchSize_, inC_, hiddenC, "Axes FC 1", train_, weightDecay_, gradAccumLength_, Xavier, true));
 	axisLayers_.push_back(new GELULayer(batchSize_, hiddenC, 1, 1, "Axes GELU"));
-	axisLayers_.push_back(new FCLayer(batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, false));
+	axisLayers_.push_back(new FCLayer(batchSize_, hiddenC, NUM_AXES_, "Axes FC 2", train_, weightDecay_, gradAccumLength_, Xavier, true));
 }
 ActionHead::~ActionHead(){
 	cudaFree(predictions_);
@@ -31,15 +31,24 @@ __half* ActionHead::Forward(__half* data){
 	auto buttonData = data;
 	for(auto* layer : buttonLayers_){ buttonData = layer->Forward(buttonData); }
 	auto axisData = data;
-	for(auto* layer : axisLayers_){ axisData = layer->Forward(axisData); }
+	for(auto* layer : axisLayers_){
+		axisData = layer->Forward(axisData);
+		//SummarizeHalfDevice(axisData, layer->outNCHW_, layer->layerName_ + " data");
+	}
 	MergeOutputs(predictions_, buttonData, axisData, NUM_CTRLS_, NUM_BUTS_, NUM_CTRLS_*batchSize_);
 	return predictions_;
 }
 __half* ActionHead::Backward(__half* grad){
 	auto buttonGrad = grad;
 	auto axisGrad = grad + NUM_BUTS_*batchSize_;
-	for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){ buttonGrad = buttonLayers_[i]->Backward(buttonGrad); }
-	for(int i = static_cast<int>(axisLayers_.size()); --i >= 0;){ axisGrad = axisLayers_[i]->Backward(axisGrad); }
+	for(int i = static_cast<int>(buttonLayers_.size()); --i >= 0;){
+		buttonGrad = buttonLayers_[i]->Backward(buttonGrad);
+	}
+	//SummarizeHalfDevice(axisGrad, NUM_AXES_*batchSize_, "ActionHead Axes loss");
+	for(int i = static_cast<int>(axisLayers_.size()); --i >= 0;){
+		axisGrad = axisLayers_[i]->Backward(axisGrad);
+		//SummarizeHalfDevice(axisGrad, axisLayers_[i]->outNCHW_, axisLayers_[i]->layerName_ + " gradient");
+	}
 	AddTensor(1.0f, buttonGrad, 1.0f, axisGrad, batchSize_*inC_);
 	return buttonGrad;
 }

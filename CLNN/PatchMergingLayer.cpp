@@ -3,20 +3,21 @@
 #include "FCLayer.h"
 #include "LayerNorm.h"
 #include <algorithm>
-PatchMergingLayer::PatchMergingLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
+PatchMergingLayer::PatchMergingLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength,
+									const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
 	layerName_ = layerName;
 	train_ = train;
-	if(tokens_ != patchRows_*patchCols_){ throw std::invalid_argument("PatchMergingLayer tokens must match patch grid"); }
+	if(tokens_ != patchRows_ * patchCols_){ throw std::invalid_argument("PatchMergingLayer tokens must match patch grid"); }
 	if(patchRows_ % 2 != 0 || patchCols_ % 2 != 0){ throw std::invalid_argument("PatchMergingLayer requires even patch rows/cols"); }
-	outTokens_ = patchRows_/2*(patchCols_/2);
-	outEmbedDim_ = embedDim_*2;
-	outNCHW_ = batchSize_*outTokens_*outEmbedDim_;
-	norm_ = new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "PatchMergeNorm", train);
-	reduction_ = new FCLayer(batchSize_*outTokens_, embedDim_*4, outEmbedDim_, "PatchMergeLinear", train, weightDecay, gradAccumLength, weightInitMethod);
-	const size_t mergeElems = static_cast<size_t>(batchSize_)*outTokens_*embedDim_*4;
-	CUDAMallocZero(&mergedData_, mergeElems*sizeof(__half));
-	CUDAMallocZero(&mergedGrad_, mergeElems*sizeof(__half));
-	CUDAMallocZero(&tokenGrad_, static_cast<size_t>(batchSize_)*tokens_*embedDim_*sizeof(__half));
+	outTokens_ = patchRows_ / 2 * (patchCols_ / 2);
+	outEmbedDim_ = embedDim_ * 2;
+	outNCHW_ = batchSize_ * outTokens_ * outEmbedDim_;
+	norm_ = new LayerNorm(batchSize_ * tokens_, embedDim_, 1, 1, "PatchMergeNorm", train);
+	reduction_ = new FCLayer(batchSize_ * outTokens_, embedDim_ * 4, outEmbedDim_, "PatchMergeLinear", train, weightDecay, gradAccumLength, weightInitMethod, false);
+	const size_t mergeElems = static_cast<size_t>(batchSize_) * outTokens_ * embedDim_ * 4;
+	CUDAMallocZero(&mergedData_, mergeElems * sizeof(__half));
+	CUDAMallocZero(&mergedGrad_, mergeElems * sizeof(__half));
+	CUDAMallocZero(&tokenGrad_, static_cast<size_t>(batchSize_) * tokens_ * embedDim_ * sizeof(__half));
 }
 PatchMergingLayer::~PatchMergingLayer(){
 	delete norm_;
@@ -62,7 +63,6 @@ void PatchMergingLayer::SetTrain(const bool enable){
 	norm_->SetTrain(enable);
 	reduction_->SetTrain(enable);
 }
-
 void PatchMergingLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	norm_->CollectAdamWTasks(halfTasks, floatTasks);
 	reduction_->CollectAdamWTasks(halfTasks, floatTasks);

@@ -13,22 +13,22 @@ __global__ void ExtractPatchesKernelVec2(const __half* __restrict__ x, __half* _
 		__half2 vals = __float2half2_rn(0.0f);
 #pragma unroll 2
 		for(int i = 0; i < 2; i++){
-			long elem_idx = idx*2 + i;
+			const long elem_idx = idx*2 + i;
 			if(elem_idx >= total_elements) break;
-			long patch = elem_idx/patchDim;
-			int inPatch = elem_idx - patch*patchDim;
-			int b = patch/(PH*PW);
-			int pp = patch - b*(PH*PW);
-			int pyPatch = pp/PW;
-			int pxPatch = pp - pyPatch*PW;
-			int c = inPatch/kPatchArea;
-			int rem = inPatch - c*kPatchArea;
-			int py = rem/P;
-			int px = rem - py*P;
-			int srcY = pyPatch*P + py;
-			int srcX = pxPatch*P + px;
+			const long patch = elem_idx/patchDim;
+			const int inPatch = elem_idx - patch*patchDim;
+			const int b = patch/(PH*PW);
+			const int pp = patch - b*(PH*PW);
+			const int pyPatch = pp/PW;
+			const int pxPatch = pp - pyPatch*PW;
+			const int c = inPatch/kPatchArea;
+			const int rem = inPatch - c*kPatchArea;
+			const int py = rem/P;
+			const int px = rem - py*P;
+			const int srcY = pyPatch*P + py;
+			const int srcX = pxPatch*P + px;
 			if(srcY < H && srcX < W){
-				long srcIdx = (((static_cast<long>(b)*C + c)*H + srcY)*W) + srcX;
+				const long srcIdx = (((static_cast<long>(b)*C + c)*H + srcY)*W) + srcX;
 				if(i == 0) vals.x = x[srcIdx];
 				else vals.y = x[srcIdx];
 			}
@@ -44,21 +44,21 @@ __global__ void ExtractPatchesKernel(const __half* __restrict__ x, __half* __res
 	const long total = static_cast<long>(B)*PH*PW*patchDim;
 	const long stride = static_cast<long>(blockDim.x)*gridDim.x;
 	for(long idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
-		long patch = idx/patchDim;
-		int inPatch = idx - patch*patchDim;
-		int b = patch/(PH*PW);
-		int pp = patch - b*(PH*PW);
-		int pyPatch = pp/PW;
-		int pxPatch = pp - pyPatch*PW;
-		int c = inPatch/kPatchArea;
-		int rem = inPatch - c*kPatchArea;
-		int py = rem/P;
-		int px = rem - py*P;
-		int srcY = pyPatch*P + py;
-		int srcX = pxPatch*P + px;
+		const long patch = idx/patchDim;
+		const int inPatch = idx - patch*patchDim;
+		const int b = patch/(PH*PW);
+		const int pp = patch - b*(PH*PW);
+		const int pyPatch = pp/PW;
+		const int pxPatch = pp - pyPatch*PW;
+		const int c = inPatch/kPatchArea;
+		const int rem = inPatch - c*kPatchArea;
+		const int py = rem/P;
+		const int px = rem - py*P;
+		const int srcY = pyPatch*P + py;
+		const int srcX = pxPatch*P + px;
 		__half val = __float2half(0.0f);
 		if(srcY < H && srcX < W){
-			long srcIdx = (((static_cast<long>(b)*C + c)*H + srcY)*W) + srcX;
+			const long srcIdx = (((static_cast<long>(b)*C + c)*H + srcY)*W) + srcX;
 			val = x[srcIdx];
 		}
 		y[idx] = val;
@@ -88,20 +88,20 @@ __global__ void CombinePatchGradsKernel(const __half* __restrict__ dy, __half* _
 	const long total = static_cast<long>(B)*PH*PW*patchDim;
 	const long stride = static_cast<long>(blockDim.x)*gridDim.x;
 	for(long idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
-		long patch = idx/patchDim;
-		int inPatch = idx - patch*patchDim;
-		int b = patch/(PH*PW);
-		int pp = patch - b*(PH*PW);
-		int pyPatch = pp/PW;
-		int pxPatch = pp - pyPatch*PW;
-		int c = inPatch/kPatchArea;
-		int rem = inPatch - c*kPatchArea;
-		int py = rem/P;
-		int px = rem - py*P;
-		int dstY = pyPatch*P + py;
-		int dstX = pxPatch*P + px;
+		const long patch = idx/patchDim;
+		const int inPatch = idx - patch*patchDim;
+		const int b = patch/(PH*PW);
+		const int pp = patch - b*(PH*PW);
+		const int pyPatch = pp/PW;
+		const int pxPatch = pp - pyPatch*PW;
+		const int c = inPatch/kPatchArea;
+		const int rem = inPatch - c*kPatchArea;
+		const int py = rem/P;
+		const int px = rem - py*P;
+		const int dstY = pyPatch*P + py;
+		const int dstX = pxPatch*P + px;
 		if(dstY >= H || dstX >= W) continue;
-		long dstIdx = (((static_cast<long>(b)*C + c)*H + dstY)*W) + dstX;
+		const long dstIdx = (((static_cast<long>(b)*C + c)*H + dstY)*W) + dstX;
 		dx[dstIdx] = dy[idx];
 	}
 }
