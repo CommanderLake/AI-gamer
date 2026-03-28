@@ -81,16 +81,15 @@ __device__ inline float Sigmoidf(const float x){
 __global__ void LossBackpropKernel(__half* gradients, const __half* predictions, const float* targets, const float clip, const int numCtrls, const int numButs, const int batchSize, const int size){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){
-		const int batchId = idx / numCtrls;
 		const int ctrlId = idx % numCtrls;
 		const float target = targets[idx];
 		if(ctrlId < numButs){
 			const float pred = Sigmoidf(__half2float(predictions[idx]));
-			gradients[batchId*numButs + ctrlId] = __float2half(fmaxf(-clip, fminf(clip, pred - target)));
+			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, pred - target)));
 		} else{
 			const float pred = __half2float(predictions[idx]);
 			const float w = AxisLossWeight(target);
-			gradients[numButs*batchSize + batchId*(numCtrls - numButs) + (ctrlId - numButs)] = __float2half(fmaxf(-clip, fminf(clip, w*AxisSmoothL1Grad(pred - target))));
+			gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, w*AxisSmoothL1Grad(pred - target))));
 		}
 	}
 }
