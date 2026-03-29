@@ -43,6 +43,7 @@ Infer::~Infer(){
 void Infer::Dispose(){
 	delete nn_;
 	nn_ = nullptr;
+	checkCUDNN(cudnnDestroy(cudnn_));
 	DisposeNvFBC();
 	if(frameHalf_){
 		cudaFree(frameHalf_);
@@ -52,7 +53,6 @@ void Infer::Dispose(){
 		cudaFreeHost(predictionsF_);
 		predictionsF_ = nullptr;
 	}
-	checkCUDNN(cudnnDestroy(cudnn_));
 	cudnn_ = nullptr;
 	this_ = nullptr;
 	cudaDeviceReset();

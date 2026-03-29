@@ -50,8 +50,9 @@ void Record::Dispose(){
 		outputFile_.close();
 		std::cout<<"Output file closed\n";
 	}
-	DisposeNvFBC();
 	checkCUDNN(cudnnDestroy(cudnn_));
+	cudnn_ = nullptr;
+	DisposeNvFBC();
 	cudaDeviceReset();
 }
 void Record::ListenForKey(){
