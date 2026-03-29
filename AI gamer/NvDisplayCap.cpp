@@ -1,23 +1,20 @@
 #include "NvDisplayCap.h"
+#include "CuCommon.cuh"
 #include "NvFBCLibrary.h"
 #include <cuda.h>
 #include <iostream>
 #include <NvFBC\nvFBC.h>
 #include <NvFBC\nvFBCCuda.h>
-
-#include "CuCommon.cuh"
-namespace{
-	NvFBCLibrary* nvfbc = nullptr;
-	NvFBCCuda* nvfbcCuda = nullptr;
-	int magic[] = {0x0D7BC620, 0x4C17E142, 0x5E6B5997, 0x4B5A855B};
-	NvFBCCreateParams createParams = {0};
-	NVFBC_CUDA_SETUP_PARAMS fbcCudaSetupParams = {0};
-	unsigned long maxBufferSize = -1;
-	unsigned char* pDevBufBGRA = nullptr;
-	unsigned char* pDevBufRGB = nullptr;
-	unsigned char* pBufCPU = nullptr;
-	ConvScale* convScale_ = nullptr;
-}
+NvFBCLibrary* nvfbc = nullptr;
+NvFBCCuda* nvfbcCuda = nullptr;
+int magic[] = {0x0D7BC620, 0x4C17E142, 0x5E6B5997, 0x4B5A855B};
+NvFBCCreateParams createParams = {0};
+NVFBC_CUDA_SETUP_PARAMS fbcCudaSetupParams = {0};
+unsigned long maxBufferSize = -1;
+unsigned char* pDevBufBGRA = nullptr;
+unsigned char* pDevBufRGB = nullptr;
+unsigned char* pBufCPU = nullptr;
+ConvScale* convScale_ = nullptr;
 void FreeHost(){
 	if(pBufCPU){
 		cudaFreeHost(pBufCPU);
@@ -39,17 +36,19 @@ void DisposeNvFBC(){
 		delete convScale_;
 		convScale_ = nullptr;
 	}
-	FreeGPU();
-	FreeHost();
 	if(nvfbcCuda){
 		nvfbcCuda->NvFBCCudaRelease();
 		nvfbcCuda = nullptr;
 	}
+	FreeGPU();
+	FreeHost();
 	if(nvfbc){
-		nvfbc->close();
 		delete nvfbc;
 		nvfbc = nullptr;
 	}
+	maxBufferSize = static_cast<unsigned long>(-1);
+	memset(&createParams, 0, sizeof(createParams));
+	memset(&fbcCudaSetupParams, 0, sizeof(fbcCudaSetupParams));
 }
 void AllocHost(){
 	const auto result = cudaMallocHost(&pBufCPU, maxBufferSize);

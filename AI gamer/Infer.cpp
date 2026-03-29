@@ -23,13 +23,16 @@ Infer::Infer(){
 	this_ = this;
 	InitCUDA();
 	InitNvFBC();
-	cudnnCreate(&cudnn_);
-	nn_ = new NN(cudnn_, 0, 0, false);
-	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
-	CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
+	checkCUDNN(cudnnCreate(&cudnn_));
 	int width, height;
 	GrabFrameUInt8(&width, &height, true, false);
 	scaleFactor_ = width/TGT_STATE_WIDTH_;
+	if(scaleFactor_ < 1){ scaleFactor_ = 1; }
+	int scaledWidth = 0, scaledHeight = 0;
+	GrabFrameScaleUInt8(cudnn_, &scaledWidth, &scaledHeight, scaleFactor_, true, false);
+	nn_ = new NN(cudnn_, scaledWidth, scaledHeight, false);
+	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
+	CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
 	listenThread_.detach();
 	signal(SIGINT, InferSig);
@@ -39,12 +42,19 @@ Infer::~Infer(){
 }
 void Infer::Dispose(){
 	delete nn_;
-	cudaFree(frameHalf_);
-	cudaFree(predictionsF_);
-	cudnnDestroy(cudnn_);
-	FreeHost();
-	FreeGPU();
+	nn_ = nullptr;
 	DisposeNvFBC();
+	if(frameHalf_){
+		cudaFree(frameHalf_);
+		frameHalf_ = nullptr;
+	}
+	if(predictionsF_){
+		cudaFreeHost(predictionsF_);
+		predictionsF_ = nullptr;
+	}
+	checkCUDNN(cudnnDestroy(cudnn_));
+	cudnn_ = nullptr;
+	this_ = nullptr;
 	cudaDeviceReset();
 }
 void Infer::ListenForKey(){
@@ -129,8 +139,11 @@ void Infer::Step(){
 		int capWidth = 0, capHeight = 0;
 		const auto* frame = GrabFrameScaleUInt8(cudnn_, &capWidth, &capHeight, scaleFactor_, true, false);
 		if(capWidth != nn_->inWidth_ || capHeight != nn_->inHeight_){
-			PauseInfer();
-			std::cerr << "Capture resolution mismatch\n";
+			std::cerr << "Capture resolution changed to " << capWidth << "x" << capHeight << ". Reloading network input resolution...\n";
+			delete nn_;
+			nn_ = new NN(cudnn_, capWidth, capHeight, false);
+			cudaFree(frameHalf_);
+			CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
 		}
 		ConvertByteToHalf(frame, frameHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(frameHalf_);

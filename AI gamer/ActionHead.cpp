@@ -6,7 +6,7 @@
 #include "FCLayer.h"
 #undef min
 #undef max
-ActionHead::ActionHead(const cudnnHandle_t cudnnHandle, const int batchSize, const int patchRows, const int patchCols, const int embedSize, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnn_(cudnnHandle), batchSize_(batchSize), nTokens_(patchRows*patchCols), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+ActionHead::ActionHead(const int batchSize, const int patchRows, const int patchCols, const int embedSize, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : batchSize_(batchSize), nTokens_(patchRows*patchCols), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*NUM_CTRLS_;

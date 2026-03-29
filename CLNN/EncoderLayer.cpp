@@ -14,7 +14,7 @@ EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const int batchSize,
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*tokens_, embedDim_, 1, 1));
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm1", train));
-	layers_.push_back(new WmmaAttentionLayer(cudnnHandle_, batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay, gradAccumLength_, Xavier));
+	layers_.push_back(new WmmaAttentionLayer(batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay, gradAccumLength_, Xavier));
 	layers_.push_back(new Dropout(cudnnHandle_, 0.1f, batchSize_*tokens_, embedDim_, 1, 1, "Attn_Dropout", train));
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm2", train));
 	layers_.push_back(new FCLayer(batchSize_*tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_, Xavier, true));

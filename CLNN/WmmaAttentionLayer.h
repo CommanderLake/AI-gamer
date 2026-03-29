@@ -4,8 +4,8 @@
 #include <vector>
 class WmmaAttentionLayer final : public Layer{
 public:
-	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
-	WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod,
+	WmmaAttentionLayer(int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	WmmaAttentionLayer(int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod,
 		__half* sharedWorkspace, __half* sharedQPacked, __half* sharedKPacked, __half* sharedVPacked, __half* sharedAttnOutPacked, __half* sharedDQPacked, __half* sharedDKPacked, __half* sharedDVPacked, float* sharedAttnGradWorkspace);
 	~WmmaAttentionLayer() override;
 	__half* Forward(__half* data) override;
@@ -21,7 +21,6 @@ public:
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	void SetAttentionMask(const float* attentionMask, int maskBatchSize, int maskHeads);
 	void InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex);
-	cudnnHandle_t cudnnHandle_;
 	int batchSize_, tokens_, embedDim_, numHeads_;
 	int headDim_;
 	__half* outData_ = nullptr;

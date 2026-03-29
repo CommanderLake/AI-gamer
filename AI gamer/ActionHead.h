@@ -4,7 +4,7 @@
 #include <cuda_fp16.h>
 class ActionHead final : public Layer{
 public:
-	ActionHead(cudnnHandle_t cudnnHandle, int batchSize, int patchRows, int patchCols, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
+	ActionHead(int batchSize, int patchRows, int patchCols, int embedSize, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~ActionHead() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -17,7 +17,6 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
-	cudnnHandle_t cudnn_;
 	int batchSize_, nTokens_, embedSize_;
 	int patchRows_, patchCols_;
 	int inC_;

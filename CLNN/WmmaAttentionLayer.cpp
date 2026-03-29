@@ -2,11 +2,11 @@
 #include "NNCommon.h"
 #include "CuCommon.cuh"
 #include <stdexcept>
-WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
-	WmmaAttentionLayer(cudnnHandle, batchSize, tokens, embedDim, numHeads, std::move(layerName), train, weightDecay, gradAccumLength, weightInitMethod, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr){}
-WmmaAttentionLayer::WmmaAttentionLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod,
+WmmaAttentionLayer::WmmaAttentionLayer(int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
+	WmmaAttentionLayer(batchSize, tokens, embedDim, numHeads, std::move(layerName), train, weightDecay, gradAccumLength, weightInitMethod, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr){}
+WmmaAttentionLayer::WmmaAttentionLayer(int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod,
 	__half* sharedWorkspace, __half* sharedQPacked, __half* sharedKPacked, __half* sharedVPacked, __half* sharedAttnOutPacked, __half* sharedDQPacked, __half* sharedDKPacked, __half* sharedDVPacked,
-	float* sharedAttnGradWorkspace) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
+	float* sharedAttnGradWorkspace) : batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
 	layerName_ = layerName;
 	train_ = train;
 	headDim_ = embedDim_/numHeads_;

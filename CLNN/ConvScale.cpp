@@ -1,8 +1,7 @@
 #include "ConvScale.h"
 #include "NNCommon.h"
 #include "CuCommon.cuh"
-ConvScale::ConvScale(const cudnnHandle_t cudnnHandle, const int filterSize, const int stride, const int padding, const int batchSize, const int channels, int* height, int* width) :
-cudnnHandle_(cudnnHandle), dFilter_(nullptr), dWorkspace_(nullptr), batchSize_(batchSize), inC_(channels), inWidth_(*width), inHeight_(*height), stride_(stride), filterSize_(filterSize), padding_(padding){
+ConvScale::ConvScale(const cudnnHandle_t cudnnHandle, const int filterSize, const int stride, const int padding, const int batchSize, const int channels, int* height, int* width) : cudnnHandle_(cudnnHandle), dFilter_(nullptr), dWorkspace_(nullptr), batchSize_(batchSize), inC_(channels), inWidth_(*width), inHeight_(*height), stride_(stride), filterSize_(filterSize), padding_(padding){
 	inNCHW_ = batchSize_*inC_*inHeight_*inWidth_;
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
@@ -11,7 +10,7 @@ cudnnHandle_(cudnnHandle), dFilter_(nullptr), dWorkspace_(nullptr), batchSize_(b
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, inHeight_, inWidth_));
 	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, inC_, inC_, filterSize_, filterSize_));
 	checkCUDNN(cudnnSetConvolution2dDescriptor(convDesc_, padding_, padding_, stride_, stride_, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
-	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH)); //S
+	checkCUDNN(cudnnSetConvolutionMathType(convDesc_, CUDNN_TENSOR_OP_MATH));//S
 	int n, c;
 	checkCUDNN(cudnnGetConvolution2dForwardOutputDim(convDesc_, inDesc_, filterDesc_, &n, &c, height, width));
 	outWidth_ = *width;

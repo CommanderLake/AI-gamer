@@ -156,7 +156,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSiz
 		CUDAMallocZero(&encoderStage.skip.scratch, encoderStage.skip.bytes);
 		encoderStage.skip.isActivation = false;
 		auto mergeName = "PatchMerge" + std::to_string(stage);
-		encoderStage.merge = new PatchMergingLayer(cudnnHandle_, batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, mergeName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
+		encoderStage.merge = new PatchMergingLayer(batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, mergeName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 		encoderStages_.push_back(encoderStage);
 		currentPatchRows /= 2;
 		currentPatchCols /= 2;
@@ -168,7 +168,7 @@ SwinUnetLayer::SwinUnetLayer(const cudnnHandle_t cudnnHandle, const int batchSiz
 	for(int stage = 0; stage < numStages_; ++stage){
 		DecoderStage decoderStage;
 		auto expandName = "PatchExpand" + std::to_string(stage);
-		decoderStage.expand = new PatchExpandingLayer(cudnnHandle_, batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, expandName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
+		decoderStage.expand = new PatchExpandingLayer(batchSize_, nTokens, embedDim, currentPatchRows, currentPatchCols, expandName.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_);
 		currentPatchRows *= 2;
 		currentPatchCols *= 2;
 		nTokens = currentPatchRows*currentPatchCols;

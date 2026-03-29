@@ -99,7 +99,7 @@ void Train::TrainModel(const int width, const int height, const bool validate){
 	std::cout << "\n";
 	InitCUDA();
 	cudnnContext* cudnn;
-	cudnnCreate(&cudnn);
+	checkCUDNN(cudnnCreate(&cudnn));
 	const auto nn = new NN(cudnn, width, height, true);
 	StateBatch sb0(nn->batchSize_, nn->stateSize_);
 	StateBatch sb1(nn->batchSize_, nn->stateSize_);
@@ -161,5 +161,5 @@ void Train::TrainModel(const int width, const int height, const bool validate){
 	threadPool.WaitAll();
 	Free();
 	delete nn;
-	cudnnDestroy(cudnn);
+	checkCUDNN(cudnnDestroy(cudnn));
 }

@@ -5,7 +5,7 @@
 class PatchEmbedLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	PatchEmbedLayer(cudnnHandle_t cudnnHandle, int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchEmbedLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -18,7 +18,6 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
-	cudnnHandle_t cudnn_;
 	cudnnTensorDescriptor_t posDesc_;
 	int batchSize_, inC_, inH_, inW_;
 	int patchSize_, embedDim_;

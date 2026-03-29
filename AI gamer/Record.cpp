@@ -50,10 +50,8 @@ void Record::Dispose(){
 		outputFile_.close();
 		std::cout<<"Output file closed\n";
 	}
-	cudnnDestroy(cudnn_);
-	FreeHost();
-	FreeGPU();
 	DisposeNvFBC();
+	checkCUDNN(cudnnDestroy(cudnn_));
 	cudaDeviceReset();
 }
 void Record::ListenForKey(){
@@ -151,7 +149,7 @@ void Record::Step(InputState& inputState){
 void Record::Run(){
 	InitCUDA();
 	InitNvFBC();
-	cudnnCreate(&cudnn_);
+	checkCUDNN(cudnnCreate(&cudnn_));
 	std::thread t0(&Record::ListenForKey, this);
 	t0.detach();
 	while(!recording_){

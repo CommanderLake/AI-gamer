@@ -21,7 +21,7 @@ SwinBlockLayer::SwinBlockLayer(const cudnnHandle_t cudnnHandle, const int batchS
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*nTokens_, embedDim_, 1, 1));
 	norm1_ = new LayerNorm(batchSize_*nTokens_, embedDim_, 1, 1, "SwinNorm1", train);
 	layers_.push_back(norm1_);
-	attention_ = new WmmaAttentionLayer(cudnnHandle_, windowBatch_, windowTokens_, embedDim_, numHeads_, "SwinAttention", train, weightDecay, gradAccumLength, weightInitMethod, attentionWorkspace, qPacked, kPacked, vPacked, attnOutPacked, dQPacked, dKPacked, dVPacked, attnGradWorkspace);
+	attention_ = new WmmaAttentionLayer(windowBatch_, windowTokens_, embedDim_, numHeads_, "SwinAttention", train, weightDecay, gradAccumLength, weightInitMethod, attentionWorkspace, qPacked, kPacked, vPacked, attnOutPacked, dQPacked, dKPacked, dVPacked, attnGradWorkspace);
 	layers_.push_back(attention_);
 	attnDrop_ = new Dropout(cudnnHandle_, 0.1f, batchSize_*nTokens_, embedDim_, 1, 1, "SwinAttnDropout", train);
 	layers_.push_back(attnDrop_);

@@ -5,7 +5,7 @@ class LayerNorm;
 class FCLayer;
 class PatchMergingLayer final : public Layer{
 public:
-	PatchMergingLayer(cudnnHandle_t cudnnHandle, int batchSize, int tokens, int embedDim, int patchRows, int patchCols, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	PatchMergingLayer(int batchSize, int tokens, int embedDim, int patchRows, int patchCols, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchMergingLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -19,7 +19,6 @@ public:
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 private:
-	cudnnHandle_t cudnnHandle_;
 	int batchSize_;
 	int tokens_;
 	int embedDim_;

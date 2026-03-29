@@ -8,105 +8,103 @@
 #include <mma.h>
 #include <algorithm>
 using namespace nvcuda;
-namespace{
-	// Configuration constants with safer defaults
-	constexpr int kMaxTileCols = 128;
-	constexpr int kMaxValueBlocks = 32;
-	constexpr int kSharedMemPad = 8;
-	constexpr float SOFTMAX_FTZ_THRESHOLD = -12.0f;
-	constexpr float SOFTMAX_MAX_INPUT = 20.0f;
-	constexpr size_t kMaxSharedMemory = 98304;
-	constexpr int kMinTokens = 1;
-	constexpr int kMaxTokens = 8192;
-	constexpr int kMaxBatch = 4096;
-	constexpr int kMaxHeadDim = 512;
-	constexpr int kWarpSize = 32;
-	constexpr int kTileSize = 16;
-	constexpr int kDefaultThreads = 128;
-	// Helper for ceiling division
-	__host__ __device__ inline int DivCeil(int a, int b){ return (a + b - 1)/b; }
-	// Get optimal tile columns based on token count
-	__host__ int GetAttentionTileCols(const int T){
-		int limited = T;
-		if(limited < 16) limited = 16;
-		if(limited > kMaxTileCols) limited = kMaxTileCols;
-		// Round up to multiple of 16 for WMMA
-		const int remainder = limited % 16;
-		if(remainder != 0) limited += 16 - remainder;
-		// Use smaller tiles for very long sequences to save shared memory
-		if(T > 2048 && limited > 64){ limited = 64; }
-		return limited;
+// Configuration constants with safer defaults
+constexpr int kMaxTileCols = 128;
+constexpr int kMaxValueBlocks = 32;
+constexpr int kSharedMemPad = 8;
+constexpr float SOFTMAX_FTZ_THRESHOLD = -12.0f;
+constexpr float SOFTMAX_MAX_INPUT = 20.0f;
+constexpr size_t kMaxSharedMemory = 98304;
+constexpr int kMinTokens = 1;
+constexpr int kMaxTokens = 8192;
+constexpr int kMaxBatch = 4096;
+constexpr int kMaxHeadDim = 512;
+constexpr int kWarpSize = 32;
+constexpr int kTileSize = 16;
+constexpr int kDefaultThreads = 128;
+// Helper for ceiling division
+__host__ __device__ inline int DivCeil(int a, int b){ return (a + b - 1)/b; }
+// Get optimal tile columns based on token count
+__host__ int GetAttentionTileCols(const int T){
+	int limited = T;
+	if(limited < 16) limited = 16;
+	if(limited > kMaxTileCols) limited = kMaxTileCols;
+	// Round up to multiple of 16 for WMMA
+	const int remainder = limited % 16;
+	if(remainder != 0) limited += 16 - remainder;
+	// Use smaller tiles for very long sequences to save shared memory
+	if(T > 2048 && limited > 64){ limited = 64; }
+	return limited;
+}
+// Validate dimensions before kernel launch
+__host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim, int heads, size_t& sharedMemRequired){
+	if(batchSize <= 0 || batchSize > kMaxBatch){
+		std::cerr << "Invalid batch size: " << batchSize << " (must be 1-" << kMaxBatch << ")" << std::endl;
+		return false;
 	}
-	// Validate dimensions before kernel launch
-	__host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim, int heads, size_t& sharedMemRequired){
-		if(batchSize <= 0 || batchSize > kMaxBatch){
-			std::cerr << "Invalid batch size: " << batchSize << " (must be 1-" << kMaxBatch << ")" << std::endl;
-			return false;
-		}
-		if(tokens < kMinTokens || tokens > kMaxTokens){
-			std::cerr << "Invalid token count: " << tokens << " (must be " << kMinTokens << "-" << kMaxTokens << ")" << std::endl;
-			return false;
-		}
-		if(headDim <= 0 || headDim > kMaxHeadDim){
-			std::cerr << "Invalid head dimension: " << headDim << " (must be 1-" << kMaxHeadDim << ")" << std::endl;
-			return false;
-		}
-		if(heads <= 0 || heads > 128){
-			std::cerr << "Invalid head count: " << heads << " (must be 1-128)" << std::endl;
-			return false;
-		}
-		if(headDim % 16 != 0){ std::cerr << "Warning: headDim=" << headDim << " not multiple of 16, padding will be applied" << std::endl; }
-		const int qBlocks = (headDim + 15)/16;
-		if(qBlocks > kMaxValueBlocks){
-			std::cerr << "Head dimension " << headDim << " requires " << qBlocks << " blocks, exceeds limit " << kMaxValueBlocks << std::endl;
-			return false;
-		}
-		// Calculate shared memory requirement
-		const int tileCols = GetAttentionTileCols(tokens);
-		const int warpCount = kDefaultThreads/32;
-		const int qStride = (headDim + 15)/16*16 + kSharedMemPad;
-		const int tileStride = 16 + kSharedMemPad;
-		const int valueBlocks = (headDim + 15)/16;
-		if(valueBlocks > kMaxValueBlocks){
-			std::cerr << "Value blocks " << valueBlocks << " exceed limit " << kMaxValueBlocks << std::endl;
-			return false;
-		}
-		const int valueStride = valueBlocks*16;
-		sharedMemRequired = sizeof(__half)*(16*qStride + warpCount*tileStride*16 + tileStride*16) + sizeof(float)*(16*tileCols + 48 + 16*valueStride);
-		if(sharedMemRequired > kMaxSharedMemory){
-			std::cerr << "Required shared memory " << sharedMemRequired << " exceeds limit " << kMaxSharedMemory << " (tokens=" << tokens << ", headDim=" << headDim << ")" << std::endl;
-			return false;
-		}
-		return true;
+	if(tokens < kMinTokens || tokens > kMaxTokens){
+		std::cerr << "Invalid token count: " << tokens << " (must be " << kMinTokens << "-" << kMaxTokens << ")" << std::endl;
+		return false;
 	}
-	// Safe warp reduction operations
-	template <typename T> __device__ __forceinline__ T WarpReduceSum(T val){
+	if(headDim <= 0 || headDim > kMaxHeadDim){
+		std::cerr << "Invalid head dimension: " << headDim << " (must be 1-" << kMaxHeadDim << ")" << std::endl;
+		return false;
+	}
+	if(heads <= 0 || heads > 128){
+		std::cerr << "Invalid head count: " << heads << " (must be 1-128)" << std::endl;
+		return false;
+	}
+	if(headDim % 16 != 0){ std::cerr << "Warning: headDim=" << headDim << " not multiple of 16, padding will be applied" << std::endl; }
+	const int qBlocks = (headDim + 15)/16;
+	if(qBlocks > kMaxValueBlocks){
+		std::cerr << "Head dimension " << headDim << " requires " << qBlocks << " blocks, exceeds limit " << kMaxValueBlocks << std::endl;
+		return false;
+	}
+	// Calculate shared memory requirement
+	const int tileCols = GetAttentionTileCols(tokens);
+	const int warpCount = kDefaultThreads/32;
+	const int qStride = (headDim + 15)/16*16 + kSharedMemPad;
+	const int tileStride = 16 + kSharedMemPad;
+	const int valueBlocks = (headDim + 15)/16;
+	if(valueBlocks > kMaxValueBlocks){
+		std::cerr << "Value blocks " << valueBlocks << " exceed limit " << kMaxValueBlocks << std::endl;
+		return false;
+	}
+	const int valueStride = valueBlocks*16;
+	sharedMemRequired = sizeof(__half)*(16*qStride + warpCount*tileStride*16 + tileStride*16) + sizeof(float)*(16*tileCols + 48 + 16*valueStride);
+	if(sharedMemRequired > kMaxSharedMemory){
+		std::cerr << "Required shared memory " << sharedMemRequired << " exceeds limit " << kMaxSharedMemory << " (tokens=" << tokens << ", headDim=" << headDim << ")" << std::endl;
+		return false;
+	}
+	return true;
+}
+// Safe warp reduction operations
+template <typename T> __device__ __forceinline__ T WarpReduceSum(T val){
 #pragma unroll
-		for(int offset = 16; offset > 0; offset /= 2){ val += __shfl_xor_sync(0xffffffff, val, offset); }
-		return val;
-	}
-	template <typename T> __device__ __forceinline__ T WarpReduceMax(T val){
+	for(int offset = 16; offset > 0; offset /= 2){ val += __shfl_xor_sync(0xffffffff, val, offset); }
+	return val;
+}
+template <typename T> __device__ __forceinline__ T WarpReduceMax(T val){
 #pragma unroll
-		for(int offset = 16; offset > 0; offset /= 2){ val = fmaxf(val, __shfl_xor_sync(0xffffffff, val, offset)); }
-		return val;
-	}
-	__device__ __forceinline__ void ReduceStoreTile16(const float* tileAccum, int tileStride, int warpCount, int paddedTileElements, __half* __restrict__ dest, size_t destBaseOffset, int rowBase, int colBase, int rowLimit, int colLimit, int rowStride, size_t totalElements, float scale = 1.0f){
+	for(int offset = 16; offset > 0; offset /= 2){ val = fmaxf(val, __shfl_xor_sync(0xffffffff, val, offset)); }
+	return val;
+}
+__device__ __forceinline__ void ReduceStoreTile16(const float* tileAccum, int tileStride, int warpCount, int paddedTileElements, __half* __restrict__ dest, size_t destBaseOffset, int rowBase, int colBase, int rowLimit, int colLimit, int rowStride, size_t totalElements, float scale = 1.0f){
 #pragma unroll 4
-		for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
-			const int r = idx/16;
-			const int c = idx % 16;
-			float sum = 0.0f;
+	for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
+		const int r = idx/16;
+		const int c = idx % 16;
+		float sum = 0.0f;
 #pragma unroll
-			for(int w = 0; w < warpCount; ++w){
-				const size_t tileOffset = static_cast<size_t>(w)*static_cast<size_t>(paddedTileElements) + static_cast<size_t>(r)*tileStride + c;
-				sum += tileAccum[tileOffset];
-			}
-			const int globalRow = rowBase + r;
-			const int globalCol = colBase + c;
-			if(globalRow < rowLimit && globalCol < colLimit){
-				const size_t destIdx = destBaseOffset + static_cast<size_t>(globalRow)*rowStride + globalCol;
-				if(destIdx < totalElements){ dest[destIdx] = __float2half(sum*scale); }
-			}
+		for(int w = 0; w < warpCount; ++w){
+			const size_t tileOffset = static_cast<size_t>(w)*static_cast<size_t>(paddedTileElements) + static_cast<size_t>(r)*tileStride + c;
+			sum += tileAccum[tileOffset];
+		}
+		const int globalRow = rowBase + r;
+		const int globalCol = colBase + c;
+		if(globalRow < rowLimit && globalCol < colLimit){
+			const size_t destIdx = destBaseOffset + static_cast<size_t>(globalRow)*rowStride + globalCol;
+			if(destIdx < totalElements){ dest[destIdx] = __float2half(sum*scale); }
 		}
 	}
 }

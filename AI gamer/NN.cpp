@@ -12,13 +12,20 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	if(!train) batchSize_ = 1;
 	int netWidth = w;
 	int netHeight = h;
+	int ckptWidth = 0;
+	int ckptHeight = 0;
 	std::ifstream ckptFile(ckptFileName, std::ios::binary);
 	if(ckptFile.is_open()){
 		std::cout<<"Checkpoint file found...\n";
-		ckptFile.read(reinterpret_cast<char*>(&netWidth), sizeof(int));
-		ckptFile.read(reinterpret_cast<char*>(&netHeight), sizeof(int));
-		if(w>0&&w!=netWidth||h>0&&h!=netHeight) throw std::invalid_argument("Training data resolution does not match checkpoint resolution");
-		std::cout<<"Checkpoint resolution: "<<netWidth<<"x"<<netHeight<<"\n";
+		ckptFile.read(reinterpret_cast<char*>(&ckptWidth), sizeof(int));
+		ckptFile.read(reinterpret_cast<char*>(&ckptHeight), sizeof(int));
+		std::cout<<"Checkpoint resolution: "<<ckptWidth<<"x"<<ckptHeight<<"\n";
+		if(w<=0 || h<=0){
+			netWidth = ckptWidth;
+			netHeight = ckptHeight;
+		} else if(w != ckptWidth || h != ckptHeight){
+			std::cout<<"Input resolution "<<w<<"x"<<h<<" does not match checkpoint resolution. Using input resolution with ResizeLayer.\n";
+		}
 	} else{
 		std::cout<<"Checkpoint file not found\n";
 		if(w<=0||h<=0){ throw std::invalid_argument("Invalid training data resolution"); }
@@ -47,10 +54,10 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*3*scaledHeight*scaledWidth, 3, scaledHeight, scaledWidth, 3, "Input Viewer", true, 1.0f, false));
 	auto nTokens = patchRows*patchCols;
 	auto embedDim = embedSize;
-	layers_.push_back(new PatchEmbedLayer(cudnn_, batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new PatchEmbedLayer(batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
 	layers_.push_back(new SwinUnetLayer(cudnn_, batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
-	layers_.push_back(new ActionHead(cudnn_, batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));
+	layers_.push_back(new ActionHead(batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());

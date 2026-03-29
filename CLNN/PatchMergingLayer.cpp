@@ -3,8 +3,7 @@
 #include "FCLayer.h"
 #include "LayerNorm.h"
 #include <algorithm>
-PatchMergingLayer::PatchMergingLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength,
-									const WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
+PatchMergingLayer::PatchMergingLayer(const int batchSize, const int tokens, const int embedDim, const int patchRows, const int patchCols, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), patchRows_(patchRows), patchCols_(patchCols){
 	layerName_ = layerName;
 	train_ = train;
 	if(tokens_ != patchRows_ * patchCols_){ throw std::invalid_argument("PatchMergingLayer tokens must match patch grid"); }

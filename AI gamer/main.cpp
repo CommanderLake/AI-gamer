@@ -8,6 +8,36 @@
 #include <Windows.h>
 #undef min
 #undef max
+Record* gRecord = nullptr;
+Train* gTrain = nullptr;
+Viewer* gViewer = nullptr;
+Infer* gInfer = nullptr;
+BOOL WINAPI ConsoleShutdownHandler(const DWORD ctrlType){
+	switch(ctrlType){
+		case CTRL_C_EVENT:
+		case CTRL_BREAK_EVENT:
+		case CTRL_CLOSE_EVENT:
+		case CTRL_SHUTDOWN_EVENT:
+		case CTRL_LOGOFF_EVENT:
+			std::cerr << "\nConsole shutdown signal received. Cleaning up...\n";
+			if(gInfer){
+				gInfer->stop_ = true;
+				gInfer->inferEnable_ = false;
+			}
+			if(gRecord){
+				gRecord->stop_ = true;
+				gRecord->recording_ = false;
+			}
+			if(gTrain){
+				gTrain->Free();
+				ExitProcess(0);
+			}
+			if(gViewer){ PostQuitMessage(0); }
+			return TRUE;
+		default:
+			return FALSE;
+	}
+}
 std::filesystem::path GetIndexCachePath(const std::filesystem::path& dataPath){
 	auto cachePath = dataPath;
 	cachePath += ".idxcache";
@@ -170,32 +200,37 @@ void ReadStateData(int* width, int* height){
 int main(){
 	std::ios::sync_with_stdio(false);
 	std::cout << std::fixed << std::setprecision(6);
+	SetConsoleCtrlHandler(ConsoleShutdownHandler, TRUE);
 	std::cout << "R for Record mode, T for Train mode, V for View mode, I for Infer mode... ";
 	char mode;
 	std::cin >> mode;
 	std::cout << "\n";
 	if(mode == 'r' || mode == 'R'){
-		const auto recorder = new Record();
-		recorder->Run();
-		delete recorder;
+		gRecord = new Record();
+		gRecord->Run();
+		delete gRecord;
+		gRecord = nullptr;
 	} else if(mode == 't' || mode == 'T'){
 		int width = 0, height = 0;
 		ReadStateData(&width, &height);
 		std::cout << "Training data resolution: " << width << "x" << height << "\n";
-		const auto train = new Train();
-		train->TrainModel(width, height);
-		delete train;
+		gTrain = new Train();
+		gTrain->TrainModel(width, height);
+		delete gTrain;
+		gTrain = nullptr;
 	} else if(mode == 'v' || mode == 'V'){
 		std::cout << "Training data file: ";
 		std::string fileName;
 		std::cin >> fileName;
-		const auto viewer = new Viewer();
-		viewer->Play(fileName);
-		delete viewer;
+		gViewer = new Viewer();
+		gViewer->Play(fileName);
+		delete gViewer;
+		gViewer = nullptr;
 	} else if(mode == 'i' || mode == 'I'){
-		const auto infer = new Infer();
-		infer->Run();
-		delete infer;
+		gInfer = new Infer();
+		gInfer->Run();
+		delete gInfer;
+		gInfer = nullptr;
 	}
 	return 0;
 }
