@@ -11,10 +11,6 @@ PatchEmbedLayer::PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int p
 	featureSize_ = embedDim_*numPatches_;
 	outNCHW_ = batchSize_*featureSize_;
 	alphaWeights_ = 1.0f/(batchSize_*numPatches_*gradAccumLength_);
-	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, batchSize_, embedDim_, patchRows_, patchCols_));
-	checkCUDNN(cudnnCreateTensorDescriptor(&posDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(posDesc_, CUDNN_TENSOR_NHWC, CUDNN_DATA_HALF, 1, embedDim_, patchRows_, patchCols_));
 	weightCount_ = embedDim_*patchDim_;
 	posCount_ = featureSize_;
 	offsetCount_ = offsetDim_*patchDim_;
@@ -57,8 +53,6 @@ PatchEmbedLayer::~PatchEmbedLayer(){
 	cudaFree(patchBuffer_);
 	cudaFree(offsetActivations_);
 	cudaFree(offsetGrad_);
-	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
-	checkCUDNN(cudnnDestroyTensorDescriptor(posDesc_));
 	if(train_){
 		cudaFree(gradWeights_);
 		cudaFree(gradPosEmbed_);

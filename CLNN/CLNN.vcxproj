@@ -11,9 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Activate.cpp" />
     <ClCompile Include="AsinhLayer.cpp" />
-    <ClCompile Include="BatchNorm.cpp" />
     <ClCompile Include="ConvLayer.cpp" />
     <ClCompile Include="ConvScale.cpp" />
     <ClCompile Include="Dropout.cpp" />
@@ -29,22 +27,18 @@
     <ClCompile Include="PatchEmbedLayer.cpp" />
     <ClCompile Include="PatchExpandingLayer.cpp" />
     <ClCompile Include="PatchMergingLayer.cpp" />
-    <ClCompile Include="PoolLayer.cpp" />
     <ClCompile Include="ResizeLayer.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
     <ClCompile Include="SwinBlockLayer.cpp" />
     <ClCompile Include="SwinUnetLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />
     <ClCompile Include="TokensToSpatialLayer.cpp" />
-    <ClCompile Include="TransposeLayer.cpp" />
     <ClCompile Include="Viewer.cpp" />
     <ClCompile Include="ViewerLayer.cpp" />
     <ClCompile Include="WmmaAttentionLayer.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Activate.h" />
     <ClInclude Include="AsinhLayer.h" />
-    <ClInclude Include="BatchNorm.h" />
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="ConvScale.h" />
     <ClInclude Include="CuCommon.cuh" />
@@ -61,14 +55,12 @@
     <ClInclude Include="PatchEmbedLayer.h" />
     <ClInclude Include="PatchExpandingLayer.h" />
     <ClInclude Include="PatchMergingLayer.h" />
-    <ClInclude Include="PoolLayer.h" />
     <ClInclude Include="ResizeLayer.h" />
     <ClInclude Include="SigmoidLayer.h" />
     <ClInclude Include="SwinBlockLayer.h" />
     <ClInclude Include="SwinUnetLayer.h" />
     <ClInclude Include="SwishLayer.h" />
     <ClInclude Include="TokensToSpatialLayer.h" />
-    <ClInclude Include="TransposeLayer.h" />
     <ClInclude Include="Viewer.h" />
     <ClInclude Include="ViewerLayer.h" />
     <ClInclude Include="WmmaAttentionLayer.h" />

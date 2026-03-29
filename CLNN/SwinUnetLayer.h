@@ -11,7 +11,7 @@ class SwinBlockLayer;
 class LayerNorm;
 class SwinUnetLayer final : public Layer{
 public:
-	SwinUnetLayer(cudnnHandle_t cudnnHandle, int batchSize, int inHeight, int inWidth, int patchSize, int embedH, int embedW, int blocksPerStage, int numStages, int baseHeads, int baseWindowSize, float maxDropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	SwinUnetLayer(int batchSize, int inHeight, int inWidth, int patchSize, int embedH, int embedW, int blocksPerStage, int numStages, int baseHeads, int baseWindowSize, float maxDropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~SwinUnetLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -61,7 +61,6 @@ private:
 		PatchExpandingLayer* expand = nullptr;
 		std::vector<SwinBlockLayer*> blocks;
 	};
-	cudnnHandle_t cudnnHandle_;
 	int batchSize_;
 	int inHeight_;
 	int inWidth_;

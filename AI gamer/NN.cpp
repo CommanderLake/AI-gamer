@@ -1,5 +1,4 @@
 #include "NN.h"
-#include "BatchNorm.h"
 #include "CuCommon.cuh"
 #include "ResizeLayer.h"
 #include "ActionHead.h"
@@ -8,7 +7,7 @@
 #include "ViewerLayer.h"
 #undef min
 #undef max
-NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle), batchSize_(160), gradAccumLength_(1){
+NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	int netWidth = w;
 	int netHeight = h;
@@ -55,7 +54,7 @@ NN::NN(cudnnHandle_t cudnnHandle, int w, int h, bool train) : cudnn_(cudnnHandle
 	auto nTokens = patchRows*patchCols;
 	auto embedDim = embedSize;
 	layers_.push_back(new PatchEmbedLayer(batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
-	layers_.push_back(new SwinUnetLayer(cudnn_, batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new SwinUnetLayer(batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new ActionHead(batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){

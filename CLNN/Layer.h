@@ -1,5 +1,4 @@
 #pragma once
-#include <cudnn.h>
 #include <cuda_fp16.h>
 #include <fstream>
 #include <vector>
@@ -18,7 +17,6 @@ public:
 	virtual size_t GetOptimizerStateSize(){ return 0; }
 	virtual void SetTrain(bool enable){}
 	virtual void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){}
-	cudnnTensorDescriptor_t outDesc_;
 	size_t outNCHW_ = 0;
 	std::string layerName_ = "";
 	bool train_;

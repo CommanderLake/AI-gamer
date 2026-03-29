@@ -1,7 +1,6 @@
 #pragma once
 #include "Layer.h"
 #include "CuCommon.cuh"
-#include <cudnn.h>
 class PatchEmbedLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
@@ -18,7 +17,6 @@ public:
 	size_t GetOptimizerStateSize() override;
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
-	cudnnTensorDescriptor_t posDesc_;
 	int batchSize_, inC_, inH_, inW_;
 	int patchSize_, embedDim_;
 	int patchRows_, patchCols_;

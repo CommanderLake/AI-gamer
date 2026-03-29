@@ -4,7 +4,7 @@
 #include <vector>
 class NN{
 public:
-	NN(cudnnHandle_t cudnnHandle, int w, int h, bool train);
+	NN(int w, int h, bool train);
 	~NN();
 	__half* Forward(__half* data);
 	__half* Backward(__half* grad);
@@ -12,7 +12,6 @@ public:
 	void SaveModel(const std::string& filename);
 	void SaveOptimizerState(const std::string& filename);
 	void SetTrain(bool enable);
-	cudnnHandle_t cudnn_;
 	std::vector<Layer*> layers_;
 	int batchSize_;
 	int stateSize_;

@@ -20,7 +20,7 @@ public:
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	std::pair<int, int> Padding(int imageHeight, int imageWidth, int kernelSize, int stride);
 	cudnnHandle_t cudnnHandle_;
-	cudnnTensorDescriptor_t inDesc_;
+	cudnnTensorDescriptor_t inDesc_, outDesc_;
 	cudnnFilterDescriptor_t filterDesc_;
 	cudnnConvolutionDescriptor_t convDesc_;
 	ConvolutionAlgorithms algos_;

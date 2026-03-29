@@ -136,6 +136,8 @@ void ScaleNearestNeighborForward(const __half* input, __half* output, int batch,
 void ScaleNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
 void DropPathBuildMask(float* mask, int batch, float keepProb);
 void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch);
+void DropoutForward(__half* data, unsigned char* mask, int size, float keepProb, unsigned long long seed);
+void DropoutBackward(__half* grad, const unsigned char* mask, int size, float keepProb);
 CLNNStatusT InitCublas();
 CLNNStatusT CLNNGemmEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType);
 CLNNStatusT CLNNGemmStridedBatchedEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long int strideA, const void* B, cudaDataType Btype, int ldb, long long int strideB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long int strideC, int batchCount, cudaDataType computeType);

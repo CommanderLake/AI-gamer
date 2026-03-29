@@ -30,7 +30,7 @@ Infer::Infer(){
 	if(scaleFactor_ < 1){ scaleFactor_ = 1; }
 	int scaledWidth = 0, scaledHeight = 0;
 	GrabFrameScaleUInt8(cudnn_, &scaledWidth, &scaledHeight, scaleFactor_, true, false);
-	nn_ = new NN(cudnn_, scaledWidth, scaledHeight, false);
+	nn_ = new NN(scaledWidth, scaledHeight, false);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
@@ -141,7 +141,7 @@ void Infer::Step(){
 		if(capWidth != nn_->inWidth_ || capHeight != nn_->inHeight_){
 			std::cerr << "Capture resolution changed to " << capWidth << "x" << capHeight << ". Reloading network input resolution...\n";
 			delete nn_;
-			nn_ = new NN(cudnn_, capWidth, capHeight, false);
+			nn_ = new NN(capWidth, capHeight, false);
 			cudaFree(frameHalf_);
 			CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
 		}

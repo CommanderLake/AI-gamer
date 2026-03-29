@@ -10,7 +10,7 @@ class Dropout;
 class DropPath;
 class SwinBlockLayer final : public Layer{
 public:
-	SwinBlockLayer(cudnnHandle_t cudnnHandle, int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true, __half* attentionWorkspace = nullptr, __half* qPacked = nullptr, __half* kPacked = nullptr, __half* vPacked = nullptr, __half* attnOutPacked = nullptr, __half* dQPacked = nullptr, __half* dKPacked = nullptr, __half* dVPacked = nullptr, float* attnGradWorkspace = nullptr);
+	SwinBlockLayer(int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true, __half* attentionWorkspace = nullptr, __half* qPacked = nullptr, __half* kPacked = nullptr, __half* vPacked = nullptr, __half* attnOutPacked = nullptr, __half* dQPacked = nullptr, __half* dKPacked = nullptr, __half* dVPacked = nullptr, float* attnGradWorkspace = nullptr);
 	~SwinBlockLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -24,7 +24,6 @@ public:
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 private:
-	cudnnHandle_t cudnnHandle_;
 	int batchSize_;
 	int nTokens_;
 	int embedDim_;
@@ -56,7 +55,6 @@ private:
 	float* attentionMask_ = nullptr;
 	bool ownsWorkspace_ = true;
 	bool ownsAttentionMask_ = true;
-	cudnnTensorDescriptor_t outDesc_;
 	const float mixFwd_ = 1.0f;
 	const float mixBwd_ = 1.0f;
 };

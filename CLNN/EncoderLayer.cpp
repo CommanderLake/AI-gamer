@@ -7,25 +7,22 @@
 #include "GELULayer.h"
 #include "Dropout.h"
 #include <algorithm>
-EncoderLayer::EncoderLayer(const cudnnHandle_t cudnnHandle, const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : cudnnHandle_(cudnnHandle), batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), gradAccumLength_(gradAccumLength){
+EncoderLayer::EncoderLayer(const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
 	outNCHW_ = batchSize_*tokens_*embedDim_;
-	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
-	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_*tokens_, embedDim_, 1, 1));
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm1", train));
 	layers_.push_back(new WmmaAttentionLayer(batchSize_, tokens_, embedDim_, numHeads, "Attention", train_, weightDecay, gradAccumLength_, Xavier));
-	layers_.push_back(new Dropout(cudnnHandle_, 0.1f, batchSize_*tokens_, embedDim_, 1, 1, "Attn_Dropout", train));
+	layers_.push_back(new Dropout(0.1f, batchSize_*tokens_, embedDim_, 1, 1, "Attn_Dropout", train));
 	layers_.push_back(new LayerNorm(batchSize_*tokens_, embedDim_, 1, 1, "Norm2", train));
 	layers_.push_back(new FCLayer(batchSize_*tokens_, embedDim_, ffDim_, "FC1", train_, weightDecay, gradAccumLength_, Xavier, true));
 	layers_.push_back(new GELULayer(batchSize_*tokens_, ffDim_, 1, 1, "GELU"));
 	layers_.push_back(new FCLayer(batchSize_*tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_, Xavier, true));
-	layers_.push_back(new Dropout(cudnnHandle_, 0.1f, batchSize_*tokens_, embedDim_, 1, 1, "FF_Dropout", train));
+	layers_.push_back(new Dropout(0.1f, batchSize_*tokens_, embedDim_, 1, 1, "FF_Dropout", train));
 }
 EncoderLayer::~EncoderLayer(){
 	for(const auto layer : layers_) delete layer;
 	layers_.clear();
-	checkCUDNN(cudnnDestroyTensorDescriptor(outDesc_));
 }
 __half* EncoderLayer::Forward(__half* data){
 	const auto* residual1 = data;
