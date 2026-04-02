@@ -105,10 +105,11 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 				for(int t = 0; t < TEMPORAL_FRAMES_; ++t){
 					const int reverseIndex = TEMPORAL_FRAMES_ - 1 - t;
 					const auto temporalOffset = static_cast<std::streamoff>(reverseIndex*TEMPORAL_STRIDE_)*recordStride;
-					auto framePos = record.position - temporalOffset;
-					if(framePos < std::streampos(2*sizeof(int))){
-						framePos = std::streampos(2*sizeof(int));
-					}
+					const auto recordPos = static_cast<std::streamoff>(record.position);
+					auto frameOffset = recordPos - temporalOffset;
+					const auto minOffset = static_cast<std::streamoff>(2*sizeof(int));
+					if(frameOffset < minOffset){ frameOffset = minOffset; }
+					const auto framePos = std::streampos(frameOffset);
 					file.clear();
 					file.seekg(framePos + static_cast<std::streamoff>(sizeof(InputState)));
 					if(file.fail() || !file.read(reinterpret_cast<char*>(dst + t*singleFrameSize), singleFrameSize)){
