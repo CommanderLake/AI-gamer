@@ -4,6 +4,7 @@
 #include "NN.h"
 #include "NvDisplayCap.h"
 #include <csignal>
+#include <cstring>
 #undef min
 #undef max
 constexpr int kKbdButs = 11;
@@ -33,6 +34,8 @@ Infer::Infer(){
 	nn_ = new NN(scaledWidth, scaledHeight, false);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
+	CUDAMallocZero(&temporalFrameBytes_, nn_->stateSize_);
+	temporalHostBuffer_.resize(nn_->stateSize_);
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
 	listenThread_.detach();
 	signal(SIGINT, InferSig);
@@ -48,6 +51,10 @@ void Infer::Dispose(){
 	if(frameHalf_){
 		cudaFree(frameHalf_);
 		frameHalf_ = nullptr;
+	}
+	if(temporalFrameBytes_){
+		cudaFree(temporalFrameBytes_);
+		temporalFrameBytes_ = nullptr;
 	}
 	if(predictionsF_){
 		cudaFreeHost(predictionsF_);
@@ -144,8 +151,17 @@ void Infer::Step(){
 			nn_ = new NN(capWidth, capHeight, false);
 			cudaFree(frameHalf_);
 			CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
+			cudaFree(temporalFrameBytes_);
+			CUDAMallocZero(&temporalFrameBytes_, nn_->stateSize_);
+			temporalHostBuffer_.assign(nn_->stateSize_, 0);
 		}
-		ConvertByteToHalf(frame, frameHalf_, nn_->stateSize_, true);
+		const auto singleFrameSize = nn_->stateSize_/TEMPORAL_FRAMES_;
+		for(int t = 0; t < TEMPORAL_FRAMES_ - 1; ++t){
+			std::memcpy(temporalHostBuffer_.data() + t*singleFrameSize, temporalHostBuffer_.data() + (t + 1)*singleFrameSize, singleFrameSize);
+		}
+		checkCUDA(cudaMemcpy(temporalHostBuffer_.data() + (TEMPORAL_FRAMES_ - 1)*singleFrameSize, frame, singleFrameSize, cudaMemcpyDeviceToHost));
+		checkCUDA(cudaMemcpy(temporalFrameBytes_, temporalHostBuffer_.data(), nn_->stateSize_, cudaMemcpyHostToDevice));
+		ConvertByteToHalf(temporalFrameBytes_, frameHalf_, nn_->stateSize_, true);
 		const auto output = nn_->Forward(frameHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchSize_);
 		ProcessOutput(predictionsF_);

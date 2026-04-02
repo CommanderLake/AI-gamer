@@ -4,6 +4,7 @@
 #include "Train.h"
 #include <windows.h>
 #include <atomic>
+#include <vector>
 class NN;
 class Infer{
 public:
@@ -26,6 +27,8 @@ public:
 	std::thread listenThread_;
 	float* predictionsF_ = nullptr;
 	__half* frameHalf_ = nullptr;
+	unsigned char* temporalFrameBytes_ = nullptr;
+	std::vector<unsigned char> temporalHostBuffer_;
 	int scaleFactor_ = 2;
 	bool inferEnable_ = false;
 	bool inferLast_ = false;

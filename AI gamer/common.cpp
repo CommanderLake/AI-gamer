@@ -82,6 +82,13 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 	for(size_t i = 0; i < static_cast<size_t>(batchSize); ++i){
 		threadPool.Enqueue([i, batch, stateSize, record = batchRecords[i]]{
 			try{
+				if(stateSize % TEMPORAL_FRAMES_ != 0){
+					std::cerr << "Invalid temporal state size: " << stateSize << "\n";
+					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+					return;
+				}
+				const auto singleFrameSize = stateSize/TEMPORAL_FRAMES_;
+				const auto recordStride = sizeof(InputState) + static_cast<std::streamoff>(singleFrameSize);
 				auto& file = GetThreadFile(*record.fileName);
 				file.seekg(record.position);
 				if(file.fail()){
@@ -94,9 +101,21 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
 					return;
 				}
-				if(!file.read(reinterpret_cast<char*>(batch->stateData + i*stateSize), stateSize)){
-					std::cerr << "Failed to read stateData at index " << i << " from file: " << *record.fileName << "\n";
-					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+				unsigned char* dst = batch->stateData + i*stateSize;
+				for(int t = 0; t < TEMPORAL_FRAMES_; ++t){
+					const int reverseIndex = TEMPORAL_FRAMES_ - 1 - t;
+					const auto temporalOffset = static_cast<std::streamoff>(reverseIndex*TEMPORAL_STRIDE_)*recordStride;
+					auto framePos = record.position - temporalOffset;
+					if(framePos < std::streampos(2*sizeof(int))){
+						framePos = std::streampos(2*sizeof(int));
+					}
+					file.clear();
+					file.seekg(framePos + static_cast<std::streamoff>(sizeof(InputState)));
+					if(file.fail() || !file.read(reinterpret_cast<char*>(dst + t*singleFrameSize), singleFrameSize)){
+						std::cerr << "Failed to read temporal frame " << t << " at index " << i << " from file: " << *record.fileName << "\n";
+						gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+						return;
+					}
 				}
 			} catch(const std::exception& e){
 				std::cerr << "LoadBatch exception for file " << *record.fileName << " at batch index " << i << ": " << e.what() << "\n";
@@ -117,7 +136,14 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 			const auto& record = states[randomIndex];
 			batch->inputStates[i] = record->inputState;
 			if(batch->stateData && record->stateData){
-				std::memcpy(batch->stateData + i*stateSize, record->stateData, stateSize);
+				if(stateSize % TEMPORAL_FRAMES_ != 0){
+					gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+					return;
+				}
+				const auto singleFrameSize = stateSize/TEMPORAL_FRAMES_;
+				for(int t = 0; t < TEMPORAL_FRAMES_; ++t){
+					std::memcpy(batch->stateData + i*stateSize + t*singleFrameSize, record->stateData, singleFrameSize);
+				}
 			} else{
 				std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << " (batch index " << i << ")\n";
 				gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);

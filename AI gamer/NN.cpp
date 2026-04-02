@@ -31,9 +31,10 @@ NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	}
 	inWidth_ = netWidth;
 	inHeight_ = netHeight;
-	stateSize_ = inWidth_*inHeight_*3;
+	stateSize_ = inWidth_*inHeight_*3*TEMPORAL_FRAMES_;
 	checkCLNN(InitCublas());
 	std::cout<<"Initializing layers...\n";
+	std::cout<<"Temporal stack: "<<TEMPORAL_FRAMES_<<" frames (stride "<<TEMPORAL_STRIDE_<<")\n";
 	constexpr auto wd = 0.1f;
 	constexpr auto patchSize = 16;
 	constexpr auto embedH = 16;
@@ -49,11 +50,12 @@ NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	auto patchRows = DivCeil(scaledHeight, patchSize);
 	auto patchCols = DivCeil(scaledWidth, patchSize);
 	constexpr bool enableViewerLayers = false;
-	layers_.push_back(new ResizeLayer(batchSize_, 3, netHeight, netWidth, scaledHeight, scaledWidth, "Input Resize 256x256", train));
-	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*3*scaledHeight*scaledWidth, 3, scaledHeight, scaledWidth, 3, "Input Viewer", true, 1.0f, false));
+	const auto temporalChannels = 3*TEMPORAL_FRAMES_;
+	layers_.push_back(new ResizeLayer(batchSize_, temporalChannels, netHeight, netWidth, scaledHeight, scaledWidth, "Input Resize 256x256", train));
+	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*temporalChannels*scaledHeight*scaledWidth, temporalChannels, scaledHeight, scaledWidth, 3, "Input Viewer", true, 1.0f, false));
 	auto nTokens = patchRows*patchCols;
 	auto embedDim = embedSize;
-	layers_.push_back(new PatchEmbedLayer(batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new PatchEmbedLayer(batchSize_, temporalChannels, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
 	layers_.push_back(new SwinUnetLayer(batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new ActionHead(batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));
