@@ -102,7 +102,7 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 					return;
 				}
 				unsigned char* dst = batch->stateData + i*stateSize;
-				for(int t = 0; t < TEMPORAL_FRAMES_; ++t){
+				for(int t = TEMPORAL_FRAMES_ - 1; t >= 0; --t){
 					const int reverseIndex = TEMPORAL_FRAMES_ - 1 - t;
 					const auto temporalOffset = static_cast<std::streamoff>(reverseIndex*TEMPORAL_STRIDE_)*recordStride;
 					const auto recordPos = static_cast<std::streamoff>(record.position);
@@ -113,9 +113,13 @@ void LoadBatch(StateBatch* batch, const int batchSize, const int stateSize, cons
 					file.clear();
 					file.seekg(framePos + static_cast<std::streamoff>(sizeof(InputState)));
 					if(file.fail() || !file.read(reinterpret_cast<char*>(dst + t*singleFrameSize), singleFrameSize)){
-						std::cerr << "Failed to read temporal frame " << t << " at index " << i << " from file: " << *record.fileName << "\n";
-						gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
-						return;
+						if(t == TEMPORAL_FRAMES_ - 1){
+							std::cerr << "Failed to read current frame at index " << i << " from file: " << *record.fileName << "\n";
+							gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
+							return;
+						}
+						std::memcpy(dst + t*singleFrameSize, dst + (t + 1)*singleFrameSize, singleFrameSize);
+						file.clear();
 					}
 				}
 			} catch(const std::exception& e){
