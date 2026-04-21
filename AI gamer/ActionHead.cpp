@@ -1,6 +1,7 @@
 #include "ActionHead.h"
 #include "common.h"
 #include "ConvLayer.h"
+#include "CuCommon.h"
 #include "GELULayer.h"
 #include "FCLayer.h"
 #include <algorithm>
@@ -38,7 +39,15 @@ ActionHead::~ActionHead(){
 }
 __half* ActionHead::Forward(__half* data){
 	if(temporalLength_ > 1){
-		SelectLastTemporalFrame(data, temporalInput_, baseBatchSize_, temporalLength_, inC_);
+		switch(outputPolicy_){
+			case TemporalOutputPolicy::LastFrameBroadcast:
+				SelectLastTemporalFrame(data, temporalInput_, baseBatchSize_, temporalLength_, inC_);
+				break;
+			case TemporalOutputPolicy::MeanFrameBroadcast:
+				ReduceTemporalGradients(data, temporalInput_, baseBatchSize_, temporalLength_, inC_);
+				ScaleArrayHalf(temporalInput_, static_cast<size_t>(baseBatchSize_)*inC_, 1.0f/static_cast<float>(temporalLength_));
+				break;
+		}
 		data = temporalInput_;
 	}
 	for(auto* layer : layers_){
@@ -59,7 +68,15 @@ __half* ActionHead::Backward(__half* grad){
 		grad = layers_[i]->Backward(grad);
 	}
 	if(temporalLength_ > 1){
-		ScatterLastTemporalFrameGrad(grad, temporalGradOut_, baseBatchSize_, temporalLength_, inC_);
+		switch(outputPolicy_){
+			case TemporalOutputPolicy::LastFrameBroadcast:
+				ScatterLastTemporalFrameGrad(grad, temporalGradOut_, baseBatchSize_, temporalLength_, inC_);
+				break;
+			case TemporalOutputPolicy::MeanFrameBroadcast:
+				ExpandTemporalOutputs(grad, temporalGradOut_, baseBatchSize_, temporalLength_, inC_);
+				ScaleArrayHalf(temporalGradOut_, static_cast<size_t>(batchSize_)*inC_, 1.0f/static_cast<float>(temporalLength_));
+				break;
+		}
 		return temporalGradOut_;
 	}
 	return grad;

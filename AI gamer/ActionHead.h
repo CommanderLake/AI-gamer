@@ -3,7 +3,8 @@
 #include <vector>
 #include <cuda_fp16.h>
 enum class TemporalOutputPolicy{
-	LastFrameBroadcast
+	LastFrameBroadcast,
+	MeanFrameBroadcast
 };
 class ActionHead final : public Layer{
 public:

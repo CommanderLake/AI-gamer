@@ -26,8 +26,8 @@ public:
 	std::thread listenThread_;
 	float* predictionsF_ = nullptr;
 	__half* frameHalf_ = nullptr;
+	__half* clipScratch_ = nullptr;
 	int temporalLength_ = 1;
-	int clipWriteIndex_ = 0;
 	int clipFillCount_ = 0;
 	int scaleFactor_ = 2;
 	bool inferEnable_ = false;

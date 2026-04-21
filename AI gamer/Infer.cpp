@@ -4,7 +4,6 @@
 #include "NvDisplayCap.h"
 #include <algorithm>
 #include <csignal>
-#include <vector>
 #include <cstring>
 #undef min
 #undef max
@@ -36,6 +35,7 @@ Infer::Infer(){
 	temporalLength_ = std::max(1, nn_->batchSize_);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
 	CUDAMallocZero(&frameHalf_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
+	CUDAMallocZero(&clipScratch_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
 	listenThread_.detach();
 	signal(SIGINT, InferSig);
@@ -51,6 +51,10 @@ void Infer::Dispose(){
 	if(frameHalf_){
 		cudaFree(frameHalf_);
 		frameHalf_ = nullptr;
+	}
+	if(clipScratch_){
+		cudaFree(clipScratch_);
+		clipScratch_ = nullptr;
 	}
 	if(predictionsF_){
 		cudaFreeHost(predictionsF_);
@@ -146,35 +150,33 @@ void Infer::Step(){
 			delete nn_;
 			nn_ = new NN(capWidth, capHeight, false);
 			temporalLength_ = std::max(1, nn_->batchSize_);
-			clipWriteIndex_ = 0;
 			clipFillCount_ = 0;
 			cudaFree(frameHalf_);
+			cudaFree(clipScratch_);
 			CUDAMallocZero(&frameHalf_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
+			CUDAMallocZero(&clipScratch_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
 		}
-		__half* clipSlot = frameHalf_ + static_cast<size_t>(clipWriteIndex_)*nn_->stateSize_;
-		ConvertByteToHalf(frame, clipSlot, nn_->stateSize_, true);
-		clipWriteIndex_ = (clipWriteIndex_ + 1)%temporalLength_;
-		if(clipFillCount_ < temporalLength_) ++clipFillCount_;
-		if(clipFillCount_ < temporalLength_) return;
-		if(clipWriteIndex_ != 0){
-			const size_t stateBytes = static_cast<size_t>(nn_->stateSize_)*sizeof(__half);
-			std::vector<__half> tempIn(static_cast<size_t>(nn_->stateSize_)*temporalLength_);
-			std::vector<__half> tempOut(static_cast<size_t>(nn_->stateSize_)*temporalLength_);
-			checkCUDA(cudaMemcpy(tempIn.data(), frameHalf_, stateBytes*temporalLength_, cudaMemcpyDeviceToHost));
-			for(int i = 0; i < temporalLength_; ++i){
-				const int src = (clipWriteIndex_ + i)%temporalLength_;
-				memcpy(tempOut.data() + static_cast<size_t>(i)*nn_->stateSize_, tempIn.data() + static_cast<size_t>(src)*nn_->stateSize_, stateBytes);
+		const size_t stateElems = static_cast<size_t>(nn_->stateSize_);
+		const size_t stateBytes = stateElems*sizeof(__half);
+		if(clipFillCount_ < temporalLength_){
+			__half* clipSlot = frameHalf_ + stateElems*clipFillCount_;
+			ConvertByteToHalf(frame, clipSlot, nn_->stateSize_, true);
+			++clipFillCount_;
+		} else{
+			if(temporalLength_ > 1){
+				checkCUDA(cudaMemcpy(clipScratch_, frameHalf_ + stateElems, stateBytes*(temporalLength_ - 1), cudaMemcpyDeviceToDevice));
+				checkCUDA(cudaMemcpy(frameHalf_, clipScratch_, stateBytes*(temporalLength_ - 1), cudaMemcpyDeviceToDevice));
 			}
-			checkCUDA(cudaMemcpy(frameHalf_, tempOut.data(), stateBytes*temporalLength_, cudaMemcpyHostToDevice));
-			clipWriteIndex_ = 0;
+			__half* clipSlot = frameHalf_ + stateElems*(temporalLength_ - 1);
+			ConvertByteToHalf(frame, clipSlot, nn_->stateSize_, true);
 		}
+		if(clipFillCount_ < temporalLength_) return;
 		const auto output = nn_->Forward(frameHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchSize_);
 		ProcessOutput(predictionsF_);
 	}
 	if(inferEnable_ != inferLast_){
 		if(!inferEnable_){
-			clipWriteIndex_ = 0;
 			clipFillCount_ = 0;
 			memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
 			ProcessOutput(predictionsF_);

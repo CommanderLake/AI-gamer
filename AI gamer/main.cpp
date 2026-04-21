@@ -2,6 +2,7 @@
 #include "Infer.h"
 #include "Viewer.h"
 #include "Record.h"
+#include "common.h"
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -202,6 +203,7 @@ int main(){
 	std::ios::sync_with_stdio(false);
 	std::cout << std::fixed << std::setprecision(6);
 	SetConsoleCtrlHandler(ConsoleShutdownHandler, TRUE);
+	ConfigureSequenceSampling(sequenceSamplingConfig.length, sequenceSamplingConfig.stride, sequenceSamplingConfig.targetOffset);
 	std::cout << "R for Record mode, T for Train mode, V for View mode, I for Infer mode... ";
 	char mode;
 	std::cin >> mode;
