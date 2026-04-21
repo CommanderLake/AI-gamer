@@ -59,9 +59,9 @@ __global__ void ScaleHalfKernel(__half* data, const size_t count, const float sc
 }
 void ScaleArrayHalf(__half* data, const size_t count, const float scale){
 	if(!data || scale == 1.0f || count == 0) return;
-	constexpr int bs = 256;
-	const auto blocks = DivCeil(count, bs);
-	ScaleHalfKernel<<<blocks, bs>>>(data, count, scale);
+	size_t blocks = 0, threads = 0;
+	GetLaunchConfigGridStride(count, blocks, threads);
+	if(blocks > 0 && threads > 0) ScaleHalfKernel<<<blocks, threads>>>(data, count, scale);
 	checkCUDA(cudaGetLastError());
 }
 __global__ void AddBiasKernel(__half* output, const __half* bias, const int channels, const size_t total){
