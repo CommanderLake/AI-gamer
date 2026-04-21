@@ -203,7 +203,6 @@ int main(){
 	std::ios::sync_with_stdio(false);
 	std::cout << std::fixed << std::setprecision(6);
 	SetConsoleCtrlHandler(ConsoleShutdownHandler, TRUE);
-	ConfigureSequenceSampling(sequenceSamplingConfig.length, sequenceSamplingConfig.stride, sequenceSamplingConfig.targetOffset);
 	std::cout << "R for Record mode, T for Train mode, V for View mode, I for Infer mode... ";
 	char mode;
 	std::cin >> mode;
@@ -214,6 +213,7 @@ int main(){
 		delete gRecord;
 		gRecord = nullptr;
 	} else if(mode == 't' || mode == 'T'){
+		ConfigureSequenceSampling(sequenceSamplingConfig.length, sequenceSamplingConfig.stride, sequenceSamplingConfig.targetOffset);
 		int width = 0, height = 0;
 		ReadStateData(&width, &height);
 		std::cout << "Training data resolution: " << width << "x" << height << "\n";
@@ -230,6 +230,7 @@ int main(){
 		delete gViewer;
 		gViewer = nullptr;
 	} else if(mode == 'i' || mode == 'I'){
+		ConfigureSequenceSampling(sequenceSamplingConfig.length, sequenceSamplingConfig.stride, sequenceSamplingConfig.targetOffset);
 		gInfer = new Infer();
 		gInfer->Run();
 		delete gInfer;

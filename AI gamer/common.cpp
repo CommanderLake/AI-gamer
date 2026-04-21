@@ -112,6 +112,16 @@ void ConfigureSequenceSampling(const int length, const int stride, const int tar
 	sequenceSamplingConfig.length = safeLength;
 	sequenceSamplingConfig.stride = safeStride;
 	sequenceSamplingConfig.targetOffset = std::clamp(targetOffset, 0, maxTargetOffset);
+	if(trainRecordIndices.empty() && valRecordIndices.empty()){
+		std::lock_guard<std::mutex> lock(gBatchOrderMutex);
+		trainSequenceRecordIndices.clear();
+		valSequenceRecordIndices.clear();
+		gTrainSequenceBatchOrder.clear();
+		gValSequenceBatchOrder.clear();
+		gTrainSequenceBatchCursor = 0;
+		gValSequenceBatchCursor = 0;
+		return;
+	}
 	RebuildSequenceIndices();
 }
 static void GetBatchRecords(const std::vector<RecordIndex>* recordIndices, const bool validation, const int batchSize, std::vector<RecordIndex>* batchRecords){
