@@ -29,7 +29,6 @@ void TanhInPlace(__half* data, int size);
 void TanhBackward(__half* grad, const __half* activations, int size);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
-void ScaleArrayHalf(__half* data, size_t count, float scale);
 void AddBias(__half* output, const __half* bias, int channels, int batchSize);
 void AddTensor(float alpha, __half* A, float beta, const __half* B, size_t size);
 void AddTensorBroadcast(float alpha, const __half* B, float beta, __half* C, int batch, int elementsPerBatch);

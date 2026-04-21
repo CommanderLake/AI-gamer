@@ -1,7 +1,7 @@
 #include "ActionHead.h"
+#include "APICommon.h"
 #include "common.h"
 #include "ConvLayer.h"
-#include "CuCommon.h"
 #include "GELULayer.h"
 #include "FCLayer.h"
 #include <algorithm>
