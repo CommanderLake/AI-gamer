@@ -40,10 +40,6 @@ struct RecordIndex{
 	const std::string* fileName;
 	std::streampos position;
 };
-template <typename T>
-T RoundUp(T x, T m){
-	return m ? m*DivCeil(x, m) : x;
-}
 extern std::vector<std::string> trainDataFiles;
 extern std::string valDataFile;
 extern std::string trainDataOutFileName;

@@ -84,6 +84,10 @@ CLNN_API const char* clnnGetErrorString(CLNNStatusT status);
 }
 template<class Ta, class Tb>
 Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }
+template <typename T>
+T RoundUp(T x, T m){
+	return m ? m*DivCeil(x, m) : x;
+}
 template<class T>
 void CUDAMallocZero(T** ptr, size_t size){
 	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
