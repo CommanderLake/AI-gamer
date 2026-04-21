@@ -1,6 +1,6 @@
 #include "CuCommon.h"
 #include <device_launch_parameters.h>
-__global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, size_t n){
+__global__ void cuARGBtoRGB(const PixARGB* src, PixRGB* dst, size_t n){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += stride){
 		dst[i].R = src[i].R;
@@ -11,7 +11,7 @@ __global__ void cuARGBtoRGB(const pixARGB* src, pixRGB* dst, size_t n){
 void ARGBtoRGB(unsigned char* src, unsigned char* dst, size_t n){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(n, blocks, tpb);
-	cuARGBtoRGB<<<blocks, tpb>>>(reinterpret_cast<pixARGB*>(src), reinterpret_cast<pixRGB*>(dst), n);
+	cuARGBtoRGB<<<blocks, tpb>>>(reinterpret_cast<PixARGB*>(src), reinterpret_cast<PixRGB*>(dst), n);
 	checkCUDA(cudaGetLastError());
 }
 __global__ void cuARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, size_t n){

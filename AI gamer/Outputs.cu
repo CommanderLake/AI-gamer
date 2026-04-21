@@ -1,6 +1,7 @@
-#include "CuCommon.h"
+#include "APICommon.h"
 #include <cuda_runtime_api.h>
 #include <device_launch_parameters.h>
+#include <cuda_fp16.h>
 __global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
 	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
 	if(idx < size){

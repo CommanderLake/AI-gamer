@@ -1,106 +1,9 @@
 #pragma once
+#include "APICommon.h"
 #include <cuda.h>
 #include <curand.h>
-#include <cuda_fp16.h>
-#include <stdexcept>
-#include <iostream>
-#include <string>
-typedef enum{
-	CLNN_OP_N = 0,
-	CLNN_OP_T = 1,
-	CLNN_OP_C = 2,
-} CLNNOpT;
-typedef enum{
-	CLNN_STATUS_SUCCESS = 0,
-	CLNN_STATUS_NOT_INITIALIZED = 1,
-	CLNN_STATUS_ALLOC_FAILED = 3,
-	CLNN_STATUS_INVALID_VALUE = 7,
-	CLNN_STATUS_ARCH_MISMATCH = 8,
-	CLNN_STATUS_MAPPING_ERROR = 11,
-	CLNN_STATUS_EXECUTION_FAILED = 13,
-	CLNN_STATUS_INTERNAL_ERROR = 14,
-	CLNN_STATUS_NOT_SUPPORTED = 15
-} CLNNStatusT;
-enum WeightInitMethod{
-	He, Xavier
-};
-__declspec(dllexport) const char* clnnGetErrorString(CLNNStatusT status);
-#define checkCLNN(status) { \
-	const auto err = status; \
-    if (err != CLNN_STATUS_SUCCESS) { \
-        std::cerr << "\nError: " << clnnGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("Error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + clnnGetErrorString(err)); \
-    } \
-}
-#define checkCUDNN(status) { \
-	const auto err = status; \
-    if (err != CUDNN_STATUS_SUCCESS) { \
-        std::cerr << "\ncuDNN error: " << cudnnGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("cuDNN error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudnnGetErrorString(err)); \
-    } \
-}
-#define checkCUDA(status) { \
-	const auto err = status; \
-    if (err != cudaSuccess) { \
-        std::cerr << "\nCUDA error: " << cudaGetErrorString(err) << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("CUDA error at " + std::string(__FILE__) + ":" + std::to_string(__LINE__) + " - " + cudaGetErrorString(err)); \
-    } \
-}
-extern curandGenerator_t generator_;
+extern curandGenerator_t cuRandGen_;
 extern size_t MPC, GS, CPM;
-struct pixARGB{
-	unsigned char B;
-	unsigned char G;
-	unsigned char R;
-	unsigned char A;
-};
-struct pixRGB{
-	unsigned char B;
-	unsigned char G;
-	unsigned char R;
-};
-struct AdamWHalfTask{
-	__half* params;
-	const __half* grads;
-	__half* m;
-	__half* v;
-	int size;
-	float weightDecay;
-};
-struct AdamWFloatTask{
-	float* params;
-	const float* grads;
-	float* m;
-	float* v;
-	int size;
-	float weightDecay;
-};
-template<class Ta, class Tb>
-Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }
-template<class T>
-void CUDAMallocZero(T** ptr, const size_t size){
-	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
-	checkCUDA(cudaMemset(*ptr, 0, size));
-}
-__declspec(dllexport) void InitCUDA();
-__declspec(dllexport) CLNNStatusT InitCublas();
-__declspec(dllexport) void LossStats(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
-__declspec(dllexport) void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
-__declspec(dllexport) void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
-__declspec(dllexport) void ConvertByteToHalf(const unsigned char* input, __half* output, size_t size, bool normalize);
-__declspec(dllexport) void ConvertHalfToByte(const __half* input, unsigned char* output, size_t size, bool normalize);
-__declspec(dllexport) void ConvertFloatToHalf(const float* input, __half* output, size_t size);
-__declspec(dllexport) void ConvertHalfToFloat(const __half* input, float* output, size_t size);
-__declspec(dllexport) void ConvertFloatToHalfScale(__half* halfWeights, const float* weights, size_t size, float scale);
-__declspec(dllexport) void ARGBtoRGB(unsigned char* src, unsigned char* dst, size_t n);
-__declspec(dllexport) void ARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, size_t n);
-__declspec(dllexport) void SGDHalf(__half* params, const __half* grads, int size, float learningRate, float weightDecay);
-__declspec(dllexport) void SGDFloat(float* params, const float* grads, int size, float learningRate, float weightDecay);
-__declspec(dllexport) void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
-__declspec(dllexport) void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
-__declspec(dllexport) void AdamWHalfMulti(const AdamWHalfTask* tasks, int taskCount, int totalSize, float lr, int t);
-__declspec(dllexport) void AdamWFloatMulti(const AdamWFloatTask* tasks, int taskCount, int totalSize, float lr, int t);
-__declspec(dllexport) bool IsnanHalf(const __half* data, int size);
 void LeakyReluForward(const __half* dataIn, __half* dataOut, int size, float negativeSlope, cudaStream_t stream = nullptr);
 void LeakyReluBackward(__half* grad, const __half* dataIn, int size, float negativeSlope, cudaStream_t stream = nullptr);
 void SwishForward(const __half* dataIn, __half* outData, int size, cudaStream_t stream = nullptr);
@@ -145,8 +48,6 @@ void DropPathBuildMask(float* mask, int batch, float keepProb);
 void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch);
 void DropoutForward(__half* data, unsigned char* mask, int size, float keepProb, unsigned long long seed);
 void DropoutBackward(__half* grad, const unsigned char* mask, int size, float keepProb);
-CLNNStatusT CLNNGemmEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType);
-CLNNStatusT CLNNGemmStridedBatchedEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long int strideA, const void* B, cudaDataType Btype, int ldb, long long int strideB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long int strideC, int batchCount, cudaDataType computeType);
 int ConvertSmVer2Cores(int major, int minor);
 void GetLaunchConfigGridStride(size_t n, size_t& blocks, size_t& tpb);
 void WeightInit(__half* weights, int elementCount, int fanIn, int fanOut, WeightInitMethod method);

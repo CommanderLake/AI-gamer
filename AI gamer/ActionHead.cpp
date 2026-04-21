@@ -1,6 +1,5 @@
 #include "ActionHead.h"
 #include "common.h"
-#include "CuCommon.h"
 #include "ConvLayer.h"
 #include "GELULayer.h"
 #include "FCLayer.h"

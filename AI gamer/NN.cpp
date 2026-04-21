@@ -1,5 +1,5 @@
 #include "NN.h"
-#include "CuCommon.h"
+#include "APICommon.h"
 #include "ResizeLayer.h"
 #include "ActionHead.h"
 #include "PatchEmbedLayer.h"

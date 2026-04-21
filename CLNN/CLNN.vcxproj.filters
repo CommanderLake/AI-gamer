@@ -170,6 +170,9 @@
     <ClInclude Include="HostCommon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="APICommon.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="Activations.cu" />

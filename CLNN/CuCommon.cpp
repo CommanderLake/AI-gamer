@@ -1,7 +1,7 @@
 #include "CuCommon.h"
 #include <algorithm>
 #include <ctime>
-curandGenerator_t generator_;
+curandGenerator_t cuRandGen_;
 size_t MPC, GS, CPM;
 const char* clnnGetErrorString(const CLNNStatusT status){
 	switch(status){
@@ -93,6 +93,6 @@ void InitCUDA(){
 	CPM = ConvertSmVer2Cores(major, minor);
 	MPC = prop.multiProcessorCount;
 	GS = 32*MPC;
-	curandCreateGenerator(&generator_, CURAND_RNG_PSEUDO_DEFAULT);
-	curandSetPseudoRandomGeneratorSeed(generator_, static_cast<unsigned long long>(time(nullptr)));
+	curandCreateGenerator(&cuRandGen_, CURAND_RNG_PSEUDO_DEFAULT);
+	curandSetPseudoRandomGeneratorSeed(cuRandGen_, static_cast<unsigned long long>(time(nullptr)));
 }

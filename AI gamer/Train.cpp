@@ -1,6 +1,6 @@
 #include "Train.h"
 #include "NN.h"
-#include "CuCommon.h"
+#include "APICommon.h"
 #include "HostCommon.h"
 #include <iostream>
 #include <string>

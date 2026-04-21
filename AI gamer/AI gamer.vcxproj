@@ -55,7 +55,7 @@
       <Optimization>Disabled</Optimization>
       <FloatingPointModel>Fast</FloatingPointModel>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;CLNN_SHARED</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\inc\;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\samples\Util\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -79,7 +79,7 @@
       <FloatingPointModel>Fast</FloatingPointModel>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <GenerateAlternateCodePaths>AVX2</GenerateAlternateCodePaths>
-      <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;CLNN_SHARED</PreprocessorDefinitions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\inc\;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\samples\Util\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>MaxSpeedHighLevel</Optimization>

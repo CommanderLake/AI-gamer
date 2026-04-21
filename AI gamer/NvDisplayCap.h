@@ -1,7 +1,7 @@
 #pragma once
 #include "ConvScale.h"
-struct pixARGB;
-struct pixRGB;
+struct PixARGB;
+struct PixRGB;
 void FreeHost();
 void FreeGPU();
 void DisposeNvFBC();
