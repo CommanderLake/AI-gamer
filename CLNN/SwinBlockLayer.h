@@ -10,7 +10,7 @@ class Dropout;
 class DropPath;
 class __declspec(dllexport) SwinBlockLayer final : public Layer{
 public:
-	SwinBlockLayer(int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true, __half* attentionWorkspace = nullptr, __half* qPacked = nullptr, __half* kPacked = nullptr, __half* vPacked = nullptr, __half* attnOutPacked = nullptr, __half* dQPacked = nullptr, __half* dKPacked = nullptr, __half* dVPacked = nullptr, float* attnGradWorkspace = nullptr);
+	SwinBlockLayer(int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true, __half* attentionWorkspace = nullptr, __half* qPacked = nullptr, __half* kPacked = nullptr, __half* vPacked = nullptr, __half* attnOutPacked = nullptr, __half* dQPacked = nullptr, __half* dKPacked = nullptr, __half* dVPacked = nullptr, float* attnGradWorkspace = nullptr, int temporalLength = 1);
 	~SwinBlockLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -38,6 +38,8 @@ private:
 	int windowTokens_;
 	int windowCount_;
 	int windowBatch_;
+	int temporalLength_ = 1;
+	int baseBatchSize_ = 0;
 	std::vector<Layer*> layers_;
 	LayerNorm* norm1_;
 	WmmaAttentionLayer* attention_;
@@ -49,6 +51,10 @@ private:
 	FCLayer* fc2_;
 	Dropout* ffDrop_;
 	DropPath* ffDropPath_;
+	LayerNorm* temporalNorm_ = nullptr;
+	WmmaAttentionLayer* temporalAttention_ = nullptr;
+	__half* temporalPacked_ = nullptr;
+	__half* temporalUnpacked_ = nullptr;
 	__half* windowedInput_ = nullptr;
 	__half* windowedGrad_ = nullptr;
 	__half* tokens_ = nullptr;

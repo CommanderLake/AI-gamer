@@ -1,6 +1,7 @@
 #pragma once
 struct __half;
 struct StateBatch;
+struct StateBatchSequence;
 class NN;
 class Train{
 public:
@@ -9,6 +10,7 @@ public:
 	void Allocate(int batchSize, int stateSize);
 	void Free();
 	int Train::TrainBatch(NN* nn, const StateBatch* sb, bool smoothLoss, float lr, int batchIndex, int epochBatchCount);
+	int TrainBatchSequence(NN* nn, const StateBatchSequence* sb, bool smoothLoss, float lr, int batchIndex, int epochBatchCount, int temporalLength);
 	void TrainModel(int width, int height, bool validate = false);
 	float lossButs_ = 0.0f;
 	float lossAxes_ = 0.0f;

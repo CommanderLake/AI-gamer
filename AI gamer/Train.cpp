@@ -2,7 +2,9 @@
 #include "NN.h"
 #include "APICommon.h"
 #include "HostCommon.h"
+#include <algorithm>
 #include <iostream>
+#include <memory>
 #include <string>
 Train::Train(){}
 Train::~Train(){}
@@ -92,6 +94,43 @@ int Train::TrainBatch(NN* nn, const StateBatch* sb, const bool smoothLoss, const
 	nn->UpdateParams(lr);
 	return 0;
 }
+int Train::TrainBatchSequence(NN* nn, const StateBatchSequence* sb, const bool smoothLoss, const float lr, const int batchIndex, const int epochBatchCount, const int temporalLength){
+	for(auto i = 0; i < nn->batchSize_; ++i){
+		const int seqIndex = i/temporalLength;
+		for(auto j = 0; j < NUM_BUTS_; ++j){ hTargetBatchFloat[i*NUM_CTRLS_ + j] = static_cast<float>(sb->targetInputStates[seqIndex].keyStates >> j & 1); }
+		const auto axisBase = i*NUM_CTRLS_ + NUM_BUTS_;
+		hTargetBatchFloat[axisBase] = std::asinh(static_cast<float>(sb->targetInputStates[seqIndex].deltaX)/AXIS_SCALE_);
+		hTargetBatchFloat[axisBase + 1] = std::asinh(static_cast<float>(sb->targetInputStates[seqIndex].deltaY)/AXIS_SCALE_);
+	}
+	checkCUDA(cudaMemcpy(dStateBatchBytes, sb->sequenceStateData, static_cast<size_t>(nn->stateSize_)*nn->batchSize_, cudaMemcpyHostToDevice));
+	ConvertByteToHalf(dStateBatchBytes, dStateBatchHalf, nn->stateSize_*nn->batchSize_, true);
+	checkCUDA(cudaMemcpy(dTargetBatchFloat, hTargetBatchFloat, static_cast<size_t>(NUM_CTRLS_)*nn->batchSize_*sizeof(float), cudaMemcpyHostToDevice));
+	const auto dPredictions = nn->Forward(dStateBatchHalf);
+	if(IsnanHalf(dPredictions, NUM_CTRLS_*nn->batchSize_)){
+		std::cout << " NaN in predictions\n";
+		return -1;
+	}
+	LossStats(dPredictions, dTargetBatchFloat, NUM_BUTS_, NUM_CTRLS_, nn->batchSize_, &lossButs_, &lossAxes_);
+	if(smoothLoss){
+		constexpr float smoothing = 0.99f;
+		emaLossButs_ = smoothing*emaLossButs_ + (1.0f - smoothing)*lossButs_;
+		emaLossAxes_ = smoothing*emaLossAxes_ + (1.0f - smoothing)*lossAxes_;
+	} else{
+		emaLossButs_ = lossButs_;
+		emaLossAxes_ = lossAxes_;
+	}
+	std::cout << "\rLR: " << lr << " Batch " << batchIndex + 1 << "/" << epochBatchCount << " Buts: " << emaLossButs_ << " Axes: " << emaLossAxes_ << " Batch rate: " << GetRate();
+	if(lr <= 0.0f) return 0;
+	LossBackprop(dGradient_, dPredictions, dTargetBatchFloat, 4.0f, NUM_CTRLS_*nn->batchSize_, NUM_CTRLS_, NUM_BUTS_, nn->batchSize_);
+	const auto result = IsnanHalf(nn->Backward(dGradient_), nn->stateSize_*nn->batchSize_);
+	SummaryPrint();
+	if(result){
+		std::cout << " NaN in gradient\n";
+		return -1;
+	}
+	nn->UpdateParams(lr);
+	return 0;
+}
 void Train::TrainModel(const int width, const int height, const bool validate){
 	int epochs = 10;
 	std::cout << "How many epochs: ";
@@ -99,21 +138,38 @@ void Train::TrainModel(const int width, const int height, const bool validate){
 	std::cout << "\n";
 	InitCUDA();
 	const auto nn = new NN(width, height, true);
+	const int temporalLength = std::max(1, sequenceSamplingConfig.length);
+	const bool useSequenceBatches = temporalLength > 1 && nn->batchSize_%temporalLength == 0;
+	const int sequenceBatchSize = useSequenceBatches ? nn->batchSize_/temporalLength : nn->batchSize_;
 	StateBatch sb0(nn->batchSize_, nn->stateSize_);
 	StateBatch sb1(nn->batchSize_, nn->stateSize_);
+	if(!useSequenceBatches && temporalLength > 1){
+		std::cerr << "Temporal length " << temporalLength << " is not compatible with batch size " << nn->batchSize_ << ". Sequence mode disabled.\n";
+	}
+	std::unique_ptr<StateBatchSequence> seqSb0 = useSequenceBatches ? std::make_unique<StateBatchSequence>(sequenceBatchSize, temporalLength, nn->stateSize_) : nullptr;
+	std::unique_ptr<StateBatchSequence> seqSb1 = useSequenceBatches ? std::make_unique<StateBatchSequence>(sequenceBatchSize, temporalLength, nn->stateSize_) : nullptr;
 	auto sbRead = &sb0;
+	StateBatchSequence* seqSbRead = seqSb0.get();
 	bool sbSwitch = false;
 	auto fetchBatch = [&](const bool validation){
 		ResetLoadBatchFailureCount();
 		sbSwitch = !sbSwitch;
-		StateBatch* nextBatch = sbSwitch ? &sb1 : &sb0;
-		threadPool.Enqueue([&, nextBatch, validation]{ LoadBatch(nextBatch, nn->batchSize_, nn->stateSize_, validation); });
-		sbRead = sbSwitch ? &sb0 : &sb1;
+		if(useSequenceBatches){
+			StateBatchSequence* nextBatch = sbSwitch ? seqSb1.get() : seqSb0.get();
+			threadPool.Enqueue([&, nextBatch, validation]{ LoadBatchSequence(nextBatch, sequenceBatchSize, nn->stateSize_, validation); });
+			seqSbRead = sbSwitch ? seqSb0.get() : seqSb1.get();
+		} else{
+			StateBatch* nextBatch = sbSwitch ? &sb1 : &sb0;
+			threadPool.Enqueue([&, nextBatch, validation]{ LoadBatch(nextBatch, nn->batchSize_, nn->stateSize_, validation); });
+			sbRead = sbSwitch ? &sb0 : &sb1;
+		}
 	};
 	Allocate(nn->batchSize_, nn->stateSize_);
 	bool stopTraining = false;
-	const auto epochBatchCount = (trainRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
-	const auto epochBatchCountVal = (valRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
+	const auto trainRecords = useSequenceBatches ? static_cast<int>(trainSequenceRecordIndices.size()) : static_cast<int>(trainRecordIndices.size());
+	const auto valRecords = useSequenceBatches ? static_cast<int>(valSequenceRecordIndices.size()) : static_cast<int>(valRecordIndices.size());
+	const auto epochBatchCount = (trainRecords + sequenceBatchSize - 1)/sequenceBatchSize;
+	const auto epochBatchCountVal = (valRecords + sequenceBatchSize - 1)/sequenceBatchSize;
 	for(auto epoch = 0; epoch < epochs; ++epoch){
 		ShuffleBatchOrder(false);
 		fetchBatch(false);
@@ -128,7 +184,7 @@ void Train::TrainModel(const int width, const int height, const bool validate){
 				continue;
 			}
 			const float lr = GetLearningRate(epoch, batch, epochBatchCount, epochs);
-			const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
+			const auto result = useSequenceBatches ? TrainBatchSequence(nn, seqSbRead, true, lr, batch, epochBatchCount, temporalLength) : TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
 			if(result == -1){ stopTraining = true; }
 		}
 		if(stopTraining){
@@ -147,7 +203,7 @@ void Train::TrainModel(const int width, const int height, const bool validate){
 		for(auto batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
 			threadPool.WaitAll();
 			fetchBatch(true);
-			const auto result = TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);
+			const auto result = useSequenceBatches ? TrainBatchSequence(nn, seqSbRead, true, 0.0f, batch, epochBatchCountVal, temporalLength) : TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);
 			if(result == -1){ stopTraining = true; }
 		}
 		nn->SetTrain(true);

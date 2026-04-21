@@ -26,3 +26,65 @@ void GetPrediction(const __half* predBatch, float* prediction, const int numCtrl
 	checkCUDA(cudaGetLastError());
 	cudaDeviceSynchronize();
 }
+__global__ void SelectLastTemporalFrameKernel(const __half* input, __half* output, int batchSize, int temporalLength, int featureSize){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int total = batchSize*featureSize;
+	if(idx >= total) return;
+	const int b = idx/featureSize;
+	const int f = idx - b*featureSize;
+	const int srcIndex = ((b*temporalLength + (temporalLength - 1))*featureSize) + f;
+	output[idx] = input[srcIndex];
+}
+void SelectLastTemporalFrame(const __half* input, __half* output, const int batchSize, const int temporalLength, const int featureSize){
+	if(batchSize <= 0 || temporalLength <= 0 || featureSize <= 0) return;
+	const int total = batchSize*featureSize;
+	SelectLastTemporalFrameKernel<<<DivCeil(total, 256), 256>>>(input, output, batchSize, temporalLength, featureSize);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void ExpandTemporalOutputsKernel(const __half* input, __half* output, int batchSize, int temporalLength, int featureSize){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int total = batchSize*temporalLength*featureSize;
+	if(idx >= total) return;
+	const int f = idx % featureSize;
+	const int b = idx/(featureSize*temporalLength);
+	output[idx] = input[b*featureSize + f];
+}
+void ExpandTemporalOutputs(const __half* input, __half* output, const int batchSize, const int temporalLength, const int featureSize){
+	if(batchSize <= 0 || temporalLength <= 0 || featureSize <= 0) return;
+	const int total = batchSize*temporalLength*featureSize;
+	ExpandTemporalOutputsKernel<<<DivCeil(total, 256), 256>>>(input, output, batchSize, temporalLength, featureSize);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void ReduceTemporalGradientsKernel(const __half* inputGrad, __half* reducedGrad, int batchSize, int temporalLength, int featureSize){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int total = batchSize*featureSize;
+	if(idx >= total) return;
+	const int b = idx/featureSize;
+	const int f = idx - b*featureSize;
+	float sum = 0.0f;
+	for(int t = 0; t < temporalLength; ++t){
+		sum += __half2float(inputGrad[(b*temporalLength + t)*featureSize + f]);
+	}
+	reducedGrad[idx] = __float2half(sum);
+}
+void ReduceTemporalGradients(const __half* inputGrad, __half* reducedGrad, const int batchSize, const int temporalLength, const int featureSize){
+	if(batchSize <= 0 || temporalLength <= 0 || featureSize <= 0) return;
+	const int total = batchSize*featureSize;
+	ReduceTemporalGradientsKernel<<<DivCeil(total, 256), 256>>>(inputGrad, reducedGrad, batchSize, temporalLength, featureSize);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void ScatterLastTemporalFrameGradKernel(const __half* input, __half* output, int batchSize, int temporalLength, int featureSize){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const int total = batchSize*temporalLength*featureSize;
+	if(idx >= total) return;
+	const int f = idx % featureSize;
+	const int t = (idx/featureSize) % temporalLength;
+	const int b = idx/(featureSize*temporalLength);
+	output[idx] = (t == temporalLength - 1) ? input[b*featureSize + f] : __float2half(0.0f);
+}
+void ScatterLastTemporalFrameGrad(const __half* input, __half* output, const int batchSize, const int temporalLength, const int featureSize){
+	if(batchSize <= 0 || temporalLength <= 0 || featureSize <= 0) return;
+	const int total = batchSize*temporalLength*featureSize;
+	ScatterLastTemporalFrameGradKernel<<<DivCeil(total, 256), 256>>>(input, output, batchSize, temporalLength, featureSize);
+	checkCUDA(cudaGetLastError());
+}

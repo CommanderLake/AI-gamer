@@ -134,7 +134,7 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 	}
 	const auto stateSize = static_cast<std::uintmax_t>(*width)*static_cast<std::uintmax_t>(*height)*3U;
 	std::cerr << "State size calculated: " << stateSize << " bytes" << std::endl;
-	const auto recordSize = 12 + stateSize;
+	const auto recordSize = static_cast<std::uintmax_t>(sizeof(InputState)) + stateSize;
 	std::vector<std::uint64_t> recordPositions;
 	int fileRecordsCount = 0;
 	bool encounteredReadError = false;
@@ -196,6 +196,7 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 void ReadStateData(int* width, int* height){
 	for(std::string& fileName : trainDataFiles){ ReadStateDataFile(width, height, &fileName, &trainRecordIndices); }
 	ReadStateDataFile(width, height, &valDataFile, &valRecordIndices);
+	RebuildSequenceIndices();
 }
 int main(){
 	std::ios::sync_with_stdio(false);

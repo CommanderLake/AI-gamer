@@ -8,7 +8,7 @@
 #include "GELULayer.h"
 #include <algorithm>
 #include <stdexcept>
-SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : batchSize_(batchSize), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
+SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const int temporalLength) : batchSize_(batchSize), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), temporalLength_(temporalLength), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
 	layerName_ = layerName;
 	train_ = train;
 	const int embedSize = embedH_*embedW_;
@@ -148,7 +148,7 @@ SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int 
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
 			encoderStage.blocks.push_back(new SwinBlockLayer(batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
 				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
-				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
+				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace, temporalLength_));
 			++blockIndex;
 		}
 		encoderStage.skip.elements = batchSize_*nTokens*embedDim;
@@ -189,7 +189,7 @@ SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int 
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
 			decoderStage.blocks.push_back(new SwinBlockLayer(batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
 				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
-				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
+				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace, temporalLength_));
 			++blockIndex;
 		}
 		decoderStages_.push_back(decoderStage);
