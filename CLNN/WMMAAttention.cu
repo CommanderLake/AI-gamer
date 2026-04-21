@@ -17,7 +17,8 @@ constexpr float SOFTMAX_MAX_INPUT = 20.0f;
 constexpr size_t kMaxSharedMemory = 98304;
 constexpr int kMinTokens = 1;
 constexpr int kMaxTokens = 8192;
-constexpr int kMaxBatch = 4096;
+// Grid Y is used for batch in attention kernels; allow full 1D grid-y range.
+constexpr int kMaxBatch = 65535;
 constexpr int kMaxHeadDim = 512;
 constexpr int kWarpSize = 32;
 constexpr int kTileSize = 16;
