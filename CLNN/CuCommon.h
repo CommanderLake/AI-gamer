@@ -2,7 +2,7 @@
 #include "APICommon.h"
 #include <cuda.h>
 #include <curand.h>
-extern curandGenerator_t cuRandGen_;
+extern curandGenerator_t cuRandGen;
 extern size_t MPC, GS, CPM;
 void LeakyReluForward(const __half* dataIn, __half* dataOut, int size, float negativeSlope, cudaStream_t stream = nullptr);
 void LeakyReluBackward(__half* grad, const __half* dataIn, int size, float negativeSlope, cudaStream_t stream = nullptr);

@@ -1,7 +1,7 @@
 #include "CuCommon.h"
 #include <algorithm>
 #include <ctime>
-curandGenerator_t cuRandGen_;
+curandGenerator_t cuRandGen;
 size_t MPC, GS, CPM;
 const char* clnnGetErrorString(const CLNNStatusT status){
 	switch(status){
@@ -34,25 +34,25 @@ int ConvertSmVer2Cores(int major, int minor){
 		int Cores;
 	} sSMtoCores;
 	constexpr sSMtoCores nGpuArchCoresPerSM[] = {
-		{0x10, 8}, // Tesla Generation (SM 1.0) G80 class
-		{0x11, 8}, // Tesla Generation (SM 1.1) G8x class
-		{0x12, 8}, // Tesla Generation (SM 1.2) G9x class
-		{0x13, 8}, // Tesla Generation (SM 1.3) GT200 class
-		{0x20, 32}, // Fermi Generation (SM 2.0) GF100 class
-		{0x21, 48}, // Fermi Generation (SM 2.1) GF10x class
-		{0x30, 192}, // Kepler Generation (SM 3.0) GK10x class
-		{0x35, 192}, // Kepler Generation (SM 3.5) GK11x class
-		{0x50, 128}, // Maxwell Generation (SM 5.0) GM10x class
-		{0x52, 128}, // Maxwell Generation (SM 5.2) GM20x class
-		{0x60, 64}, // Pascal Generation (SM 6.0) GP100 class
-		{0x61, 128}, // Pascal Generation (SM 6.1) GP10x class
-		{0x70, 64}, // Volta Generation (SM 7.0) GV100 class
-		{0x72, 64}, // Volta Generation (SM 7.2) GV10B class
-		{0x75, 64}, // Turing Generation (SM 7.5) TU10x class
-		{0x80, 64}, // Ampere Generation (SM 8.0) GA100 class
-		{0x86, 128}, // Ampere Generation (SM 8.6) GA10x class
-		{0x87, 128}, // Ampere Generation (SM 8.7) GA10x class
-		{0x89, 128}, // Ada Lovelace Generation (SM 8.9) AD10x class
+		{0x10, 8}, // Tesla (SM 1.0) G80 class
+		{0x11, 8}, // Tesla (SM 1.1) G8x class
+		{0x12, 8}, // Tesla (SM 1.2) G9x class
+		{0x13, 8}, // Tesla (SM 1.3) GT200 class
+		{0x20, 32}, // Fermi (SM 2.0) GF100 class
+		{0x21, 48}, // Fermi (SM 2.1) GF10x class
+		{0x30, 192}, // Kepler (SM 3.0) GK10x class
+		{0x35, 192}, // Kepler (SM 3.5) GK11x class
+		{0x50, 128}, // Maxwell (SM 5.0) GM10x class
+		{0x52, 128}, // Maxwell (SM 5.2) GM20x class
+		{0x60, 64}, // Pascal (SM 6.0) GP100 class
+		{0x61, 128}, // Pascal (SM 6.1) GP10x class
+		{0x70, 64}, // Volta (SM 7.0) GV100 class
+		{0x72, 64}, // Volta (SM 7.2) GV10B class
+		{0x75, 64}, // Turing (SM 7.5) TU10x class
+		{0x80, 64}, // Ampere (SM 8.0) GA100 class
+		{0x86, 128}, // Ampere (SM 8.6) GA10x class
+		{0x87, 128}, // Ampere (SM 8.7) GA10x class
+		{0x89, 128}, // Ada Lovelace (SM 8.9) AD10x class
 	};
 	int index = 0;
 	while(nGpuArchCoresPerSM[index].SM != -1){
@@ -93,6 +93,6 @@ void InitCUDA(){
 	CPM = ConvertSmVer2Cores(major, minor);
 	MPC = prop.multiProcessorCount;
 	GS = 32*MPC;
-	curandCreateGenerator(&cuRandGen_, CURAND_RNG_PSEUDO_DEFAULT);
-	curandSetPseudoRandomGeneratorSeed(cuRandGen_, static_cast<unsigned long long>(time(nullptr)));
+	curandCreateGenerator(&cuRandGen, CURAND_RNG_PSEUDO_DEFAULT);
+	curandSetPseudoRandomGeneratorSeed(cuRandGen, static_cast<unsigned long long>(time(nullptr)));
 }

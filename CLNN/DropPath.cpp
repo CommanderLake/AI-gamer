@@ -10,7 +10,7 @@ DropPath::DropPath(const float dropRate, const int batchSize, const int elements
 DropPath::~DropPath(){ cudaFree(mask_); }
 __half* DropPath::Forward(__half* data){
 	if(!train_ || dropRate_ <= 0.0f){ return data; }
-	const auto status = curandGenerateUniform(cuRandGen_, mask_, batchSize_);
+	const auto status = curandGenerateUniform(cuRandGen, mask_, batchSize_);
 	if(status != CURAND_STATUS_SUCCESS){ throw std::runtime_error("curandGenerateUniform failed in DropPath::Forward"); }
 	DropPathBuildMask(mask_, batchSize_, keepProb_);
 	DropPathApply(data, mask_, batchSize_, elementsPerBatch_);
