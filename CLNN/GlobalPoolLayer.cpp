@@ -1,5 +1,5 @@
 #include "GlobalPoolLayer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 GlobalPoolLayer::GlobalPoolLayer(int batchSize, int nTokens, int embedSize, int numQueries, std::string layerName, bool train) : batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize), numQueries_(numQueries){
 	layerName_ = layerName;
 	train_ = train;

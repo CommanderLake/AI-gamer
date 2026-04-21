@@ -1,7 +1,7 @@
 #pragma once
 #include "Layer.h"
-#include "CuCommon.cuh"
-class PatchEmbedLayer final : public Layer{
+#include "CuCommon.h"
+class __declspec(dllexport) PatchEmbedLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
 	PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);

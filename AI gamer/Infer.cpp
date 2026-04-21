@@ -1,6 +1,5 @@
 #include "Infer.h"
 #include "common.h"
-#include "CuCommon.cuh"
 #include "NN.h"
 #include "NvDisplayCap.h"
 #include <csignal>

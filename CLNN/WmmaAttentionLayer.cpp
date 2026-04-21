@@ -1,6 +1,6 @@
 #include "WmmaAttentionLayer.h"
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 #include <stdexcept>
 WmmaAttentionLayer::WmmaAttentionLayer(int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
 	WmmaAttentionLayer(batchSize, tokens, embedDim, numHeads, std::move(layerName), train, weightDecay, gradAccumLength, weightInitMethod, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr){}

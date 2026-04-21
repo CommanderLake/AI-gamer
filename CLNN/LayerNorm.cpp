@@ -1,6 +1,6 @@
 #include "LayerNorm.h"
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 #include <vector>
 LayerNorm::LayerNorm(const int batchSize, const int channels, const int height, const int width, std::string layerName, const bool train, const bool spatialMode)
 	: batchSize_(batchSize), outC_(channels), outHW_(height*width), height_(height), width_(width), spatialMode_(spatialMode){

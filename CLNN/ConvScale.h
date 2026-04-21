@@ -1,7 +1,7 @@
 #pragma once
 #include <cudnn.h>
 struct __half;
-class ConvScale{
+class __declspec(dllexport) ConvScale{
 public:
 	explicit ConvScale(cudnnHandle_t cudnnHandle, int filterSize, int stride, int padding, int batchSize, int channels, int* height, int* width);
 	~ConvScale();

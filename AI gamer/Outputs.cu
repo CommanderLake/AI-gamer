@@ -1,4 +1,4 @@
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <cuda_runtime_api.h>
 #include <device_launch_parameters.h>
 __global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, const __half* axisData, const int size, const int numCtrls, const int numButs){
@@ -10,8 +10,8 @@ __global__ void MergeOutputsKernel(__half* predOut, const __half* buttonData, co
 	}
 }
 void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, const int numCtrls, const int numButs, const int size){
-	auto gridSize = DivCeil(size, CPM);
-	MergeOutputsKernel<<<gridSize, CPM>>>(predOut, buttonData, axisData, size, numCtrls, numButs);
+	auto gridSize = DivCeil(size, 256);
+	MergeOutputsKernel<<<gridSize, 256>>>(predOut, buttonData, axisData, size, numCtrls, numButs);
 	checkCUDA(cudaGetLastError());
 }
 __global__ void GetPredictionKernel(const __half* predBatch, float* prediction, const int numCtrls, const int size){

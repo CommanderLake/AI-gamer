@@ -1,5 +1,5 @@
 #include "ResizeLayer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 ResizeLayer::ResizeLayer(const int batchSize, const int channels, const int inHeight, const int inWidth, const int outHeight, const int outWidth, std::string layerName, const bool train) : batchSize_(batchSize), channels_(channels), inHeight_(inHeight), inWidth_(inWidth), outHeight_(outHeight), outWidth_(outWidth){
 	layerName_ = layerName;
 	train_ = train;

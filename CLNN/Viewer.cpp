@@ -1,6 +1,6 @@
 #include "Viewer.h"
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 #include <sstream>
 #include <iostream>
 #include <fstream>

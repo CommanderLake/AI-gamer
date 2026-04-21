@@ -1,19 +1,19 @@
 #include "ConvLayer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <iostream>
 #include <algorithm>
-ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : cudnnHandle_(cudnnHandle),
-	inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) :
+	cudnnHandle_(cudnnHandle), inC_(inputChannels), inHeight_(*height), inWidth_(*width), batchSize_(batchSize), outC_(outputChannels), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
-	alphaWeights_ = 1.0f/(batchSize_*gradAccumLength_);
+	alphaWeights_ = 1.0f / (batchSize_ * gradAccumLength_);
 	checkCUDNN(cudnnCreateTensorDescriptor(&inDesc_));
 	checkCUDNN(cudnnCreateTensorDescriptor(&outDesc_));
 	checkCUDNN(cudnnCreateFilterDescriptor(&filterDesc_));
 	checkCUDNN(cudnnCreateConvolutionDescriptor(&convDesc_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(inDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, inC_, inHeight_, inWidth_));
-	const int cPerGroupIn = inC_/groups;
-	const int cPerGroupOut = outC_/groups;
+	const int cPerGroupIn = inC_ / groups;
+	const int cPerGroupOut = outC_ / groups;
 	checkCUDNN(cudnnSetFilter4dDescriptor(filterDesc_, CUDNN_DATA_HALF, CUDNN_TENSOR_NCHW, outC_, cPerGroupIn, filterSize, filterSize));
 	//auto [padH, padW] = Padding(inHeight_, inWidth_, filterSize, stride);
 	checkCUDNN(cudnnSetConvolution2dDescriptor(convDesc_, padding, padding, stride, stride, 1, 1, CUDNN_CROSS_CORRELATION, CUDNN_DATA_HALF));
@@ -22,20 +22,20 @@ ConvLayer::ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels
 	int n, c;
 	checkCUDNN(cudnnGetConvolution2dForwardOutputDim(convDesc_, inDesc_, filterDesc_, &n, &c, &outHeight_, &outWidth_));
 	checkCUDNN(cudnnSetTensor4dDescriptor(outDesc_, CUDNN_TENSOR_NCHW, CUDNN_DATA_HALF, batchSize_, outC_, outHeight_, outWidth_));
-	outNCHW_ = batchSize_*outC_*outHeight_*outWidth_;
-	inNCHW_ = batchSize_*inC_*inHeight_*inWidth_;
-	const auto fanIn = cPerGroupIn*filterSize*filterSize;
-	const auto fanOut = cPerGroupOut*filterSize*filterSize;
-	weightCount_ = outC_*fanIn;
-	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
+	outNCHW_ = batchSize_ * outC_ * outHeight_ * outWidth_;
+	inNCHW_ = batchSize_ * inC_ * inHeight_ * inWidth_;
+	const auto fanIn = cPerGroupIn * filterSize * filterSize;
+	const auto fanOut = cPerGroupOut * filterSize * filterSize;
+	weightCount_ = outC_ * fanIn;
+	CUDAMallocZero(&outData_, outNCHW_ * sizeof(__half));
+	CUDAMallocZero(&weights_, weightCount_ * sizeof(__half));
 	if(train_){
 		WeightInit(weights_, weightCount_, fanIn, fanOut, weightInitMethod);
-		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
-		CUDAMallocZero(&outGrad_, inNCHW_*sizeof(__half));
+		CUDAMallocZero(&gradWeights_, weightCount_ * sizeof(__half));
+		CUDAMallocZero(&outGrad_, inNCHW_ * sizeof(__half));
 		if(useAdamW_){
-			CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
-			CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
+			CUDAMallocZero(&m_Weights_, weightCount_ * sizeof(__half));
+			CUDAMallocZero(&v_Weights_, weightCount_ * sizeof(__half));
 		}
 	}
 	algos_ = GetConvolutionAlgorithms(cudnnHandle_, inDesc_, filterDesc_, convDesc_, outDesc_, train);
@@ -63,63 +63,79 @@ ConvLayer::~ConvLayer(){
 }
 __half* ConvLayer::Forward(__half* data){
 	inData_ = data;
-	checkCUDNN(cudnnConvolutionForward(cudnnHandle_, &alpha_, inDesc_, data, filterDesc_, weights_, convDesc_, algos_.fwdAlgo, workspace_, algos_.workspaceSize, &beta0_, outDesc_, outData_));
+	checkCUDNN(cudnnConvolutionForward(cudnnHandle_, &one_, inDesc_, data, filterDesc_, weights_, convDesc_, algos_.fwdAlgo, workspace_, algos_.workspaceSize, &zero_, outDesc_, outData_));
 	return outData_;
 }
 __half* ConvLayer::Backward(__half* grad){
-	const float* betaWeights = accumCount_++%gradAccumLength_==0 ? &beta0_ : &beta1_;
+	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &zero_ : &one_;
 	checkCUDNN(cudnnConvolutionBackwardFilter(cudnnHandle_, &alphaWeights_, inDesc_, inData_, outDesc_, grad, convDesc_, algos_.bwdFilterAlgo, workspace_, algos_.workspaceSize, betaWeights, filterDesc_, gradWeights_));
-	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &alpha_, filterDesc_, weights_, outDesc_, grad, convDesc_, algos_.bwdDataAlgo, workspace_, algos_.workspaceSize, &beta0_, inDesc_, outGrad_));
+	checkCUDNN(cudnnConvolutionBackwardData(cudnnHandle_, &one_, filterDesc_, weights_, outDesc_, grad, convDesc_, algos_.bwdDataAlgo, workspace_, algos_.workspaceSize, &zero_, inDesc_, outGrad_));
 	return outGrad_;
 }
 void ConvLayer::UpdateParameters(const float learningRate){
-	if(accumCount_%gradAccumLength_>0) return;
+	if(accumCount_ % gradAccumLength_ > 0) return;
 	if(useAdamW_){
 		++t_;
 		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, learningRate, t_, weightDecay_, weightCount_);
-	} else{
-		SGDHalf(weights_, gradWeights_, weightCount_, learningRate, weightDecay_);
-	}
+	} else{ SGDHalf(weights_, gradWeights_, weightCount_, learningRate, weightDecay_); }
 }
 void ConvLayer::SaveParameters(std::ofstream& file, unsigned char* buffer){
-	cudaMemcpy(buffer, weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(buffer, weights_, weightCount_ * sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), weightCount_ * sizeof(__half));
 }
 void ConvLayer::LoadParameters(std::ifstream& file, unsigned char* buffer){
-	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
-	cudaMemcpy(weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), weightCount_ * sizeof(__half));
+	cudaMemcpy(weights_, buffer, weightCount_ * sizeof(__half), cudaMemcpyHostToDevice);
 }
 void ConvLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
-	cudaMemcpy(buffer, m_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
-	cudaMemcpy(buffer, v_Weights_, weightCount_*sizeof(__half), cudaMemcpyDeviceToHost);
-	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
+	cudaMemcpy(buffer, m_Weights_, weightCount_ * sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), weightCount_ * sizeof(__half));
+	cudaMemcpy(buffer, v_Weights_, weightCount_ * sizeof(__half), cudaMemcpyDeviceToHost);
+	file.write(reinterpret_cast<const char*>(buffer), weightCount_ * sizeof(__half));
 	file.write(reinterpret_cast<char*>(&t_), sizeof(int));
 }
 void ConvLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
 	if(!useAdamW_) return;
-	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
-	cudaMemcpy(m_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
-	file.read(reinterpret_cast<char*>(buffer), weightCount_*sizeof(__half));
-	cudaMemcpy(v_Weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), weightCount_ * sizeof(__half));
+	cudaMemcpy(m_Weights_, buffer, weightCount_ * sizeof(__half), cudaMemcpyHostToDevice);
+	file.read(reinterpret_cast<char*>(buffer), weightCount_ * sizeof(__half));
+	cudaMemcpy(v_Weights_, buffer, weightCount_ * sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
-size_t ConvLayer::GetParameterSize(){
-	return weightCount_*sizeof(__half);
-}
-size_t ConvLayer::GetOptimizerStateSize(){
-	return weightCount_*sizeof(__half);
-}
-void ConvLayer::SetTrain(bool enable){
-	train_ = enable;
-}
-
+size_t ConvLayer::GetParameterSize(){ return weightCount_ * sizeof(__half); }
+size_t ConvLayer::GetOptimizerStateSize(){ return weightCount_ * sizeof(__half); }
+void ConvLayer::SetTrain(bool enable){ train_ = enable; }
 void ConvLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!useAdamW_ || !train_) return;
 	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_), weightDecay_});
 }
-
 std::pair<int, int> ConvLayer::Padding(const int imageHeight, const int imageWidth, const int kernelSize, const int stride){
-	return {std::max(0, (imageHeight - kernelSize)/stride*stride + (kernelSize - 1) - (imageHeight - 1)), std::max(0, (imageWidth - kernelSize)/stride*stride + (kernelSize - 1) - (imageWidth - 1))};
+	return {std::max(0, (imageHeight - kernelSize) / stride * stride + (kernelSize - 1) - (imageHeight - 1)), std::max(0, (imageWidth - kernelSize) / stride * stride + (kernelSize - 1) - (imageWidth - 1))};
+}
+ConvLayer::ConvolutionAlgorithms ConvLayer::GetConvolutionAlgorithms(const cudnnHandle_t cudnnHandle, const cudnnTensorDescriptor_t xDesc, const cudnnFilterDescriptor_t wDesc, const cudnnConvolutionDescriptor_t convDesc, const cudnnTensorDescriptor_t yDesc, const bool isTraining){
+	ConvolutionAlgorithms algorithms;
+	algorithms.workspaceSize = 0;
+	// Forward algorithm
+	cudnnConvolutionFwdAlgoPerf_t fwdAlgoPerf[10];
+	int returnedAlgoCount;
+	checkCUDNN(cudnnGetConvolutionForwardAlgorithm_v7(cudnnHandle, xDesc, wDesc, convDesc, yDesc, 10, &returnedAlgoCount, fwdAlgoPerf));
+	algorithms.fwdAlgo = fwdAlgoPerf[0].algo;
+	algorithms.workspaceSize = std::max(algorithms.workspaceSize, fwdAlgoPerf[0].memory);
+	if(isTraining){
+		// Backward data algorithm
+		cudnnConvolutionBwdDataAlgoPerf_t bwdDataAlgoPerf[10];
+		checkCUDNN(cudnnGetConvolutionBackwardDataAlgorithm_v7(cudnnHandle, wDesc, yDesc, convDesc, xDesc, 10, &returnedAlgoCount, bwdDataAlgoPerf));
+		algorithms.bwdDataAlgo = bwdDataAlgoPerf[0].algo;
+		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdDataAlgoPerf[0].memory);
+		// Backward filter algorithm
+		cudnnConvolutionBwdFilterAlgoPerf_t bwdFilterAlgoPerf[10];
+		checkCUDNN(cudnnGetConvolutionBackwardFilterAlgorithm_v7(cudnnHandle, xDesc, yDesc, convDesc, wDesc, 10, &returnedAlgoCount, bwdFilterAlgoPerf));
+		algorithms.bwdFilterAlgo = bwdFilterAlgoPerf[0].algo;
+		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdFilterAlgoPerf[0].memory);
+	} else{
+		algorithms.bwdDataAlgo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
+		algorithms.bwdFilterAlgo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
+	}
+	return algorithms;
 }

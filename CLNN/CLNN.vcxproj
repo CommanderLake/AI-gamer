@@ -22,7 +22,7 @@
     <ClCompile Include="GlobalPoolLayer.cpp" />
     <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="LeakyReLULayer.cpp" />
-    <ClCompile Include="NNCommon.cpp" />
+    <ClCompile Include="HostCommon.cpp" />
     <ClCompile Include="OrthogonalInit.cpp" />
     <ClCompile Include="PatchEmbedLayer.cpp" />
     <ClCompile Include="PatchExpandingLayer.cpp" />
@@ -41,7 +41,7 @@
     <ClInclude Include="AsinhLayer.h" />
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="ConvScale.h" />
-    <ClInclude Include="CuCommon.cuh" />
+    <ClInclude Include="CuCommon.h" />
     <ClInclude Include="Dropout.h" />
     <ClInclude Include="DropPath.h" />
     <ClInclude Include="EncoderLayer.h" />
@@ -51,7 +51,7 @@
     <ClInclude Include="Layer.h" />
     <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="LeakyReLULayer.h" />
-    <ClInclude Include="NNCommon.h" />
+    <ClInclude Include="HostCommon.h" />
     <ClInclude Include="PatchEmbedLayer.h" />
     <ClInclude Include="PatchExpandingLayer.h" />
     <ClInclude Include="PatchMergingLayer.h" />
@@ -69,7 +69,7 @@
     <CudaCompile Include="Activations.cu" />
     <CudaCompile Include="AttentionPool.cu" />
     <CudaCompile Include="Conversions.cu" />
-    <CudaCompile Include="CuCommon.cu" />
+    <CudaCompile Include="CuCommon.cpp" />
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="DropPath.cu" />
     <CudaCompile Include="Gemms.cu" />
@@ -90,16 +90,18 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>Intel C++ Compiler 19.0</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
+    <UseIntelMKL>Parallel</UseIntelMKL>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>Intel C++ Compiler 19.0</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
+    <UseIntelMKL>Parallel</UseIntelMKL>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -130,7 +132,7 @@
       <Optimization>MaxSpeedHighLevel</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <FloatingPointModel>Fast</FloatingPointModel>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -146,6 +148,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>cudart_static.lib;cuda.lib;cudnn.lib;cublas.lib;curand.lib;mkl_intel_lp64.lib;mkl_core.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProgramFiles)\NVIDIA GPU Computing Toolkit\CUDA\v10.2\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <CudaCompile>
       <CodeGeneration>compute_70,sm_70</CodeGeneration>
@@ -158,7 +162,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <FloatingPointModel>Fast</FloatingPointModel>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -173,6 +177,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>cudart_static.lib;cuda.lib;cudnn.lib;cublas.lib;curand.lib;mkl_intel_lp64.lib;mkl_core.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProgramFiles)\NVIDIA GPU Computing Toolkit\CUDA\v10.2\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <CudaCompile>
       <CodeGeneration>compute_70,sm_70</CodeGeneration>

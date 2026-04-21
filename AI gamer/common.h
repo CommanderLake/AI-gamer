@@ -70,3 +70,5 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 void ResetLoadBatchFailureCount();
 int GetLoadBatchFailureCount();
 void ShuffleBatchOrder(bool validation);
+void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, int numCtrls, int numButs, int size);
+void GetPrediction(const __half* predBatch, float* prediction, int numCtrls, int batchSize);

@@ -1,10 +1,16 @@
 #pragma once
-#include "NNCommon.h"
 #include "Layer.h"
 #include <cudnn.h>
-class ConvLayer final : public Layer{
+class __declspec(dllexport) ConvLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
+	struct ConvolutionAlgorithms{
+		cudnnConvolutionFwdAlgo_t fwdAlgo;
+		cudnnConvolutionBwdDataAlgo_t bwdDataAlgo;
+		cudnnConvolutionBwdFilterAlgo_t bwdFilterAlgo;
+		size_t workspaceSize;
+	};
+	ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, cudnnTensorDescriptor_t xDesc, cudnnFilterDescriptor_t wDesc, cudnnConvolutionDescriptor_t convDesc, cudnnTensorDescriptor_t yDesc, bool isTraining);
 	ConvLayer(cudnnHandle_t cudnnHandle, int batchSize, int inputChannels, int outputChannels, int filterSize, int stride, int padding, int* height, int* width, int groups, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~ConvLayer() override;
 	__half* Forward(__half* data) override;
@@ -34,10 +40,9 @@ public:
 	void* workspace_ = nullptr;
 	__half *m_Weights_ = nullptr, *v_Weights_ = nullptr;
 	int t_ = 0;
-	const float alpha_ = 1.0f;
 	float alphaWeights_ = 1.0f;
-	const float beta0_ = 0.0f;
-	const float beta1_ = 1.0f;
+	const float zero_ = 0.0f;
+	const float one_ = 1.0f;
 	float weightDecay_;
 	int gradAccumLength_;
 	int accumCount_ = 0;

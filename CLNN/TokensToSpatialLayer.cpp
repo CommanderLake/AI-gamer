@@ -1,5 +1,5 @@
 #include "TokensToSpatialLayer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 TokensToSpatialLayer::TokensToSpatialLayer(const int batchSize, const int nTokens, const int embedSize, const int patchRows, const int patchCols, std::string layerName, const bool train): batchSize_(batchSize), nTokens_(nTokens), embedSize_(embedSize), patchRows_(patchRows), patchCols_(patchCols){
 	layerName_ = layerName;
 	train_ = train;

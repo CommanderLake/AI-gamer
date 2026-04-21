@@ -1,5 +1,5 @@
 #include "NvDisplayCap.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include "NvFBCLibrary.h"
 #include <cuda.h>
 #include <iostream>

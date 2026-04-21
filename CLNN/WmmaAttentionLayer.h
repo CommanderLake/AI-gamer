@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <vector>
 class WmmaAttentionLayer final : public Layer{
 public:

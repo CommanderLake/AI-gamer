@@ -1,7 +1,7 @@
 #pragma once
 #include "Layer.h"
 #include "Viewer.h"
-class ViewerLayer final : public Layer{
+class __declspec(dllexport) ViewerLayer final : public Layer{
 public:
 	ViewerLayer(int dataSize, int channels, int patchHeight, int patchWidth, int gridWidth, std::string windowTitle, bool mosaic, float scale = 1.0f, bool backwardPass = false, __half* displayData = nullptr);
 	~ViewerLayer() override;

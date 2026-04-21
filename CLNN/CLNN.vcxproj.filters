@@ -87,7 +87,7 @@
     <ClCompile Include="OrthogonalInit.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="NNCommon.cpp">
+    <ClCompile Include="HostCommon.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -101,7 +101,6 @@
     <ClInclude Include="ConvScale.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="CuCommon.cuh" />
     <ClInclude Include="Dropout.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -165,7 +164,10 @@
     <ClInclude Include="WmmaAttentionLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="NNCommon.h">
+    <ClInclude Include="CuCommon.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HostCommon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -173,7 +175,6 @@
     <CudaCompile Include="Activations.cu" />
     <CudaCompile Include="AttentionPool.cu" />
     <CudaCompile Include="Conversions.cu" />
-    <CudaCompile Include="CuCommon.cu" />
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="DropPath.cu" />
     <CudaCompile Include="LayerNorm.cu" />
@@ -183,6 +184,9 @@
     <CudaCompile Include="Scale.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />
+    <CudaCompile Include="CuCommon.cpp">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
     <CudaCompile Include="Gemms.cu" />
   </ItemGroup>
 </Project>

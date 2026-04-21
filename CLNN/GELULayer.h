@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class GELULayer final : public Layer{
+class __declspec(dllexport) GELULayer final : public Layer{
 public:
 	GELULayer(int batchSize, int channels, int height, int width, std::string layerName);
 	~GELULayer() override;

@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class SwishLayer final : public Layer{
+class __declspec(dllexport) SwishLayer final : public Layer{
 public:
 	explicit SwishLayer(int batchSize, int channels, int height, int width, std::string layerName);
 	~SwishLayer() override;

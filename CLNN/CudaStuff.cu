@@ -1,5 +1,5 @@
 #define __CUDACC__
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <cuda.h>
 #include <curand.h>
 #include <device_functions.h>
@@ -28,8 +28,8 @@ __global__ void isNaNKernel(const __half* __restrict__ data, int size){
 bool IsnanHalf(const __half* __restrict__ data, const int size){
 	int hResult = 0;
 	cudaMemcpyToSymbol(deviceResult, &hResult, sizeof(int));
-	auto gridSize = DivCeil(size, CPM);
-	isNaNKernel<<<gridSize, CPM>>>(data, size);
+	auto gridSize = DivCeil(size, 256);
+	isNaNKernel<<<gridSize, 256>>>(data, size);
 	checkCUDA(cudaGetLastError());
 	cudaMemcpyFromSymbol(&hResult, deviceResult, sizeof(int));
 	return hResult != 0;

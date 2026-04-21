@@ -1,9 +1,9 @@
 #pragma once
 #include "Layer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 class LayerNorm;
 class FCLayer;
-class PatchExpandingLayer final : public Layer{
+class __declspec(dllexport) PatchExpandingLayer final : public Layer{
 public:
 	PatchExpandingLayer(int batchSize, int tokens, int embedDim, int patchRows, int patchCols, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchExpandingLayer() override;

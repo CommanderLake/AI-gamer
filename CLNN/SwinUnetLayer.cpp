@@ -1,6 +1,6 @@
 #include "SwinUnetLayer.h"
-#include "CuCommon.cuh"
-#include "NNCommon.h"
+#include "CuCommon.h"
+#include "HostCommon.h"
 #include "LayerNorm.h"
 #include "PatchExpandingLayer.h"
 #include "PatchMergingLayer.h"

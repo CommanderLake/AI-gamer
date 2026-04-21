@@ -1,4 +1,4 @@
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <algorithm>
 #include <ctime>
 curandGenerator_t generator_;

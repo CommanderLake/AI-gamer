@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class LayerNorm final : public Layer{
+class __declspec(dllexport) LayerNorm final : public Layer{
 public:
 	LayerNorm(int batchSize, int channels, int height, int width, std::string layerName, bool train, bool spatialMode = false);
 	~LayerNorm() override;

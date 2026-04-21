@@ -1,4 +1,4 @@
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <cuda_runtime_api.h>
 #include <device_launch_parameters.h>
 __global__ void PatchMergeKernel(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols){

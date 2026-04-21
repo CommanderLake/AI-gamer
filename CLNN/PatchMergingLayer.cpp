@@ -1,5 +1,5 @@
 #include "PatchMergingLayer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include "FCLayer.h"
 #include "LayerNorm.h"
 #include <algorithm>

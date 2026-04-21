@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class LeakyReLU final : public Layer{
+class __declspec(dllexport) LeakyReLU final : public Layer{
 public:
 	explicit LeakyReLU(int batchSize, int channels, int height, int width, std::string layerName);
 	~LeakyReLU() override;

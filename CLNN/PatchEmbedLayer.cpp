@@ -1,6 +1,6 @@
 #include "PatchEmbedLayer.h"
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 PatchEmbedLayer::PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
@@ -85,13 +85,10 @@ __half* PatchEmbedLayer::Backward(__half* grad){
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &beta0_ : &beta1_;
 	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, embedDim_, patchDim_, batchSize_*numPatches_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, patchBuffer_, CUDA_R_16F, patchDim_, betaWeights, gradWeights_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	if(offsetDim_ > 0){
-		checkCLNN(
-			CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, embedDim_, offsetDim_, batchSize_*numPatches_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, offsetActivations_, CUDA_R_16F, offsetDim_, betaWeights, gradOffsetEmbedWeights_, CUDA_R_16F, embedDim_, CUDA_R_32F
-			));
+		checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, embedDim_, offsetDim_, batchSize_*numPatches_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, offsetActivations_, CUDA_R_16F, offsetDim_, betaWeights, gradOffsetEmbedWeights_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 		checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, offsetDim_, batchSize_*numPatches_, embedDim_, &alpha_, offsetEmbedWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &beta0_, offsetGrad_, CUDA_R_16F, offsetDim_, CUDA_R_32F));
 		TanhBackward(offsetGrad_, offsetActivations_, batchSize_*numPatches_*offsetDim_);
-		checkCLNN(
-			CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, offsetDim_, patchDim_, batchSize_*numPatches_, &alphaWeights_, offsetGrad_, CUDA_R_16F, offsetDim_, patchBuffer_, CUDA_R_16F, patchDim_, betaWeights, gradOffsetWeights_, CUDA_R_16F, offsetDim_, CUDA_R_32F));
+		checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, offsetDim_, patchDim_, batchSize_*numPatches_, &alphaWeights_, offsetGrad_, CUDA_R_16F, offsetDim_, patchBuffer_, CUDA_R_16F, patchDim_, betaWeights, gradOffsetWeights_, CUDA_R_16F, offsetDim_, CUDA_R_32F));
 	}
 	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, patchDim_, batchSize_*numPatches_, embedDim_, &alpha_, weights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &beta0_, patchBuffer_, CUDA_R_16F, patchDim_, CUDA_R_32F));
 	if(offsetDim_ > 0){

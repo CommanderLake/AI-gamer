@@ -1,4 +1,4 @@
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <cublas_v2.h>
 static constexpr cublasOperation_t ToCublasOp(const CLNNOpT op){
 	if(op == CLNN_OP_T || op == CLNN_OP_C) return CUBLAS_OP_T;

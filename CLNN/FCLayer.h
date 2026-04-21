@@ -1,7 +1,7 @@
 #pragma once
 #include "Layer.h"
-#include "CuCommon.cuh"
-class FCLayer final : public Layer{
+#include "CuCommon.h"
+class __declspec(dllexport) FCLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
 	FCLayer(int batchSize, int inC, int outC, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, bool useBias = false);

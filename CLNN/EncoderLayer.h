@@ -1,7 +1,7 @@
 #pragma once
 #include "Layer.h"
 #include <vector>
-class EncoderLayer final : public Layer{
+class __declspec(dllexport) EncoderLayer final : public Layer{
 public:
 	EncoderLayer(int batchSize, int tokens, int embedDim, int ffDim, int numHeads, std::string layerName, bool train, float weightDecay, int gradAccumLength);
 	~EncoderLayer() override;

@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class AsinhLayer : public Layer{
+class __declspec(dllexport) AsinhLayer final : public Layer{
 public:
 	AsinhLayer(int batchSize, int channels, int height, int width, float alpha, std::string layerName);
 	~AsinhLayer() override = default;

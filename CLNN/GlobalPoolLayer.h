@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class GlobalPoolLayer final : public Layer{
+class __declspec(dllexport) GlobalPoolLayer final : public Layer{
 public:
 	GlobalPoolLayer(int batchSize, int nTokens, int embedSize, int numQueries, std::string layerName, bool train);
 	~GlobalPoolLayer() override;

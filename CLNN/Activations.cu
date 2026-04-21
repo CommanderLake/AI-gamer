@@ -1,5 +1,5 @@
 #define __CUDACC__
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <cuda_fp16.h>
 #include <device_launch_parameters.h>
 constexpr float SQRT_2_PI = 0.7978845608028654f;

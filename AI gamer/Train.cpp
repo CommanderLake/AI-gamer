@@ -1,7 +1,7 @@
 #include "Train.h"
 #include "NN.h"
-#include "CuCommon.cuh"
-#include "NNCommon.h"
+#include "CuCommon.h"
+#include "HostCommon.h"
 #include <iostream>
 #include <string>
 Train::Train(){}

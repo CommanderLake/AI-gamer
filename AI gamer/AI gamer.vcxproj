@@ -21,7 +21,6 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>Intel C++ Compiler 19.0</PlatformToolset>
-    <UseIntelMKL>Parallel</UseIntelMKL>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -29,7 +28,6 @@
     <PlatformToolset>Intel C++ Compiler 19.0</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <InterproceduralOptimization>true</InterproceduralOptimization>
-    <UseIntelMKL>Parallel</UseIntelMKL>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -65,7 +63,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <AdditionalDependencies>nvapi64.lib;cudart_static.lib;cuda.lib;cudnn.lib;cublas.lib;curand.lib;cusolver.lib;mkl_intel_lp64.lib;mkl_core.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.2\lib\x64;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\lib\NvAPI\amd64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProgramFiles)\NVIDIA GPU Computing Toolkit\CUDA\v10.2\lib\x64;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\lib\NvAPI\amd64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <CudaCompile>
@@ -95,7 +93,7 @@
       <AdditionalDependencies>nvapi64.lib;cudart_static.lib;cuda.lib;cudnn.lib;cublas.lib;curand.lib;cusolver.lib;mkl_intel_lp64.lib;mkl_core.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreSpecificDefaultLibraries>
       </IgnoreSpecificDefaultLibraries>
-      <AdditionalLibraryDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.2\lib\x64;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\lib\NvAPI\amd64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProgramFiles)\NVIDIA GPU Computing Toolkit\CUDA\v10.2\lib\x64;$(ProgramFiles)\NVIDIA Corporation\NVIDIA Capture SDK\lib\NvAPI\amd64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>/LTCG %(AdditionalOptions)</AdditionalOptions>
       <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <OptimizeReferences>true</OptimizeReferences>
@@ -136,6 +134,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CLNN\CLNN.vcxproj">
       <Project>{6a380eaa-f84f-4751-9002-9ec02859f85d}</Project>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

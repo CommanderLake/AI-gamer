@@ -2,8 +2,8 @@
 #include <cuda_fp16.h>
 #include <fstream>
 #include <vector>
-#include "CuCommon.cuh"
-class Layer{
+#include "CuCommon.h"
+class __declspec(dllexport) Layer{
 public:
 	virtual ~Layer() = default;
 	virtual __half* Forward(__half* data){ return nullptr; }

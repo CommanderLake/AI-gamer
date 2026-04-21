@@ -1,6 +1,6 @@
 #include "FCLayer.h"
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 #include <iostream>
 #include <algorithm>
 FCLayer::FCLayer(const int batchSize, const int inC, const int outC, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool useBias) :

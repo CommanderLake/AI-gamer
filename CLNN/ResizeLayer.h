@@ -1,7 +1,6 @@
 #pragma once
 #include "Layer.h"
-
-class ResizeLayer final : public Layer{
+class __declspec(dllexport) ResizeLayer final : public Layer{
 public:
 	ResizeLayer(int batchSize, int channels, int inHeight, int inWidth, int outHeight, int outWidth, std::string layerName, bool train);
 	~ResizeLayer() override;

@@ -122,7 +122,7 @@ void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* ba
 				std::cerr << "Invalid stateData pointer for RecordState at index " << randomIndex << " (batch index " << i << ")\n";
 				gLoadBatchFailureCount.fetch_add(1, std::memory_order_relaxed);
 			}
-			});
+		});
 	}
 }
 void ResetLoadBatchFailureCount(){

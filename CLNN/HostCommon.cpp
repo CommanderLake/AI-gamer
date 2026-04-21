@@ -1,40 +1,13 @@
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 #include <cudnn.h>
 #include <windows.h>
-#include <algorithm>
 #include <string>
 #include <iostream>
 #include <sstream>
 #include <vector>
 #undef min
 #undef max
-ConvolutionAlgorithms GetConvolutionAlgorithms(cudnnHandle_t cudnnHandle, const cudnnTensorDescriptor_t xDesc, const cudnnFilterDescriptor_t wDesc, const cudnnConvolutionDescriptor_t convDesc, const cudnnTensorDescriptor_t yDesc, bool isTraining){
-	ConvolutionAlgorithms algorithms;
-	algorithms.workspaceSize = 0;
-	// Forward algorithm
-	cudnnConvolutionFwdAlgoPerf_t fwdAlgoPerf[10];
-	int returnedAlgoCount;
-	checkCUDNN(cudnnGetConvolutionForwardAlgorithm_v7(cudnnHandle, xDesc, wDesc, convDesc, yDesc, 10, &returnedAlgoCount, fwdAlgoPerf));
-	algorithms.fwdAlgo = fwdAlgoPerf[0].algo;
-	algorithms.workspaceSize = std::max(algorithms.workspaceSize, fwdAlgoPerf[0].memory);
-	if(isTraining){
-		// Backward data algorithm
-		cudnnConvolutionBwdDataAlgoPerf_t bwdDataAlgoPerf[10];
-		checkCUDNN(cudnnGetConvolutionBackwardDataAlgorithm_v7(cudnnHandle, wDesc, yDesc, convDesc, xDesc, 10, &returnedAlgoCount, bwdDataAlgoPerf));
-		algorithms.bwdDataAlgo = bwdDataAlgoPerf[0].algo;
-		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdDataAlgoPerf[0].memory);
-		// Backward filter algorithm
-		cudnnConvolutionBwdFilterAlgoPerf_t bwdFilterAlgoPerf[10];
-		checkCUDNN(cudnnGetConvolutionBackwardFilterAlgorithm_v7(cudnnHandle, xDesc, yDesc, convDesc, wDesc, 10, &returnedAlgoCount, bwdFilterAlgoPerf));
-		algorithms.bwdFilterAlgo = bwdFilterAlgoPerf[0].algo;
-		algorithms.workspaceSize = std::max(algorithms.workspaceSize, bwdFilterAlgoPerf[0].memory);
-	} else{
-		algorithms.bwdDataAlgo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
-		algorithms.bwdFilterAlgo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
-	}
-	return algorithms;
-}
 void HalfToFloatAsm(float* dst, __half* src, int count){
 	__asm {
 		mov rsi, src

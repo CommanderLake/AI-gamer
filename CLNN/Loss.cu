@@ -1,5 +1,5 @@
 #define __CUDACC__
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <device_launch_parameters.h>
 #include <device_functions.h>
 __device__ float dLossKeys;
@@ -63,8 +63,8 @@ void LossStats(const __half* dPredictions, const float* dTargets, const int numB
 	const auto size = numCtrls*batchSize;
 	cudaMemcpyToSymbol(dLossKeys, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
 	cudaMemcpyToSymbol(dLossMouse, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
-	auto gridSize = DivCeil(size, CPM);
-	LossStatsKernel<<<gridSize, CPM, 2*CPM*sizeof(float)>>>(dPredictions, dTargets, size, numButs, numCtrls);
+	auto gridSize = DivCeil(size, 256);
+	LossStatsKernel<<<gridSize, 256, 2*256*sizeof(float)>>>(dPredictions, dTargets, size, numButs, numCtrls);
 	checkCUDA(cudaGetLastError());
 	cudaMemcpyFromSymbol(butLoss, dLossKeys, sizeof(float));
 	cudaMemcpyFromSymbol(axesLoss, dLossMouse, sizeof(float));
@@ -94,7 +94,7 @@ __global__ void LossBackpropKernel(__half* gradients, const __half* predictions,
 	}
 }
 void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
-	auto gridSize = DivCeil(size, CPM);
-	LossBackpropKernel<<<gridSize, CPM>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
+	auto gridSize = DivCeil(size, 256);
+	LossBackpropKernel<<<gridSize, 256>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
 	checkCUDA(cudaGetLastError());
 }

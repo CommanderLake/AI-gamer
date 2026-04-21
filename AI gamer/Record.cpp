@@ -1,6 +1,6 @@
 #include "Record.h"
 #include "common.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include "NvDisplayCap.h"
 #include <iomanip>
 #include <iostream>

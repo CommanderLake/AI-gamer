@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class TokensToSpatialLayer : public Layer{
+class __declspec(dllexport) TokensToSpatialLayer : public Layer{
 public:
 	TokensToSpatialLayer::TokensToSpatialLayer(int batchSize, int nTokens, int embedSize, int patchRows, int patchCols, std::string layerName, bool train);
 	TokensToSpatialLayer::~TokensToSpatialLayer() override;

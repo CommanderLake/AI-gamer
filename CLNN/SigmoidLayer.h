@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class SigmoidLayer final : public Layer {
+class __declspec(dllexport) SigmoidLayer final : public Layer {
 public:
 	SigmoidLayer(int batchSize, int numCtrls, int numButs, std::string layerName);
     ~SigmoidLayer() override;

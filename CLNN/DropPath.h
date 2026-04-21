@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-class DropPath final : public Layer{
+class __declspec(dllexport) DropPath final : public Layer{
 public:
 	DropPath(float dropRate, int batchSize, int elementsPerBatch, std::string layerName, bool train);
 	~DropPath() override;

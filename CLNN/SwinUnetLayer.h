@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <unordered_map>
 #include <vector>
 class GELULayer;
@@ -9,7 +9,7 @@ class PatchMergingLayer;
 class PatchExpandingLayer;
 class SwinBlockLayer;
 class LayerNorm;
-class SwinUnetLayer final : public Layer{
+class __declspec(dllexport) SwinUnetLayer final : public Layer{
 public:
 	SwinUnetLayer(int batchSize, int inHeight, int inWidth, int patchSize, int embedH, int embedW, int blocksPerStage, int numStages, int baseHeads, int baseWindowSize, float maxDropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~SwinUnetLayer() override;

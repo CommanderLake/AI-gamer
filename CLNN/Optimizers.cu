@@ -1,5 +1,5 @@
 #define __CUDACC__
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <device_launch_parameters.h>
 #include <cuda_fp16.h>
 #define EPSILON_OPT 1e-6f

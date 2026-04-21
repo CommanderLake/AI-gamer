@@ -1,5 +1,5 @@
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 #include "EncoderLayer.h"
 #include "LayerNorm.h"
 #include "WmmaAttentionLayer.h"

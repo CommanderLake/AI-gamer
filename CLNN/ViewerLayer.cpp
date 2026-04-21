@@ -1,5 +1,5 @@
 #include "ViewerLayer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 ViewerLayer::ViewerLayer(int dataSize, const int channels, const int patchHeight, const int patchWidth, const int gridWidth, const std::string windowTitle, bool mosaic, const float scale, bool backwardPass, __half* displayData) : displayData_(displayData), windowTitle_(windowTitle),
 	backwardPass_(backwardPass), inC_(channels), inH_(patchHeight), inW_(patchWidth), gridW_(gridWidth), scale_(scale), mosaic_(mosaic){
 	outNCHW_ = dataSize;

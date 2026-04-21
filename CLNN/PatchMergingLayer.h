@@ -1,9 +1,9 @@
 #pragma once
 #include "Layer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 class LayerNorm;
 class FCLayer;
-class PatchMergingLayer final : public Layer{
+class __declspec(dllexport) PatchMergingLayer final : public Layer{
 public:
 	PatchMergingLayer(int batchSize, int tokens, int embedDim, int patchRows, int patchCols, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
 	~PatchMergingLayer() override;

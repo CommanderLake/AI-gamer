@@ -1,6 +1,6 @@
 #include "Dropout.h"
-#include "NNCommon.h"
-#include "CuCommon.cuh"
+#include "HostCommon.h"
+#include "CuCommon.h"
 #include <ctime>
 Dropout::Dropout(const float dropoutRate, const int batchSize, const int channels, const int height, const int width, const std::string layerName, const bool train) : dropoutRate_(dropoutRate), keepProb_(1.0f - dropoutRate), batchSize_(batchSize), outC_(channels), outHeight_(height), outWidth_(width){
 	layerName_ = layerName;

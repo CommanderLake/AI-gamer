@@ -1,4 +1,4 @@
-#include "NNCommon.h"
+#include "HostCommon.h"
 #include <mkl.h>
 #include <mkl_lapacke.h>
 #include <mkl_vsl.h>
@@ -116,7 +116,7 @@ static void FallbackGaussianInit(__half* dWeights, int rows, int cols, WeightIni
 		std::cout << "CUDA error: cudaMemcpy H2D failed: " << cudaGetErrorString(cerr) << '\n';
 	}
 }
-void OrthogonalInit(__half* dWeights, const int rows, const int cols, WeightInitMethod method){
+void OrthogonalInit(__half* dWeights, const int rows, const int cols, const WeightInitMethod method){
 	if(rows <= 0 || cols <= 0){
 		std::cout << "Error: rows and cols must be positive. Got rows=" << rows << " cols=" << cols << '\n';
 		FallbackGaussianInit(dWeights, rows, cols, method);

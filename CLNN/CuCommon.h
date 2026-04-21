@@ -24,7 +24,7 @@ typedef enum{
 enum WeightInitMethod{
 	He, Xavier
 };
-const char* clnnGetErrorString(CLNNStatusT status);
+__declspec(dllexport) const char* clnnGetErrorString(CLNNStatusT status);
 #define checkCLNN(status) { \
 	const auto err = status; \
     if (err != CLNN_STATUS_SUCCESS) { \
@@ -59,7 +59,6 @@ struct pixRGB{
 	unsigned char G;
 	unsigned char R;
 };
-
 struct AdamWHalfTask{
 	__half* params;
 	const __half* grads;
@@ -76,22 +75,32 @@ struct AdamWFloatTask{
 	int size;
 	float weightDecay;
 };
-void LossStats(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
-void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
-void ConvertByteToHalf(const unsigned char* input, __half* output, size_t size, bool normalize);
-void ConvertHalfToByte(const __half* input, unsigned char* output, size_t size, bool normalize);
-void ConvertFloatToHalf(const float* input, __half* output, size_t size);
-void ConvertHalfToFloat(const __half* input, float* output, size_t size);
-void ConvertFloatToHalfScale(__half* halfWeights, const float* weights, size_t size, float scale);
-void SGDHalf(__half* params, const __half* grads, int size, float learningRate, float weightDecay);
-void SGDFloat(float* params, const float* grads, int size, float learningRate, float weightDecay);
-void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
-void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
-void AdamWHalfMulti(const AdamWHalfTask* tasks, int taskCount, int totalSize, float lr, int t);
-void AdamWFloatMulti(const AdamWFloatTask* tasks, int taskCount, int totalSize, float lr, int t);
-void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
-void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, int numCtrls, int numButs, int size);
-void GetPrediction(const __half* predBatch, float* prediction, int numCtrls, int batchSize);
+template<class Ta, class Tb>
+Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }
+template<class T>
+void CUDAMallocZero(T** ptr, const size_t size){
+	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
+	checkCUDA(cudaMemset(*ptr, 0, size));
+}
+__declspec(dllexport) void InitCUDA();
+__declspec(dllexport) CLNNStatusT InitCublas();
+__declspec(dllexport) void LossStats(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
+__declspec(dllexport) void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
+__declspec(dllexport) void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
+__declspec(dllexport) void ConvertByteToHalf(const unsigned char* input, __half* output, size_t size, bool normalize);
+__declspec(dllexport) void ConvertHalfToByte(const __half* input, unsigned char* output, size_t size, bool normalize);
+__declspec(dllexport) void ConvertFloatToHalf(const float* input, __half* output, size_t size);
+__declspec(dllexport) void ConvertHalfToFloat(const __half* input, float* output, size_t size);
+__declspec(dllexport) void ConvertFloatToHalfScale(__half* halfWeights, const float* weights, size_t size, float scale);
+__declspec(dllexport) void ARGBtoRGB(unsigned char* src, unsigned char* dst, size_t n);
+__declspec(dllexport) void ARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, size_t n);
+__declspec(dllexport) void SGDHalf(__half* params, const __half* grads, int size, float learningRate, float weightDecay);
+__declspec(dllexport) void SGDFloat(float* params, const float* grads, int size, float learningRate, float weightDecay);
+__declspec(dllexport) void AdamWHalf(__half* params, const __half* grads, __half* m, __half* v, float lr, int t, float weightDecay, int size);
+__declspec(dllexport) void AdamWFloat(float* params, const float* grads, float* m, float* v, float learningRate, int t, float weightDecay, int size);
+__declspec(dllexport) void AdamWHalfMulti(const AdamWHalfTask* tasks, int taskCount, int totalSize, float lr, int t);
+__declspec(dllexport) void AdamWFloatMulti(const AdamWFloatTask* tasks, int taskCount, int totalSize, float lr, int t);
+__declspec(dllexport) bool IsnanHalf(const __half* data, int size);
 void LeakyReluForward(const __half* dataIn, __half* dataOut, int size, float negativeSlope, cudaStream_t stream = nullptr);
 void LeakyReluBackward(__half* grad, const __half* dataIn, int size, float negativeSlope, cudaStream_t stream = nullptr);
 void SwishForward(const __half* dataIn, __half* outData, int size, cudaStream_t stream = nullptr);
@@ -104,7 +113,6 @@ void AsinhForward(const __half* dataIn, __half* dataOut, int size, float alpha, 
 void AsinhBackward(__half* grad, const __half* activated, int size, float alpha, cudaStream_t stream = nullptr);
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW, bool spatialMode);
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW, bool spatialMode);
-bool IsnanHalf(const __half* data, int size);
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);
 void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int maskBatchSize, int maskHeads);
 void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);
@@ -112,7 +120,6 @@ void AccumulateRelPosBiasGrad(const float* dAtt, const int* relPosIndex, float* 
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
-void AddPerTokenEmbedding(__half* output, const __half* embed, int batch, int tokens, int embedDim);
 void TanhInPlace(__half* data, int size);
 void TanhBackward(__half* grad, const __half* activations, int size);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
@@ -138,17 +145,8 @@ void DropPathBuildMask(float* mask, int batch, float keepProb);
 void DropPathApply(__half* data, const float* mask, int batch, int elementsPerBatch);
 void DropoutForward(__half* data, unsigned char* mask, int size, float keepProb, unsigned long long seed);
 void DropoutBackward(__half* grad, const unsigned char* mask, int size, float keepProb);
-CLNNStatusT InitCublas();
 CLNNStatusT CLNNGemmEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, const void* B, cudaDataType Btype, int ldb, const void* beta, void* C, cudaDataType Ctype, int ldc, cudaDataType computeType);
 CLNNStatusT CLNNGemmStridedBatchedEx(CLNNOpT transa, CLNNOpT transb, int m, int n, int k, const void* alpha, const void* A, cudaDataType Atype, int lda, long long int strideA, const void* B, cudaDataType Btype, int ldb, long long int strideB, const void* beta, void* C, cudaDataType Ctype, int ldc, long long int strideC, int batchCount, cudaDataType computeType);
 int ConvertSmVer2Cores(int major, int minor);
-template<class Ta, class Tb>
-Ta DivCeil(Ta a, Tb b){ return (a + b - 1)/b; }
 void GetLaunchConfigGridStride(size_t n, size_t& blocks, size_t& tpb);
-void InitCUDA();
 void WeightInit(__half* weights, int elementCount, int fanIn, int fanOut, WeightInitMethod method);
-template<class T>
-void CUDAMallocZero(T** ptr, size_t size){
-	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
-	checkCUDA(cudaMemset(*ptr, 0, size));
-}

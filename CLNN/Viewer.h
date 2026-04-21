@@ -4,7 +4,7 @@
 #include <gdiplus.h>
 #include <string>
 #pragma comment(lib, "gdiplus.lib")
-class Viewer{
+class __declspec(dllexport) Viewer{
 public:
 	Viewer();
 	~Viewer();

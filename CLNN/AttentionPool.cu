@@ -1,5 +1,5 @@
 #define __CUDACC__
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include <cuda.h>
 #include <device_functions.h>
 #include <device_launch_parameters.h>

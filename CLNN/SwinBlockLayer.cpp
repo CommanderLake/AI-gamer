@@ -1,5 +1,5 @@
 #include "SwinBlockLayer.h"
-#include "CuCommon.cuh"
+#include "CuCommon.h"
 #include "Dropout.h"
 #include "DropPath.h"
 #include "FCLayer.h"
