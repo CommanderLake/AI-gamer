@@ -6,7 +6,9 @@ PatchEmbedLayer::PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int p
 	layerName_ = layerName;
 	train_ = train;
 	if(temporalLength_ <= 0){ throw std::invalid_argument("PatchEmbedLayer temporalLength must be >= 1"); }
-	effectiveBatch_ = batchSize_*temporalLength_;
+	if(batchSize_ % temporalLength_ != 0){ throw std::invalid_argument("PatchEmbedLayer batchSize must be divisible by temporalLength"); }
+	baseBatchSize_ = batchSize_/temporalLength_;
+	effectiveBatch_ = batchSize_;
 	patchRows_ = DivCeil(inH_, patchSize_);
 	patchCols_ = DivCeil(inW_, patchSize_);
 	patchDim_ = inC_*patchSize_*patchSize_;
@@ -93,7 +95,7 @@ __half* PatchEmbedLayer::Forward(__half* data){
 		checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_N, embedDim_, effectiveBatch_*numPatches_, offsetDim_, &alpha_, offsetEmbedWeights_, CUDA_R_16F, embedDim_, offsetActivations_, CUDA_R_16F, offsetDim_, &beta1_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	}
 	AddTensorBroadcast(alpha_, posEmbed_, alpha_, outData_, effectiveBatch_, posCount_);
-	if(temporalPosCount_ > 0){ AddTemporalPositionalEmbedding(outData_, temporalPosEmbed_, batchSize_, temporalLength_, numPatches_, embedDim_); }
+	if(temporalPosCount_ > 0){ AddTemporalPositionalEmbedding(outData_, temporalPosEmbed_, baseBatchSize_, temporalLength_, numPatches_, embedDim_); }
 	return outData_;
 }
 __half* PatchEmbedLayer::Backward(__half* grad){
@@ -111,7 +113,7 @@ __half* PatchEmbedLayer::Backward(__half* grad){
 	}
 	const bool zeroPos = ((accumCount_ - 1) % gradAccumLength_) == 0;
 	SumPositionalGrad(grad, gradPosEmbed_, effectiveBatch_, embedDim_, numPatches_, zeroPos, alphaWeights_);
-	if(temporalPosCount_ > 0){ SumTemporalPositionalGrad(grad, gradTemporalPosEmbed_, batchSize_, temporalLength_, numPatches_, embedDim_, zeroPos, alphaWeights_); }
+	if(temporalPosCount_ > 0){ SumTemporalPositionalGrad(grad, gradTemporalPosEmbed_, baseBatchSize_, temporalLength_, numPatches_, embedDim_, zeroPos, alphaWeights_); }
 	CombinePatchGrads(patchBuffer_, outGrad_, effectiveBatch_, inC_, inH_, inW_, patchSize_);
 	return outGrad_;
 }
