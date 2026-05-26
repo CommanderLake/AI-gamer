@@ -169,3 +169,41 @@ void WindowsToTokens(const __half* input, __half* output, int batch, int tokens,
 	WindowsToTokensKernel<<<blocks, bs>>>(input, output, batch, tokens, embedDim, patchRows, patchCols, windowHeight, windowWidth, shiftHeight, shiftWidth);
 	checkCUDA(cudaGetLastError());
 }
+__global__ void TemporalPackTokensKernel(const __half* input, __half* output, int batchSize, int temporalLength, int tokens, int embedDim){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batchSize)*temporalLength*tokens*embedDim;
+	if(idx >= total) return;
+	const int feature = idx % embedDim;
+	const int token = idx/embedDim % tokens;
+	const int t = idx/(static_cast<size_t>(embedDim)*tokens) % temporalLength;
+	const int b = idx/(static_cast<size_t>(embedDim)*tokens*temporalLength);
+	const size_t outIdx = (((static_cast<size_t>(b)*tokens + token)*temporalLength + t)*embedDim) + feature;
+	output[outIdx] = input[idx];
+}
+void TemporalPackTokens(const __half* input, __half* output, int batchSize, int temporalLength, int tokens, int embedDim){
+	const size_t total = static_cast<size_t>(batchSize)*temporalLength*tokens*embedDim;
+	if(total == 0) return;
+	constexpr int bs = 256;
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
+	TemporalPackTokensKernel<<<blocks, bs>>>(input, output, batchSize, temporalLength, tokens, embedDim);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void TemporalUnpackTokensKernel(const __half* input, __half* output, int batchSize, int temporalLength, int tokens, int embedDim){
+	const size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
+	const size_t total = static_cast<size_t>(batchSize)*temporalLength*tokens*embedDim;
+	if(idx >= total) return;
+	const int feature = idx % embedDim;
+	const int token = idx/embedDim % tokens;
+	const int t = idx/(static_cast<size_t>(embedDim)*tokens) % temporalLength;
+	const int b = idx/(static_cast<size_t>(embedDim)*tokens*temporalLength);
+	const size_t inIdx = (((static_cast<size_t>(b)*tokens + token)*temporalLength + t)*embedDim) + feature;
+	output[idx] = input[inIdx];
+}
+void TemporalUnpackTokens(const __half* input, __half* output, int batchSize, int temporalLength, int tokens, int embedDim){
+	const size_t total = static_cast<size_t>(batchSize)*temporalLength*tokens*embedDim;
+	if(total == 0) return;
+	constexpr int bs = 256;
+	const auto blocks = DivCeil(static_cast<int>(total), bs);
+	TemporalUnpackTokensKernel<<<blocks, bs>>>(input, output, batchSize, temporalLength, tokens, embedDim);
+	checkCUDA(cudaGetLastError());
+}

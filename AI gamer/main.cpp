@@ -2,6 +2,7 @@
 #include "Infer.h"
 #include "Viewer.h"
 #include "Record.h"
+#include "common.h"
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -134,7 +135,7 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 	}
 	const auto stateSize = static_cast<std::uintmax_t>(*width)*static_cast<std::uintmax_t>(*height)*3U;
 	std::cerr << "State size calculated: " << stateSize << " bytes" << std::endl;
-	const auto recordSize = 12 + stateSize;
+	const auto recordSize = static_cast<std::uintmax_t>(sizeof(InputState)) + stateSize;
 	std::vector<std::uint64_t> recordPositions;
 	int fileRecordsCount = 0;
 	bool encounteredReadError = false;
@@ -196,6 +197,7 @@ void ReadStateDataFile(int* width, int* height, std::string* fileName, std::vect
 void ReadStateData(int* width, int* height){
 	for(std::string& fileName : trainDataFiles){ ReadStateDataFile(width, height, &fileName, &trainRecordIndices); }
 	ReadStateDataFile(width, height, &valDataFile, &valRecordIndices);
+	RebuildSequenceIndices();
 }
 int main(){
 	std::ios::sync_with_stdio(false);
@@ -211,6 +213,7 @@ int main(){
 		delete gRecord;
 		gRecord = nullptr;
 	} else if(mode == 't' || mode == 'T'){
+		ConfigureSequenceSampling(4, 1, 3);
 		int width = 0, height = 0;
 		ReadStateData(&width, &height);
 		std::cout << "Training data resolution: " << width << "x" << height << "\n";
@@ -227,6 +230,7 @@ int main(){
 		delete gViewer;
 		gViewer = nullptr;
 	} else if(mode == 'i' || mode == 'I'){
+		ConfigureSequenceSampling(4, 1, 3);
 		gInfer = new Infer();
 		gInfer->Run();
 		delete gInfer;

@@ -142,3 +142,51 @@ void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, boo
 	const auto e = cudaGetLastError();
 	if(e != cudaSuccess) printf("SumPositionalGrad error: %s\n", cudaGetErrorString(e));
 }
+__global__ void AddTemporalPositionalEmbeddingKernel(__half* data, const __half* temporalPos, int batchSize, int temporalLength, int numPatches, int embedDim){
+	const long total = static_cast<long>(batchSize)*temporalLength*numPatches*embedDim;
+	const long stride = static_cast<long>(blockDim.x)*gridDim.x;
+	const int perTime = numPatches*embedDim;
+	for(long idx = static_cast<long>(blockIdx.x)*blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int featureIndex = static_cast<int>(idx % embedDim);
+		const int sampleIndex = static_cast<int>(idx / perTime);
+		const int t = sampleIndex % temporalLength;
+		const int temporalOffset = t*embedDim + featureIndex;
+		data[idx] = __hadd(data[idx], temporalPos[temporalOffset]);
+	}
+}
+void AddTemporalPositionalEmbedding(__half* data, const __half* temporalPos, int batchSize, int temporalLength, int numPatches, int embedDim){
+	if(data == nullptr || temporalPos == nullptr || batchSize <= 0 || temporalLength <= 1 || numPatches <= 0 || embedDim <= 0) return;
+	const size_t total = static_cast<size_t>(batchSize)*temporalLength*numPatches*embedDim;
+	size_t blocks = 0, tpb = 0;
+	GetLaunchConfigGridStride(total, blocks, tpb);
+	if(blocks > 0 && tpb > 0){ AddTemporalPositionalEmbeddingKernel<<<blocks, tpb>>>(data, temporalPos, batchSize, temporalLength, numPatches, embedDim); }
+	checkCUDA(cudaGetLastError());
+}
+__global__ void SumTemporalPositionalGradKernel(const __half* grad, __half* out, int batchSize, int temporalLength, int numPatches, int embedDim, bool first, float scale){
+	const int total = temporalLength*embedDim;
+	const int stride = blockDim.x*gridDim.x;
+	const int tokensPerTime = numPatches*embedDim;
+	const int tokensPerBatch = temporalLength*tokensPerTime;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < total; idx += stride){
+		const int t = idx/embedDim;
+		const int c = idx - t*embedDim;
+		float sum = 0.0f;
+		for(int b = 0; b < batchSize; ++b){
+			const int base = b*tokensPerBatch + t*tokensPerTime;
+			for(int p = 0; p < numPatches; ++p){
+				sum += __half2float(grad[base + p*embedDim + c]);
+			}
+		}
+		const float scaled = sum*scale;
+		if(first){ out[idx] = __float2half(scaled); }
+		else{ out[idx] = __float2half(__half2float(out[idx]) + scaled); }
+	}
+}
+void SumTemporalPositionalGrad(const __half* grad, __half* out, int batchSize, int temporalLength, int numPatches, int embedDim, bool first, float scale){
+	if(grad == nullptr || out == nullptr || batchSize <= 0 || temporalLength <= 1 || numPatches <= 0 || embedDim <= 0) return;
+	size_t blocks = 0, tpb = 0;
+	GetLaunchConfigGridStride(static_cast<size_t>(temporalLength)*embedDim, blocks, tpb);
+	if(blocks > 0 && tpb > 0){ SumTemporalPositionalGradKernel<<<blocks, tpb>>>(grad, out, batchSize, temporalLength, numPatches, embedDim, first, scale); }
+	const auto e = cudaGetLastError();
+	if(e != cudaSuccess) printf("SumTemporalPositionalGrad error: %s\n", cudaGetErrorString(e));
+}

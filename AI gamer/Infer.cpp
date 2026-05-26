@@ -2,7 +2,9 @@
 #include "common.h"
 #include "NN.h"
 #include "NvDisplayCap.h"
+#include <algorithm>
 #include <csignal>
+#include <cstring>
 #undef min
 #undef max
 constexpr int kKbdButs = 11;
@@ -30,8 +32,10 @@ Infer::Infer(){
 	int scaledWidth = 0, scaledHeight = 0;
 	GrabFrameScaleUInt8(cudnn_, &scaledWidth, &scaledHeight, scaleFactor_, true, false);
 	nn_ = new NN(scaledWidth, scaledHeight, false);
+	temporalLength_ = std::max(1, nn_->batchSize_);
 	cudaMallocHost(&predictionsF_, NUM_CTRLS_*sizeof(float));
-	CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
+	CUDAMallocZero(&frameHalf_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
+	CUDAMallocZero(&clipScratch_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
 	listenThread_ = std::thread(&Infer::ListenForKey, this);
 	listenThread_.detach();
 	signal(SIGINT, InferSig);
@@ -47,6 +51,10 @@ void Infer::Dispose(){
 	if(frameHalf_){
 		cudaFree(frameHalf_);
 		frameHalf_ = nullptr;
+	}
+	if(clipScratch_){
+		cudaFree(clipScratch_);
+		clipScratch_ = nullptr;
 	}
 	if(predictionsF_){
 		cudaFreeHost(predictionsF_);
@@ -141,16 +149,35 @@ void Infer::Step(){
 			std::cerr << "Capture resolution changed to " << capWidth << "x" << capHeight << ". Reloading network input resolution...\n";
 			delete nn_;
 			nn_ = new NN(capWidth, capHeight, false);
+			temporalLength_ = std::max(1, nn_->batchSize_);
+			clipFillCount_ = 0;
 			cudaFree(frameHalf_);
-			CUDAMallocZero(&frameHalf_, nn_->stateSize_*sizeof(__half));
+			cudaFree(clipScratch_);
+			CUDAMallocZero(&frameHalf_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
+			CUDAMallocZero(&clipScratch_, static_cast<size_t>(nn_->stateSize_)*temporalLength_*sizeof(__half));
 		}
-		ConvertByteToHalf(frame, frameHalf_, nn_->stateSize_, true);
+		const size_t stateElems = static_cast<size_t>(nn_->stateSize_);
+		const size_t stateBytes = stateElems*sizeof(__half);
+		if(clipFillCount_ < temporalLength_){
+			__half* clipSlot = frameHalf_ + stateElems*clipFillCount_;
+			ConvertByteToHalf(frame, clipSlot, nn_->stateSize_, true);
+			++clipFillCount_;
+		} else{
+			if(temporalLength_ > 1){
+				checkCUDA(cudaMemcpy(clipScratch_, frameHalf_ + stateElems, stateBytes*(temporalLength_ - 1), cudaMemcpyDeviceToDevice));
+				checkCUDA(cudaMemcpy(frameHalf_, clipScratch_, stateBytes*(temporalLength_ - 1), cudaMemcpyDeviceToDevice));
+			}
+			__half* clipSlot = frameHalf_ + stateElems*(temporalLength_ - 1);
+			ConvertByteToHalf(frame, clipSlot, nn_->stateSize_, true);
+		}
+		if(clipFillCount_ < temporalLength_) return;
 		const auto output = nn_->Forward(frameHalf_);
 		GetPrediction(output, predictionsF_, NUM_CTRLS_, nn_->batchSize_);
 		ProcessOutput(predictionsF_);
 	}
 	if(inferEnable_ != inferLast_){
 		if(!inferEnable_){
+			clipFillCount_ = 0;
 			memset(predictionsF_, 0, NUM_CTRLS_*sizeof(float));
 			ProcessOutput(predictionsF_);
 		}

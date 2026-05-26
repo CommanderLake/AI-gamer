@@ -23,11 +23,12 @@ void AccumulateRelPosBiasGrad(const float* dAtt, const int* relPosIndex, float* 
 void ExtractPatches(const __half* in, __half* out, int B, int C, int H, int W, int P);
 void CombinePatchGrads(const __half* dy, __half* dx, int B, int C, int H, int W, int P);
 void SumPositionalGrad(const __half* grad, __half* out, int B, int C, int P, bool first, float scale);
+void AddTemporalPositionalEmbedding(__half* data, const __half* temporalPos, int batchSize, int temporalLength, int numPatches, int embedDim);
+void SumTemporalPositionalGrad(const __half* grad, __half* out, int batchSize, int temporalLength, int numPatches, int embedDim, bool first, float scale);
 void TanhInPlace(__half* data, int size);
 void TanhBackward(__half* grad, const __half* activations, int size);
 void AttentionPoolForward(const __half* input, const __half* query, __half* output, float* attnWeights, float* tempBuffer, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
 void AttentionPoolBackward(const __half* grad, const __half* input, const __half* query, const float* attnWeights, float* tempBuffer, float* batchSums, __half* outGrad, __half* gradQuery, int batchSize, int tokens, int embedDim, int numQueries, float invSqrtDim);
-void ScaleArrayHalf(__half* data, size_t count, float scale);
 void AddBias(__half* output, const __half* bias, int channels, int batchSize);
 void AddTensor(float alpha, __half* A, float beta, const __half* B, size_t size);
 void AddTensorBroadcast(float alpha, const __half* B, float beta, __half* C, int batch, int elementsPerBatch);
@@ -42,6 +43,8 @@ void TokensToSpatial(const __half* input, __half* output, int batch, int tokens,
 void SpatialToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols);
 void TokensToWindows(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
 void WindowsToTokens(const __half* input, __half* output, int batch, int tokens, int embedDim, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth);
+void TemporalPackTokens(const __half* input, __half* output, int batchSize, int temporalLength, int tokens, int embedDim);
+void TemporalUnpackTokens(const __half* input, __half* output, int batchSize, int temporalLength, int tokens, int embedDim);
 void ScaleNearestNeighborForward(const __half* input, __half* output, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
 void ScaleNearestNeighborBackward(const __half* gradOut, __half* gradIn, int batch, int channels, int inHeight, int inWidth, int outHeight, int outWidth);
 void DropPathBuildMask(float* mask, int batch, float keepProb);

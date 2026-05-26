@@ -5,10 +5,11 @@
 #include "PatchEmbedLayer.h"
 #include "SwinUnetLayer.h"
 #include "ViewerLayer.h"
+#include <algorithm>
 #undef min
 #undef max
 NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
-	if(!train) batchSize_ = 1;
+	if(!train) batchSize_ = std::max(1, sequenceSamplingConfig.length);
 	int netWidth = w;
 	int netHeight = h;
 	int ckptWidth = 0;
@@ -53,10 +54,15 @@ NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*3*scaledHeight*scaledWidth, 3, scaledHeight, scaledWidth, 3, "Input Viewer", true, 1.0f, false));
 	auto nTokens = patchRows*patchCols;
 	auto embedDim = embedSize;
-	layers_.push_back(new PatchEmbedLayer(batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
-	layers_.push_back(new SwinUnetLayer(batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
+	int temporalLength = std::max(1, sequenceSamplingConfig.length);
+	if(batchSize_%temporalLength != 0){
+		std::cerr << "Temporal length " << temporalLength << " is not divisible into batch size " << batchSize_ << ". Falling back to temporal length 1.\n";
+		temporalLength = 1;
+	}
+	layers_.push_back(new PatchEmbedLayer(batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier, temporalLength));
+	layers_.push_back(new SwinUnetLayer(batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier, temporalLength));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
-	layers_.push_back(new ActionHead(batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));
+	layers_.push_back(new ActionHead(batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_, temporalLength, TemporalOutputPolicy::LastFrameBroadcast));
 	for(const auto& layer : layers_){
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetParameterSize());
 		maxBufferSize_ = std::max(maxBufferSize_, layer->GetOptimizerStateSize());

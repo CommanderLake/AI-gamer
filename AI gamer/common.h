@@ -2,6 +2,8 @@
 #include "ThreadPool.h"
 #include <string>
 #include <iostream>
+#include <vector>
+#include <cmath>
 #include <cuda_runtime_api.h>
 struct __half;
 struct InputState{
@@ -36,9 +38,38 @@ struct StateBatch{
 		if(stateData){ cudaFreeHost(stateData); }
 	}
 };
+struct StateBatchSequence{
+	int batchSize;
+	int sequenceLength;
+	int stateSize;
+	InputState* sequenceInputStates;
+	InputState* targetInputStates;
+	unsigned char* sequenceStateData = nullptr;
+	explicit StateBatchSequence(const int batchSize, const int sequenceLength, const int stateSize) : batchSize(batchSize), sequenceLength(sequenceLength), stateSize(stateSize){
+		if(cudaMallocHost(reinterpret_cast<void**>(&sequenceStateData), static_cast<size_t>(stateSize)*batchSize*sequenceLength)!=cudaSuccess){
+			throw std::runtime_error("Failed to allocate pinned memory with cudaMallocHost for sequence state data");
+		}
+		sequenceInputStates = new InputState[batchSize*sequenceLength];
+		targetInputStates = new InputState[batchSize];
+	}
+	~StateBatchSequence(){
+		delete[] sequenceInputStates;
+		delete[] targetInputStates;
+		if(sequenceStateData){ cudaFreeHost(sequenceStateData); }
+	}
+};
 struct RecordIndex{
 	const std::string* fileName;
 	std::streampos position;
+};
+struct SequenceRecordIndex{
+	const std::string* fileName;
+	std::streampos startPosition;
+};
+struct SequenceSamplingConfig{
+	int length = 1;
+	int stride = 1;
+	int targetOffset = 0;
 };
 extern std::vector<std::string> trainDataFiles;
 extern std::string valDataFile;
@@ -47,6 +78,9 @@ extern std::string ckptFileName;
 extern std::string optFileName;
 extern std::vector<RecordIndex> trainRecordIndices;
 extern std::vector<RecordIndex> valRecordIndices;
+extern std::vector<SequenceRecordIndex> trainSequenceRecordIndices;
+extern std::vector<SequenceRecordIndex> valSequenceRecordIndices;
+extern SequenceSamplingConfig sequenceSamplingConfig;
 extern ThreadPool threadPool;
 constexpr int TGT_STATE_WIDTH_ = 320;
 constexpr int NUM_BUTS_ = 14;
@@ -63,8 +97,15 @@ inline float DecompressAxisDelta(const float encoded){
 extern unsigned char keyMap[14];
 void LoadBatch(StateBatch* batch, int batchSize, int stateSize, bool validation);
 void LoadBatchFromVector(const std::vector<StateSingle*>& states, StateBatch* batch, int batchSize, int stateSize);
+void LoadBatchSequence(StateBatchSequence* batch, int batchSize, int stateSize, bool validation);
+void ConfigureSequenceSampling(int length, int stride, int targetOffset);
+void RebuildSequenceIndices();
 void ResetLoadBatchFailureCount();
 int GetLoadBatchFailureCount();
 void ShuffleBatchOrder(bool validation);
+void SelectLastTemporalFrame(const __half* input, __half* output, int batchSize, int temporalLength, int featureSize);
+void ExpandTemporalOutputs(const __half* input, __half* output, int batchSize, int temporalLength, int featureSize);
+void ReduceTemporalGradients(const __half* inputGrad, __half* reducedGrad, int batchSize, int temporalLength, int featureSize);
+void ScatterLastTemporalFrameGrad(const __half* input, __half* output, int batchSize, int temporalLength, int featureSize);
 void MergeOutputs(__half* predOut, const __half* buttonData, const __half* axisData, int numCtrls, int numButs, int size);
 void GetPrediction(const __half* predBatch, float* prediction, int numCtrls, int batchSize);

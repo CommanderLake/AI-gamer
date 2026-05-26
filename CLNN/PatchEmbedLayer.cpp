@@ -1,29 +1,35 @@
 #include "PatchEmbedLayer.h"
 #include "HostCommon.h"
 #include "CuCommon.h"
-PatchEmbedLayer::PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod) : batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
+#include <stdexcept>
+PatchEmbedLayer::PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, int temporalLength) : batchSize_(batchSize), inC_(inC), inH_(inH), inW_(inW), temporalLength_(temporalLength), patchSize_(patchSize), embedDim_(embedDim), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
+	if(temporalLength_ <= 0){ throw std::invalid_argument("PatchEmbedLayer temporalLength must be >= 1"); }
+	if(batchSize_ % temporalLength_ != 0){ throw std::invalid_argument("PatchEmbedLayer batchSize must be divisible by temporalLength"); }
+	baseBatchSize_ = batchSize_/temporalLength_;
 	patchRows_ = DivCeil(inH_, patchSize_);
 	patchCols_ = DivCeil(inW_, patchSize_);
 	patchDim_ = inC_*patchSize_*patchSize_;
 	numPatches_ = patchRows_*patchCols_;
 	featureSize_ = embedDim_*numPatches_;
-	outNCHW_ = batchSize_*featureSize_;
+	outNCHW_ = static_cast<size_t>(batchSize_)*featureSize_;
 	alphaWeights_ = 1.0f/(batchSize_*numPatches_*gradAccumLength_);
 	weightCount_ = embedDim_*patchDim_;
 	posCount_ = featureSize_;
+	temporalPosCount_ = temporalLength_ > 1 ? temporalLength_*embedDim_ : 0;
 	offsetCount_ = offsetDim_*patchDim_;
 	offsetEmbedCount_ = embedDim_*offsetDim_;
 	CUDAMallocZero(&weights_, weightCount_*sizeof(__half));
 	CUDAMallocZero(&posEmbed_, posCount_*sizeof(__half));
+	if(temporalPosCount_ > 0){ CUDAMallocZero(&temporalPosEmbed_, temporalPosCount_*sizeof(__half)); }
 	CUDAMallocZero(&offsetWeights_, offsetCount_*sizeof(__half));
 	CUDAMallocZero(&offsetEmbedWeights_, offsetEmbedCount_*sizeof(__half));
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
-	CUDAMallocZero(&patchBuffer_, batchSize_*numPatches_*patchDim_*sizeof(__half));
+	CUDAMallocZero(&patchBuffer_, static_cast<size_t>(batchSize_)*numPatches_*patchDim_*sizeof(__half));
 	if(offsetDim_ > 0){
-		CUDAMallocZero(&offsetActivations_, batchSize_*numPatches_*offsetDim_*sizeof(__half));
-		if(train_) CUDAMallocZero(&offsetGrad_, batchSize_*numPatches_*offsetDim_*sizeof(__half));
+		CUDAMallocZero(&offsetActivations_, static_cast<size_t>(batchSize_)*numPatches_*offsetDim_*sizeof(__half));
+		if(train_) CUDAMallocZero(&offsetGrad_, static_cast<size_t>(batchSize_)*numPatches_*offsetDim_*sizeof(__half));
 	}
 	if(train_){
 		WeightInit(weights_, weightCount_, patchDim_, embedDim_, weightInitMethod);
@@ -31,13 +37,18 @@ PatchEmbedLayer::PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int p
 		WeightInit(offsetEmbedWeights_, offsetEmbedCount_, offsetDim_, embedDim_, weightInitMethod);
 		CUDAMallocZero(&gradWeights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&gradPosEmbed_, posCount_*sizeof(__half));
+		if(temporalPosCount_ > 0){ CUDAMallocZero(&gradTemporalPosEmbed_, temporalPosCount_*sizeof(__half)); }
 		CUDAMallocZero(&gradOffsetWeights_, offsetCount_*sizeof(__half));
 		CUDAMallocZero(&gradOffsetEmbedWeights_, offsetEmbedCount_*sizeof(__half));
-		CUDAMallocZero(&outGrad_, batchSize_*inC_*inH_*inW_*sizeof(__half));
+		CUDAMallocZero(&outGrad_, static_cast<size_t>(batchSize_)*inC_*inH_*inW_*sizeof(__half));
 		CUDAMallocZero(&m_Weights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&v_Weights_, weightCount_*sizeof(__half));
 		CUDAMallocZero(&m_PosEmbed_, posCount_*sizeof(__half));
 		CUDAMallocZero(&v_PosEmbed_, posCount_*sizeof(__half));
+		if(temporalPosCount_ > 0){
+			CUDAMallocZero(&m_TemporalPosEmbed_, temporalPosCount_*sizeof(__half));
+			CUDAMallocZero(&v_TemporalPosEmbed_, temporalPosCount_*sizeof(__half));
+		}
 		CUDAMallocZero(&m_OffsetWeights_, offsetCount_*sizeof(__half));
 		CUDAMallocZero(&v_OffsetWeights_, offsetCount_*sizeof(__half));
 		CUDAMallocZero(&m_OffsetEmbed_, offsetEmbedCount_*sizeof(__half));
@@ -47,6 +58,7 @@ PatchEmbedLayer::PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int p
 PatchEmbedLayer::~PatchEmbedLayer(){
 	cudaFree(weights_);
 	cudaFree(posEmbed_);
+	cudaFree(temporalPosEmbed_);
 	cudaFree(offsetWeights_);
 	cudaFree(offsetEmbedWeights_);
 	cudaFree(outData_);
@@ -56,6 +68,7 @@ PatchEmbedLayer::~PatchEmbedLayer(){
 	if(train_){
 		cudaFree(gradWeights_);
 		cudaFree(gradPosEmbed_);
+		cudaFree(gradTemporalPosEmbed_);
 		cudaFree(gradOffsetWeights_);
 		cudaFree(gradOffsetEmbedWeights_);
 		cudaFree(outGrad_);
@@ -63,6 +76,8 @@ PatchEmbedLayer::~PatchEmbedLayer(){
 		cudaFree(v_Weights_);
 		cudaFree(m_PosEmbed_);
 		cudaFree(v_PosEmbed_);
+		cudaFree(m_TemporalPosEmbed_);
+		cudaFree(v_TemporalPosEmbed_);
 		cudaFree(m_OffsetWeights_);
 		cudaFree(v_OffsetWeights_);
 		cudaFree(m_OffsetEmbed_);
@@ -79,6 +94,7 @@ __half* PatchEmbedLayer::Forward(__half* data){
 		checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_N, embedDim_, batchSize_*numPatches_, offsetDim_, &alpha_, offsetEmbedWeights_, CUDA_R_16F, embedDim_, offsetActivations_, CUDA_R_16F, offsetDim_, &beta1_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	}
 	AddTensorBroadcast(alpha_, posEmbed_, alpha_, outData_, batchSize_, posCount_);
+	if(temporalPosCount_ > 0){ AddTemporalPositionalEmbedding(outData_, temporalPosEmbed_, baseBatchSize_, temporalLength_, numPatches_, embedDim_); }
 	return outData_;
 }
 __half* PatchEmbedLayer::Backward(__half* grad){
@@ -96,6 +112,7 @@ __half* PatchEmbedLayer::Backward(__half* grad){
 	}
 	const bool zeroPos = ((accumCount_ - 1) % gradAccumLength_) == 0;
 	SumPositionalGrad(grad, gradPosEmbed_, batchSize_, embedDim_, numPatches_, zeroPos, alphaWeights_);
+	if(temporalPosCount_ > 0){ SumTemporalPositionalGrad(grad, gradTemporalPosEmbed_, baseBatchSize_, temporalLength_, numPatches_, embedDim_, zeroPos, alphaWeights_); }
 	CombinePatchGrads(patchBuffer_, outGrad_, batchSize_, inC_, inH_, inW_, patchSize_);
 	return outGrad_;
 }
@@ -104,6 +121,7 @@ void PatchEmbedLayer::UpdateParameters(float lr){
 	if(useAdamW_){
 		AdamWHalf(weights_, gradWeights_, m_Weights_, v_Weights_, lr, t_, weightDecay_, weightCount_);
 		AdamWHalf(posEmbed_, gradPosEmbed_, m_PosEmbed_, v_PosEmbed_, lr, t_, 0.0f, posCount_);
+		if(temporalPosCount_ > 0){ AdamWHalf(temporalPosEmbed_, gradTemporalPosEmbed_, m_TemporalPosEmbed_, v_TemporalPosEmbed_, lr, t_, 0.0f, temporalPosCount_); }
 		if(offsetDim_ > 0){
 			AdamWHalf(offsetWeights_, gradOffsetWeights_, m_OffsetWeights_, v_OffsetWeights_, lr, t_, weightDecay_, offsetCount_);
 			AdamWHalf(offsetEmbedWeights_, gradOffsetEmbedWeights_, m_OffsetEmbed_, v_OffsetEmbed_, lr, t_, 0.0f, offsetEmbedCount_);
@@ -111,6 +129,7 @@ void PatchEmbedLayer::UpdateParameters(float lr){
 	} else{
 		SGDHalf(weights_, gradWeights_, weightCount_, lr, weightDecay_);
 		SGDHalf(posEmbed_, gradPosEmbed_, posCount_, lr, 0.0f);
+		if(temporalPosCount_ > 0){ SGDHalf(temporalPosEmbed_, gradTemporalPosEmbed_, temporalPosCount_, lr, 0.0f); }
 		if(offsetDim_ > 0){
 			SGDHalf(offsetWeights_, gradOffsetWeights_, offsetCount_, lr, weightDecay_);
 			SGDHalf(offsetEmbedWeights_, gradOffsetEmbedWeights_, offsetEmbedCount_, lr, 0.0f);
@@ -123,6 +142,10 @@ void PatchEmbedLayer::SaveParameters(std::ofstream& file, unsigned char* buffer)
 	file.write(reinterpret_cast<const char*>(buffer), weightCount_*sizeof(__half));
 	cudaMemcpy(buffer, posEmbed_, posCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), posCount_*sizeof(__half));
+	if(temporalPosCount_ > 0){
+		cudaMemcpy(buffer, temporalPosEmbed_, temporalPosCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), temporalPosCount_*sizeof(__half));
+	}
 	cudaMemcpy(buffer, offsetWeights_, offsetCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), offsetCount_*sizeof(__half));
 	cudaMemcpy(buffer, offsetEmbedWeights_, offsetEmbedCount_*sizeof(__half), cudaMemcpyDeviceToHost);
@@ -133,6 +156,10 @@ void PatchEmbedLayer::LoadParameters(std::ifstream& file, unsigned char* buffer)
 	cudaMemcpy(weights_, buffer, weightCount_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), posCount_*sizeof(__half));
 	cudaMemcpy(posEmbed_, buffer, posCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	if(temporalPosCount_ > 0){
+		file.read(reinterpret_cast<char*>(buffer), temporalPosCount_*sizeof(__half));
+		cudaMemcpy(temporalPosEmbed_, buffer, temporalPosCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	}
 	file.read(reinterpret_cast<char*>(buffer), offsetCount_*sizeof(__half));
 	cudaMemcpy(offsetWeights_, buffer, offsetCount_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), offsetEmbedCount_*sizeof(__half));
@@ -148,6 +175,12 @@ void PatchEmbedLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buf
 	file.write(reinterpret_cast<const char*>(buffer), posCount_*sizeof(__half));
 	cudaMemcpy(buffer, v_PosEmbed_, posCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 	file.write(reinterpret_cast<const char*>(buffer), posCount_*sizeof(__half));
+	if(temporalPosCount_ > 0){
+		cudaMemcpy(buffer, m_TemporalPosEmbed_, temporalPosCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), temporalPosCount_*sizeof(__half));
+		cudaMemcpy(buffer, v_TemporalPosEmbed_, temporalPosCount_*sizeof(__half), cudaMemcpyDeviceToHost);
+		file.write(reinterpret_cast<const char*>(buffer), temporalPosCount_*sizeof(__half));
+	}
 	if(offsetDim_ > 0){
 		cudaMemcpy(buffer, m_OffsetWeights_, offsetCount_*sizeof(__half), cudaMemcpyDeviceToHost);
 		file.write(reinterpret_cast<const char*>(buffer), offsetCount_*sizeof(__half));
@@ -170,6 +203,12 @@ void PatchEmbedLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buf
 	cudaMemcpy(m_PosEmbed_, buffer, posCount_*sizeof(__half), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), posCount_*sizeof(__half));
 	cudaMemcpy(v_PosEmbed_, buffer, posCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	if(temporalPosCount_ > 0){
+		file.read(reinterpret_cast<char*>(buffer), temporalPosCount_*sizeof(__half));
+		cudaMemcpy(m_TemporalPosEmbed_, buffer, temporalPosCount_*sizeof(__half), cudaMemcpyHostToDevice);
+		file.read(reinterpret_cast<char*>(buffer), temporalPosCount_*sizeof(__half));
+		cudaMemcpy(v_TemporalPosEmbed_, buffer, temporalPosCount_*sizeof(__half), cudaMemcpyHostToDevice);
+	}
 	if(offsetDim_ > 0){
 		file.read(reinterpret_cast<char*>(buffer), offsetCount_*sizeof(__half));
 		cudaMemcpy(m_OffsetWeights_, buffer, offsetCount_*sizeof(__half), cudaMemcpyHostToDevice);
@@ -182,14 +221,15 @@ void PatchEmbedLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buf
 	}
 	file.read(reinterpret_cast<char*>(&t_), sizeof(int));
 }
-size_t PatchEmbedLayer::GetParameterSize(){ return (weightCount_ + posCount_ + offsetCount_ + offsetEmbedCount_)*sizeof(__half); }
-size_t PatchEmbedLayer::GetOptimizerStateSize(){ return useAdamW_ ? (weightCount_ + posCount_ + offsetCount_ + offsetEmbedCount_)*sizeof(__half)*2 + sizeof(int) : 0; }
+size_t PatchEmbedLayer::GetParameterSize(){ return (weightCount_ + posCount_ + temporalPosCount_ + offsetCount_ + offsetEmbedCount_)*sizeof(__half); }
+size_t PatchEmbedLayer::GetOptimizerStateSize(){ return useAdamW_ ? (weightCount_ + posCount_ + temporalPosCount_ + offsetCount_ + offsetEmbedCount_)*sizeof(__half)*2 + sizeof(int) : 0; }
 void PatchEmbedLayer::SetTrain(const bool enable){ train_ = enable; }
 
 void PatchEmbedLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!useAdamW_ || !train_) return;
 	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_), weightDecay_});
 	halfTasks.push_back({posEmbed_, gradPosEmbed_, m_PosEmbed_, v_PosEmbed_, posCount_, 0.0f});
+	if(temporalPosCount_ > 0){ halfTasks.push_back({temporalPosEmbed_, gradTemporalPosEmbed_, m_TemporalPosEmbed_, v_TemporalPosEmbed_, temporalPosCount_, 0.0f}); }
 	if(offsetCount_ > 0){
 		halfTasks.push_back({offsetWeights_, gradOffsetWeights_, m_OffsetWeights_, v_OffsetWeights_, offsetCount_, weightDecay_});
 		halfTasks.push_back({offsetEmbedWeights_, gradOffsetEmbedWeights_, m_OffsetEmbed_, v_OffsetEmbed_, offsetEmbedCount_, 0.0f});

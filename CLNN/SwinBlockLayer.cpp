@@ -8,7 +8,7 @@
 #include "WmmaAttentionLayer.h"
 #include <algorithm>
 #include <vector>
-SwinBlockLayer::SwinBlockLayer(const int batchSize, const int nTokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth, const int shiftHeight, const int shiftWidth, const float dropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad, __half* tokens, float* sharedAttentionMask, const bool ownsAttentionMask, __half* attentionWorkspace, __half* qPacked, __half* kPacked, __half* vPacked, __half* attnOutPacked, __half* dQPacked, __half* dKPacked, __half* dVPacked, float* attnGradWorkspace) : batchSize_(batchSize), nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth){
+SwinBlockLayer::SwinBlockLayer(const int batchSize, const int nTokens, const int embedDim, const int ffDim, const int numHeads, const int patchRows, const int patchCols, const int windowHeight, const int windowWidth, const int shiftHeight, const int shiftWidth, const float dropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, __half* windowedInput, __half* windowedGrad, __half* tokens, float* sharedAttentionMask, const bool ownsAttentionMask, __half* attentionWorkspace, __half* qPacked, __half* kPacked, __half* vPacked, __half* attnOutPacked, __half* dQPacked, __half* dKPacked, __half* dVPacked, float* attnGradWorkspace, const int temporalLength) : batchSize_(batchSize), nTokens_(nTokens), embedDim_(embedDim), ffDim_(ffDim), numHeads_(numHeads), patchRows_(patchRows), patchCols_(patchCols), windowHeight_(windowHeight), windowWidth_(windowWidth), shiftHeight_(shiftHeight), shiftWidth_(shiftWidth), temporalLength_(temporalLength){
 	layerName_ = layerName;
 	train_ = train;
 	if(nTokens_ != patchRows_*patchCols_){ throw std::invalid_argument("SwinBlockLayer tokens must match patch grid"); }
@@ -16,6 +16,9 @@ SwinBlockLayer::SwinBlockLayer(const int batchSize, const int nTokens, const int
 	windowTokens_ = windowHeight_*windowWidth_;
 	windowCount_ = (patchRows_ / windowHeight_)*(patchCols_ / windowWidth_);
 	windowBatch_ = batchSize_*windowCount_;
+	if(temporalLength_ <= 0){ throw std::invalid_argument("SwinBlockLayer temporalLength must be >= 1"); }
+	if(batchSize_ % temporalLength_ != 0){ throw std::invalid_argument("SwinBlockLayer batchSize must be divisible by temporalLength"); }
+	baseBatchSize_ = batchSize_/temporalLength_;
 	outNCHW_ = batchSize_*nTokens_*embedDim_;
 	norm1_ = new LayerNorm(batchSize_*nTokens_, embedDim_, 1, 1, "SwinNorm1", train);
 	layers_.push_back(norm1_);
@@ -37,6 +40,14 @@ SwinBlockLayer::SwinBlockLayer(const int batchSize, const int nTokens, const int
 	layers_.push_back(ffDrop_);
 	ffDropPath_ = new DropPath(dropPathRate, batchSize_, nTokens_*embedDim_, "SwinFfDropPath", train);
 	layers_.push_back(ffDropPath_);
+	if(temporalLength_ > 1){
+		temporalNorm_ = new LayerNorm(batchSize_*nTokens_, embedDim_, 1, 1, "SwinTemporalNorm", train);
+		layers_.push_back(temporalNorm_);
+		temporalAttention_ = new WmmaAttentionLayer(baseBatchSize_*nTokens_, temporalLength_, embedDim_, numHeads_, "SwinTemporalAttention", train, weightDecay, gradAccumLength, weightInitMethod);
+		layers_.push_back(temporalAttention_);
+		CUDAMallocZero(&temporalPacked_, static_cast<size_t>(outNCHW_)*sizeof(__half));
+		CUDAMallocZero(&temporalUnpacked_, static_cast<size_t>(outNCHW_)*sizeof(__half));
+	}
 	{
 		std::vector<int> relPosIndex(windowTokens_*windowTokens_, 0);
 		const int relWidth = 2*windowWidth_ - 1;
@@ -108,6 +119,8 @@ SwinBlockLayer::~SwinBlockLayer(){
 		cudaFree(windowedGrad_);
 		cudaFree(tokens_);
 	}
+	cudaFree(temporalPacked_);
+	cudaFree(temporalUnpacked_);
 	if(ownsAttentionMask_){ cudaFree(attentionMask_); }
 }
 __half* SwinBlockLayer::Forward(__half* data){
@@ -127,9 +140,26 @@ __half* SwinBlockLayer::Forward(__half* data){
 	data = ffDrop_->Forward(data);
 	data = ffDropPath_->Forward(data);
 	AddTensor(mixFwd_, data, mixFwd_, residual2, static_cast<int>(outNCHW_));
+	if(temporalLength_ > 1){
+		const auto* residual3 = data;
+		data = temporalNorm_->Forward(data);
+		TemporalPackTokens(data, temporalPacked_, baseBatchSize_, temporalLength_, nTokens_, embedDim_);
+		data = temporalAttention_->Forward(temporalPacked_);
+		TemporalUnpackTokens(data, temporalUnpacked_, baseBatchSize_, temporalLength_, nTokens_, embedDim_);
+		AddTensor(mixFwd_, temporalUnpacked_, mixFwd_, residual3, static_cast<int>(outNCHW_));
+		return temporalUnpacked_;
+	}
 	return data;
 }
 __half* SwinBlockLayer::Backward(__half* grad){
+	if(temporalLength_ > 1){
+		const auto* residual3 = grad;
+		TemporalPackTokens(grad, temporalPacked_, baseBatchSize_, temporalLength_, nTokens_, embedDim_);
+		grad = temporalAttention_->Backward(temporalPacked_);
+		TemporalUnpackTokens(grad, temporalUnpacked_, baseBatchSize_, temporalLength_, nTokens_, embedDim_);
+		grad = temporalNorm_->Backward(temporalUnpacked_);
+		AddTensor(mixBwd_, grad, mixBwd_, residual3, static_cast<int>(outNCHW_));
+	}
 	const auto* residual2 = grad;
 	grad = ffDropPath_->Backward(grad);
 	grad = ffDrop_->Backward(grad);

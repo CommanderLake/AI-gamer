@@ -4,7 +4,7 @@
 class __declspec(dllexport) PatchEmbedLayer final : public Layer{
 public:
 	const bool useAdamW_ = true;
-	PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod);
+	PatchEmbedLayer(int batchSize, int inC, int inH, int inW, int patchSize, int embedDim, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, int temporalLength = 1);
 	~PatchEmbedLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -18,6 +18,8 @@ public:
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	int batchSize_, inC_, inH_, inW_;
+	int temporalLength_ = 1;
+	int baseBatchSize_ = 0;
 	int patchSize_, embedDim_;
 	int patchRows_, patchCols_;
 	int patchDim_;
@@ -52,4 +54,8 @@ public:
 	int gradAccumLength_;
 	int accumCount_ = 0;
 	int posCount_ = 0;
+	int temporalPosCount_ = 0;
+	__half* temporalPosEmbed_ = nullptr;
+	__half* gradTemporalPosEmbed_ = nullptr;
+	__half *m_TemporalPosEmbed_ = nullptr, *v_TemporalPosEmbed_ = nullptr;
 };
