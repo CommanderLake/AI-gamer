@@ -20,7 +20,6 @@ public:
 	int batchSize_, inC_, inH_, inW_;
 	int temporalLength_ = 1;
 	int baseBatchSize_ = 0;
-	int effectiveBatch_ = 0;
 	int patchSize_, embedDim_;
 	int patchRows_, patchCols_;
 	int patchDim_;

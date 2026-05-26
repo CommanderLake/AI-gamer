@@ -59,7 +59,7 @@ __global__ void ScaleHalfKernel(__half* data, const size_t count, const float sc
 }
 void ScaleArrayHalf(__half* data, const size_t count, const float scale){
 	if(!data || scale == 1.0f || count == 0) return;
-	size_t blocks = 0, threads = 0;
+	size_t blocks = 0, threads = 512;
 	GetLaunchConfigGridStride(count, blocks, threads);
 	ScaleHalfKernel<<<blocks, threads>>>(data, count, scale);
 	checkCUDA(cudaGetLastError());
