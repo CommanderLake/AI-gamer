@@ -129,6 +129,11 @@ void FCLayer::SetTrain(const bool enable){
 	train_ = enable;
 }
 
+void FCLayer::ZeroParams(){
+	checkCUDA(cudaMemset(weights_, 0, weightCount_*sizeof(__half)));
+	if(useBias_){ checkCUDA(cudaMemset(biases_, 0, outC_*sizeof(__half))); }
+}
+
 void FCLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!useAdamW_ || !train_) return;
 	halfTasks.push_back({weights_, gradWeights_, m_Weights_, v_Weights_, static_cast<int>(weightCount_), weightDecay_});

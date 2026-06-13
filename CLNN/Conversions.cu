@@ -1,5 +1,8 @@
+#define __CUDACC__
 #include "CuCommon.h"
 #include <device_launch_parameters.h>
+#define LOOP(i,a,b) for(size_t i=(a)+size_t(blockIdx.x)*blockDim.x+threadIdx.x,s=size_t(blockDim.x)*gridDim.x;i<(b);i+=s)
+__device__ __forceinline__ unsigned char u8(float x){ return static_cast<unsigned char>(__float2uint_rz(x)); }
 __global__ void cuARGBtoRGB(const PixARGB* src, PixRGB* dst, size_t n){
 	const auto stride = blockDim.x*gridDim.x;
 	for(int i = blockIdx.x*blockDim.x + threadIdx.x; i < n; i += stride){
@@ -29,53 +32,86 @@ void ARGBtoRGBplanar(const unsigned char* src, unsigned char* dst, size_t n){
 	cuARGBtoRGBplanar<<<blocks, tpb>>>(src, dst, n);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void ConvertByteToHalfKernel(const unsigned char* input, __half* output, const size_t size, const float scale){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __float2half(input[idx]/scale); }
+__global__ void B2H(const unsigned char* __restrict__ x, __half* __restrict__ y, const size_t n, const float inv){
+	const size_t n4 = n >> 2;
+	const auto x4 = reinterpret_cast<const uchar4*>(x);
+	const auto y2 = reinterpret_cast<__half2*>(y);
+	LOOP(i, 0, n4){
+		const uchar4 v = x4[i];
+		y2[2*i] = __floats2half2_rn(v.x*inv, v.y*inv);
+		y2[2*i + 1] = __floats2half2_rn(v.z*inv, v.w*inv);
+	}
+	LOOP(i, n4<<2, n) y[i] = __float2half(x[i]*inv);
 }
-void ConvertByteToHalf(const unsigned char* input, __half* output, const size_t size, bool normalize){
+void ConvertByteToHalf(const unsigned char* input, __half* output, const size_t size, const bool normalize){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
-	ConvertByteToHalfKernel<<<blocks, tpb>>>(input, output, size, normalize ? 255.0 : 1.0f);
+	B2H<<<blocks, tpb>>>(input, output, size, normalize ? 1.0f/255.0f : 1.0f);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void ConvertHalfToByteKernel(const __half* input, unsigned char* output, const size_t size, const float scale){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = static_cast<unsigned char>(__half2float(input[idx])*scale); }
+__global__ void H2B(const __half* __restrict__ x, unsigned char* __restrict__ y, const size_t n, const float scale){
+	const size_t n4 = n >> 2;
+	const auto x2 = reinterpret_cast<const __half2*>(x);
+	const auto y4 = reinterpret_cast<uchar4*>(y);
+	LOOP(i, 0, n4){
+		const float2 a = __half22float2(x2[2*i]), b = __half22float2(x2[2*i + 1]);
+		y4[i] = make_uchar4(u8(a.x*scale), u8(a.y*scale), u8(b.x*scale), u8(b.y*scale));
+	}
+	LOOP(i, n4<<2, n) y[i] = u8(__half2float(x[i])*scale);
 }
 void ConvertHalfToByte(const __half* input, unsigned char* output, const size_t size, const bool normalize){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
-	ConvertHalfToByteKernel<<<blocks, tpb>>>(input, output, size, normalize ? 255.0f : 1.0f);
+	H2B<<<blocks, tpb>>>(input, output, size, normalize ? 255.0f : 1.0f);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void ConvertFloatToHalfKernel(const float* input, __half* output, const size_t size){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __float2half(input[idx]); }
+__global__ void F2H(const float* __restrict__ x, __half* __restrict__ y, size_t n){
+	const size_t n4 = n >> 2;
+	const auto x4 = reinterpret_cast<const float4*>(x);
+	const auto y2 = reinterpret_cast<__half2*>(y);
+	LOOP(i, 0, n4){
+		const float4 v = x4[i];
+		y2[2*i] = __floats2half2_rn(v.x, v.y);
+		y2[2*i + 1] = __floats2half2_rn(v.z, v.w);
+	}
+	LOOP(i, n4<<2, n) y[i] = __float2half(x[i]);
 }
 void ConvertFloatToHalf(const float* input, __half* output, const size_t size){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
-	ConvertFloatToHalfKernel<<<blocks, tpb>>>(input, output, size);
+	F2H<<<blocks, tpb>>>(input, output, size);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void ConvertHalfToFloatKernel(const __half* input, float* output, const size_t size){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ output[idx] = __half2float(input[idx]); }
+__global__ void H2F(const __half* __restrict__ x, float* __restrict__ y, size_t n){
+	const size_t n4 = n >> 2;
+	const auto x2 = reinterpret_cast<const __half2*>(x);
+	const auto y4 = reinterpret_cast<float4*>(y);
+	LOOP(i, 0, n4){
+		const float2 a = __half22float2(x2[2*i]), b = __half22float2(x2[2*i + 1]);
+		y4[i] = make_float4(a.x, a.y, b.x, b.y);
+	}
+	LOOP(i, n4<<2, n) y[i] = __half2float(x[i]);
 }
 void ConvertHalfToFloat(const __half* input, float* output, const size_t size){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
-	ConvertHalfToFloatKernel<<<blocks, tpb>>>(input, output, size);
+	H2F<<<blocks, tpb>>>(input, output, size);
 	checkCUDA(cudaGetLastError());
 }
-__global__ void ConvertFloatToHalfScaleKernel(__half* halfWeights, const float* weights, const size_t size, const float scale){
-	const auto stride = blockDim.x*gridDim.x;
-	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){ halfWeights[idx] = __float2half(weights[idx]*scale); }
+__global__ void F2HS(__half* __restrict__ y, const float* __restrict__ x, const size_t n, const float scale){
+	const size_t n4 = n >> 2;
+	const auto x4 = reinterpret_cast<const float4*>(x);
+	const auto y2 = reinterpret_cast<__half2*>(y);
+	LOOP(i, 0, n4){
+		const float4 v = x4[i];
+		y2[2*i] = __floats2half2_rn(v.x*scale, v.y*scale);
+		y2[2*i + 1] = __floats2half2_rn(v.z*scale, v.w*scale);
+	}
+	LOOP(i, n4<<2, n) y[i] = __float2half(x[i]*scale);
 }
 void ConvertFloatToHalfScale(__half* halfWeights, const float* weights, const size_t size, const float scale){
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(size, blocks, tpb);
-	ConvertFloatToHalfScaleKernel<<<blocks, tpb>>>(halfWeights, weights, size, scale);
+	F2HS<<<blocks, tpb>>>(halfWeights, weights, size, scale);
 	checkCUDA(cudaGetLastError());
 }

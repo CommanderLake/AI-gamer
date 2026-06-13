@@ -21,6 +21,9 @@
     <ClCompile Include="ConvLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Conv1DLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ConvScale.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -96,6 +99,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ConvLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Conv1DLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ConvScale.h">

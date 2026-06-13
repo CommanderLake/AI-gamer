@@ -13,6 +13,7 @@
   <ItemGroup>
     <ClCompile Include="AsinhLayer.cpp" />
     <ClCompile Include="ConvLayer.cpp" />
+    <ClCompile Include="Conv1DLayer.cpp" />
     <ClCompile Include="ConvScale.cpp" />
     <ClCompile Include="Dropout.cpp" />
     <ClCompile Include="DropPath.cpp" />
@@ -41,6 +42,7 @@
     <ClInclude Include="APICommon.h" />
     <ClInclude Include="AsinhLayer.h" />
     <ClInclude Include="ConvLayer.h" />
+    <ClInclude Include="Conv1DLayer.h" />
     <ClInclude Include="ConvScale.h" />
     <ClInclude Include="CuCommon.h" />
     <ClInclude Include="Dropout.h" />

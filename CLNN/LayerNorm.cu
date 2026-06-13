@@ -149,6 +149,28 @@ __global__ void LayerNormForwardSpatialFusedKernel(__half* __restrict__ y, const
 		__syncthreads();
 	}
 }
+__global__ void LayerNormForwardSpatialThreadKernel(__half* __restrict__ y, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ b, float* __restrict__ mean, float* __restrict__ var, int N, int C, int HW){
+	const int n = blockIdx.y;
+	if(n >= N) return;
+	for(int hw = blockIdx.x*blockDim.x + threadIdx.x; hw < HW; hw += gridDim.x*blockDim.x){
+		const int base = n*C*HW + hw;
+		WelfordData data{0.0f, 0.0f, 0.0f};
+		for(int c = 0; c < C; ++c){
+			data = WelfordUpdate(data, __half2float(x[base + c*HW]));
+		}
+		const float m = data.mean;
+		const float variance = data.count > 0.0f ? fmaxf(data.m2/data.count, 0.0f) : 0.0f;
+		const int nhw = n*HW + hw;
+		mean[nhw] = m;
+		var[nhw] = variance;
+		const float invStd = rsqrtf(variance + EPSILON_LN);
+		for(int c = 0; c < C; ++c){
+			const int idx = base + c*HW;
+			const float norm = (__half2float(x[idx]) - m)*invStd;
+			y[idx] = __float2half(fmaf(norm, __ldg(g + c), __ldg(b + c)));
+		}
+	}
+}
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW, bool spatialMode){
 	if(!y || !x || !g || !b || !mean || !var){
 		fprintf(stderr, "LayerNormForward: Null pointer input\n");
@@ -163,22 +185,28 @@ void LayerNormForward(__half* y, const __half* x, const float* g, const float* b
 		const int threads = SelectLayerNormThreads(C);
 		const int warpsPerBlock = (threads + 31)/32;
 		const size_t smemSize = warpsPerBlock*sizeof(WelfordData);
-		int maxSmem;
-		cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0);
+		static int maxSmem = 0;
+		if(maxSmem == 0){ cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0); }
 		if(smemSize > maxSmem){
 			fprintf(stderr, "LayerNormForward: Required shared memory %zu exceeds limit %d\n", smemSize, maxSmem);
 			return;
 		}
 		const int gridX = min(HW, 65535);
 		dim3 grid(gridX, N, 1);
-		LayerNormForwardSpatialFusedKernel<<<grid, threads, smemSize>>>(y, x, g, b, mean, var, N, C, HW);
+		if(C <= 64){
+			const int spatialTpb = 256;
+			const int spatialGridX = min(DivCeil(HW, spatialTpb), 65535);
+			LayerNormForwardSpatialThreadKernel<<<dim3(spatialGridX, N, 1), spatialTpb>>>(y, x, g, b, mean, var, N, C, HW);
+		} else{
+			LayerNormForwardSpatialFusedKernel<<<grid, threads, smemSize>>>(y, x, g, b, mean, var, N, C, HW);
+		}
 		checkCUDA(cudaGetLastError());
 	} else{
 		const int threads = SelectLayerNormThreads(stride);
 		const int warpsPerBlock = (threads + 31)/32;
 		const size_t smemSize = warpsPerBlock*sizeof(WelfordData);
-		int maxSmem;
-		cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0);
+		static int maxSmem = 0;
+		if(maxSmem == 0){ cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0); }
 		if(smemSize > maxSmem){
 			fprintf(stderr, "LayerNormForward: Required shared memory %zu exceeds limit %d\n", smemSize, maxSmem);
 			return;
@@ -347,6 +375,26 @@ __global__ void ComputeStatsSpatialKernel(const __half* __restrict__ dy, const _
 		__syncthreads();
 	}
 }
+__global__ void ComputeStatsSpatialThreadKernel(const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ mean, const float* __restrict__ var, float* __restrict__ d1, float* __restrict__ d2, int N, int C, int HW){
+	const int NHW = N*HW;
+	for(int nhw = blockIdx.x*blockDim.x + threadIdx.x; nhw < NHW; nhw += gridDim.x*blockDim.x){
+		const int n = nhw/HW;
+		const int hw = nhw % HW;
+		const int base = n*C*HW + hw;
+		const float invStd = rsqrtf(fmaxf(var[nhw], 0.0f) + EPSILON_LN);
+		const float m = mean[nhw];
+		PairData threadData{0.0f, 0.0f};
+		for(int c = 0; c < C; ++c){
+			const int idx = base + c*HW;
+			const float dy_g = __half2float(dy[idx])*__ldg(g + c);
+			const float xnorm = (__half2float(x[idx]) - m)*invStd;
+			threadData.x += dy_g;
+			threadData.y = fmaf(dy_g, xnorm, threadData.y);
+		}
+		d1[nhw] = threadData.x;
+		d2[nhw] = threadData.y;
+	}
+}
 __global__ void InputGradKernel(__half* __restrict__ dx, const __half* __restrict__ dy, const __half* __restrict__ x, const float* __restrict__ g, const float* __restrict__ d1, const float* __restrict__ d2, const float* __restrict__ mean, const float* __restrict__ var, int N, int C, int HW){
 	const int n = blockIdx.y;
 	if(n >= N) return;
@@ -422,21 +470,18 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 	float* d2 = d1 + statsCount;
 	checkCUDA(cudaMemset(dG, 0, C*sizeof(float)));
 	checkCUDA(cudaMemset(dB, 0, C*sizeof(float)));
-	checkCUDA(cudaMemset(d1, 0, statsCount*sizeof(float)));
-	checkCUDA(cudaMemset(d2, 0, statsCount*sizeof(float)));
-	int maxSmem;
-	cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0);
+	static int maxSmem = 0;
+	if(maxSmem == 0){ cudaDeviceGetAttribute(&maxSmem, cudaDevAttrMaxSharedMemoryPerBlock, 0); }
 	if(spatialMode){
 		const int nhw = N*HW;
-		const int gradTpb = SelectLayerNormThreads(max(nhw, 1));
+		const int gradTpb = 256;
 		const int gradWarps = DivCeil(gradTpb, 32);
 		const size_t gradSmemSize = gradWarps*sizeof(PairData);
 		if(gradSmemSize > maxSmem){
 			fprintf(stderr, "LayerNormBackward: Required shared memory %zu exceeds limit %d\n", gradSmemSize, maxSmem);
 			return;
 		}
-		int gradGridY = min(max(nhw, 1), 65535);
-		if(gradGridY < 1){ gradGridY = 1; }
+		const int gradGridY = max(1, min(DivCeil(nhw, gradTpb*16), 256));
 		dim3 gradGrid(C, gradGridY, 1);
 		GradGammaBetaSpatialKernel<<<gradGrid, gradTpb, gradSmemSize>>>(dy, x, mean, var, dG, dB, N, C, HW);
 		checkCUDA(cudaGetLastError());
@@ -448,7 +493,13 @@ void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const floa
 			return;
 		}
 		const int statsGridX = min(max(nhw, 1), 65535);
-		ComputeStatsSpatialKernel<<<statsGridX, statsTpb, statsSmemSize>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
+		if(C <= 64){
+			const int spatialTpb = 256;
+			const int spatialGridX = min(DivCeil(nhw, spatialTpb), 65535);
+			ComputeStatsSpatialThreadKernel<<<spatialGridX, spatialTpb>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
+		} else{
+			ComputeStatsSpatialKernel<<<statsGridX, statsTpb, statsSmemSize>>>(dy, x, g, mean, var, d1, d2, N, C, HW);
+		}
 		checkCUDA(cudaGetLastError());
 		const int stride = C*HW;
 		const int tpb = SelectLayerNormThreads(stride);

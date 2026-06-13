@@ -4,6 +4,7 @@
 #include <device_functions.h>
 __device__ float dLossKeys;
 __device__ float dLossMouse;
+__device__ float dLossSmoothL1;
 __device__ inline float BceWithLogitsLoss(const float logit, const float target){
 	const float maxPart = fmaxf(logit, 0.0f);
 	const float negAbs = -fabsf(logit);
@@ -96,5 +97,61 @@ __global__ void LossBackpropKernel(__half* gradients, const __half* predictions,
 void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, const float clip, const int size, const int numCtrls, const int numButs, const int batchSize){
 	auto gridSize = DivCeil(size, 256);
 	LossBackpropKernel<<<gridSize, 256>>>(dGradient, dPredictions, dTargets, clip, numCtrls, numButs, batchSize, size);
+	checkCUDA(cudaGetLastError());
+}
+__device__ inline float SmoothL1Loss(const float diff, const float beta){
+	const float absDiff = fabsf(diff);
+	if(beta <= 0.0f){ return absDiff; }
+	if(absDiff < beta){ return 0.5f*diff*diff/beta; }
+	return absDiff - 0.5f*beta;
+}
+__device__ inline float SmoothL1Grad(const float diff, const float beta){
+	if(beta <= 0.0f){ return diff >= 0.0f ? 1.0f : -1.0f; }
+	const float absDiff = fabsf(diff);
+	if(absDiff < beta){ return diff/beta; }
+	return diff >= 0.0f ? 1.0f : -1.0f;
+}
+__global__ void SmoothL1LossStatsKernel(const __half* predictions, const __half* targets, const float beta, const int size){
+	extern __shared__ float sdata[];
+	const int tid = threadIdx.x;
+	const int stride = gridDim.x*blockDim.x;
+	float sum = 0.0f;
+	for(int idx = blockIdx.x*blockDim.x + threadIdx.x; idx < size; idx += stride){
+		const float diff = __half2float(predictions[idx]) - __half2float(targets[idx]);
+		sum += SmoothL1Loss(diff, beta);
+	}
+	sdata[tid] = sum;
+	__syncthreads();
+	for(int s = blockDim.x/2; s > 0; s >>= 1){
+		if(tid < s){ sdata[tid] += sdata[tid + s]; }
+		__syncthreads();
+	}
+	if(tid == 0){ atomicAdd(&dLossSmoothL1, sdata[0]); }
+}
+void SmoothL1LossStats(const __half* dPredictions, const __half* dTargets, const float beta, const int size, float* loss){
+	if(size <= 0){
+		*loss = 0.0f;
+		return;
+	}
+	constexpr auto zero = 0.0f;
+	cudaMemcpyToSymbol(dLossSmoothL1, &zero, sizeof(float), 0, cudaMemcpyHostToDevice);
+	auto gridSize = DivCeil(size, 256);
+	SmoothL1LossStatsKernel<<<gridSize, 256, 256*sizeof(float)>>>(dPredictions, dTargets, beta, size);
+	checkCUDA(cudaGetLastError());
+	cudaMemcpyFromSymbol(loss, dLossSmoothL1, sizeof(float));
+	*loss /= size;
+}
+__global__ void SmoothL1LossBackpropKernel(__half* gradients, const __half* predictions, const __half* targets, const float beta, const float clip, const int size, const float gradientScale){
+	const int idx = blockIdx.x*blockDim.x + threadIdx.x;
+	if(idx < size){
+		const float diff = __half2float(predictions[idx]) - __half2float(targets[idx]);
+		const float grad = SmoothL1Grad(diff, beta)*gradientScale;
+		gradients[idx] = __float2half(fmaxf(-clip, fminf(clip, grad)));
+	}
+}
+void SmoothL1LossBackprop(__half* dGradient, const __half* dPredictions, const __half* dTargets, const float beta, const float clip, const int size, const float gradientScale){
+	if(size <= 0) return;
+	auto gridSize = DivCeil(size, 256);
+	SmoothL1LossBackpropKernel<<<gridSize, 256>>>(dGradient, dPredictions, dTargets, beta, clip, size, gradientScale);
 	checkCUDA(cudaGetLastError());
 }

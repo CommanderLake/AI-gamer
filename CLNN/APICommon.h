@@ -1,4 +1,10 @@
 #pragma once
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <library_types.h>
+#include <stdexcept>
+#include <iostream>
+#include <string>
 #ifdef CLNN_SHARED
 #    ifdef CLNN_BUILD
 #        define CLNN_API __declspec(dllexport)
@@ -8,12 +14,6 @@
 #else
 #    define CLNN_API
 #endif
-#include <cuda_runtime.h>
-#include <cuda_fp16.h>
-#include <library_types.h>
-#include <stdexcept>
-#include <iostream>
-#include <string>
 enum WeightInitMethod{
 	He, Xavier
 };
@@ -89,14 +89,30 @@ T RoundUp(T x, T m){
 	return m ? m*DivCeil(x, m) : x;
 }
 template<class T>
-void CUDAMallocZero(T** ptr, size_t size){
+void CUDAMallocZero(T** ptr, const size_t size){
 	checkCUDA(cudaMalloc(reinterpret_cast<void**>(ptr), size));
 	checkCUDA(cudaMemset(*ptr, 0, size));
+}
+template<class T>
+T* CUDAMallocZero(const size_t size){
+	T* ptr = nullptr;
+	checkCUDA(cudaMalloc(reinterpret_cast<void**>(&ptr), size));
+	checkCUDA(cudaMemset(ptr, 0, size));
+	return ptr;
+}
+template<class T>
+T* CUDAMallocZeroHost(const size_t size){
+	T* ptr = nullptr;
+	checkCUDA(cudaMallocHost(reinterpret_cast<void**>(&ptr), size));
+	checkCUDA(cudaMemset(ptr, 0, size));
+	return ptr;
 }
 CLNN_API void InitCUDA();
 CLNN_API CLNNStatusT InitCublas();
 CLNN_API void LossStats(const __half* dPredictions, const float* dTargets, int numButs, int numCtrls, int batchSize, float* butLoss, float* axesLoss);
 CLNN_API void LossBackprop(__half* dGradient, const __half* dPredictions, const float* dTargets, float clip, int size, int numCtrls, int numButs, int batchSize);
+CLNN_API void SmoothL1LossStats(const __half* dPredictions, const __half* dTargets, float beta, int size, float* loss);
+CLNN_API void SmoothL1LossBackprop(__half* dGradient, const __half* dPredictions, const __half* dTargets, float beta, float clip, int size, float gradientScale);
 CLNN_API void BlockShiftHalf(__half* dPtr, int shiftBy, int blocksToShift);
 CLNN_API void ConvertByteToHalf(const unsigned char* input, __half* output, size_t size, bool normalize);
 CLNN_API void ConvertHalfToByte(const __half* input, unsigned char* output, size_t size, bool normalize);
