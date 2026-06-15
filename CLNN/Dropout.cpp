@@ -32,4 +32,13 @@ __half* Dropout::Backward(__half* grad){
 	DropoutBackward(grad, mask_, static_cast<int>(outNCHW_), keepProb_);
 	return grad;
 }
+__half* Dropout::ReplayForward(__half* data){
+	if(!train_ || dropoutRate_ <= 0.0f){ return data; }
+	if(dropoutRate_ >= 1.0f){
+		checkCUDA(cudaMemset(data, 0, outNCHW_*sizeof(__half)));
+		return data;
+	}
+	DropoutBackward(data, mask_, static_cast<int>(outNCHW_), keepProb_);
+	return data;
+}
 void Dropout::SetTrain(const bool enable){ train_ = enable; }

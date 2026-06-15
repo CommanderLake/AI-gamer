@@ -10,7 +10,7 @@ class Dropout;
 class DropPath;
 class __declspec(dllexport) SwinBlockLayer final : public Layer{
 public:
-	SwinBlockLayer(int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true, __half* attentionWorkspace = nullptr, __half* qPacked = nullptr, __half* kPacked = nullptr, __half* vPacked = nullptr, __half* attnOutPacked = nullptr, __half* dQPacked = nullptr, __half* dKPacked = nullptr, __half* dVPacked = nullptr, float* attnGradWorkspace = nullptr);
+	SwinBlockLayer(int batchSize, int nTokens, int embedDim, int ffDim, int numHeads, int patchRows, int patchCols, int windowHeight, int windowWidth, int shiftHeight, int shiftWidth, float dropPathRate, std::string layerName, bool train, float weightDecay, int gradAccumLength, WeightInitMethod weightInitMethod, __half* windowedInput = nullptr, __half* windowedGrad = nullptr, __half* tokens = nullptr, float* sharedAttentionMask = nullptr, bool ownsAttentionMask = true, __half* attentionWorkspace = nullptr, __half* qPacked = nullptr, __half* kPacked = nullptr, __half* vPacked = nullptr, __half* attnOutPacked = nullptr, __half* dQPacked = nullptr, __half* dKPacked = nullptr, __half* dVPacked = nullptr, float* attnGradWorkspace = nullptr, bool cacheActivations = false);
 	~SwinBlockLayer() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
@@ -24,6 +24,7 @@ public:
 	void SetTrain(bool enable) override;
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 private:
+	__half* ForwardImpl(__half* data, bool replayMasks);
 	int batchSize_;
 	int nTokens_;
 	int embedDim_;
@@ -52,7 +53,13 @@ private:
 	__half* windowedInput_ = nullptr;
 	__half* windowedGrad_ = nullptr;
 	__half* tokens_ = nullptr;
+	__half* checkpointInput_ = nullptr;
+	__half* activationCache_ = nullptr;
+	__half* residual2Cache_ = nullptr;
 	float* attentionMask_ = nullptr;
+	size_t attentionCacheBytes_ = 0;
+	bool cacheActivations_ = false;
+	bool activationCacheValid_ = false;
 	bool ownsWorkspace_ = true;
 	bool ownsAttentionMask_ = true;
 	const float mixFwd_ = 1.0f;

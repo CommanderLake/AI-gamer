@@ -1,18 +1,40 @@
 #include "WmmaAttentionLayer.h"
 #include "HostCommon.h"
 #include "CuCommon.h"
+#include <limits>
 #include <stdexcept>
 WmmaAttentionLayer::WmmaAttentionLayer(int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod) :
 	WmmaAttentionLayer(batchSize, tokens, embedDim, numHeads, std::move(layerName), train, weightDecay, gradAccumLength, weightInitMethod, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr){}
 WmmaAttentionLayer::WmmaAttentionLayer(int batchSize, int tokens, int embedDim, int numHeads, std::string layerName, bool train, float weightDecay, const int gradAccumLength, WeightInitMethod weightInitMethod,
 	__half* sharedWorkspace, __half* sharedQPacked, __half* sharedKPacked, __half* sharedVPacked, __half* sharedAttnOutPacked, __half* sharedDQPacked, __half* sharedDKPacked, __half* sharedDVPacked,
 	float* sharedAttnGradWorkspace) : batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), numHeads_(numHeads), gradAccumLength_(gradAccumLength), weightDecay_(weightDecay){
+	if(batchSize_ <= 0 || tokens_ <= 0 || embedDim_ <= 0 || numHeads_ <= 0){
+		throw std::invalid_argument("WmmaAttentionLayer dimensions must be positive");
+	}
+	if(embedDim_ % numHeads_ != 0){
+		throw std::invalid_argument("WmmaAttentionLayer embedDim must be divisible by numHeads");
+	}
+	if(gradAccumLength_ <= 0){ throw std::invalid_argument("WmmaAttentionLayer gradAccumLength must be positive"); }
+	const size_t outputElements = static_cast<size_t>(batchSize_)*tokens_*embedDim_;
+	if(outputElements > static_cast<size_t>(std::numeric_limits<int>::max())){
+		throw std::overflow_error("WmmaAttentionLayer tensor is too large");
+	}
+	const size_t projectionElements = static_cast<size_t>(embedDim_)*embedDim_;
+	if(projectionElements > static_cast<size_t>(std::numeric_limits<int>::max())){
+		throw std::overflow_error("WmmaAttentionLayer projection is too large");
+	}
+	const bool anySharedTemporary = sharedWorkspace != nullptr || sharedQPacked != nullptr || sharedKPacked != nullptr || sharedVPacked != nullptr || sharedAttnOutPacked != nullptr;
+	const bool allSharedTemporaries = sharedWorkspace != nullptr && sharedQPacked != nullptr && sharedKPacked != nullptr && sharedVPacked != nullptr && sharedAttnOutPacked != nullptr;
+	if(anySharedTemporary && !allSharedTemporaries){ throw std::invalid_argument("WmmaAttentionLayer shared temporaries must be supplied together"); }
+	const bool anySharedGrad = sharedDQPacked != nullptr || sharedDKPacked != nullptr || sharedDVPacked != nullptr;
+	const bool allSharedGrads = sharedDQPacked != nullptr && sharedDKPacked != nullptr && sharedDVPacked != nullptr;
+	if(anySharedGrad && !allSharedGrads){ throw std::invalid_argument("WmmaAttentionLayer shared gradient temporaries must be supplied together"); }
 	layerName_ = layerName;
 	train_ = train;
 	headDim_ = embedDim_/numHeads_;
-	outNCHW_ = batchSize_*tokens_*embedDim_;
-	alphaWeights_ = 1.0f/(batchSize_*tokens_*gradAccumLength_);
-	const size_t projSize = embedDim_*embedDim_;
+	outNCHW_ = outputElements;
+	alphaWeights_ = 1.0f/(static_cast<float>(batchSize_)*tokens_*gradAccumLength_);
+	const size_t projSize = projectionElements;
 	CUDAMallocZero(&qkvWeightsBase_, 3*projSize*sizeof(__half));
 	qWeights_ = qkvWeightsBase_;
 	kWeights_ = qkvWeightsBase_ + projSize;
@@ -25,20 +47,22 @@ WmmaAttentionLayer::WmmaAttentionLayer(int batchSize, int tokens, int embedDim, 
 	kPacked_ = sharedKPacked;
 	vPacked_ = sharedVPacked;
 	attnOutPacked_ = sharedAttnOutPacked;
-	if(workspace_ == nullptr || qPacked_ == nullptr || kPacked_ == nullptr || vPacked_ == nullptr || attnOutPacked_ == nullptr){
+	if(!allSharedTemporaries){
 		ownsTemporaries_ = true;
-		CUDAMallocZero(&workspace_, 4*outNCHW_*sizeof(__half) + attentionElems*sizeof(__half));
+		CUDAMallocZero(&workspace_, (3*outNCHW_ + (train_ ? attentionElems : 0))*sizeof(__half));
 		CUDAMallocZero(&qPacked_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&kPacked_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&vPacked_, outNCHW_*sizeof(__half));
 		CUDAMallocZero(&attnOutPacked_, outNCHW_*sizeof(__half));
 	} else{ ownsTemporaries_ = false; }
 	if(train_){
+		attentionWeights_ = workspace_ + 3*outNCHW_;
 		WeightInit(qWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(kWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(vWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
 		WeightInit(oWeights_, projSize, embedDim_, embedDim_, weightInitMethod);
-		const auto gradWorkspaceElems = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
+		const auto gradWorkspaceElems = headDim_ == 32 && tokens_ <= 64 ? 0 :
+			static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
 		attnGradWorkspaceSize_ = gradWorkspaceElems;
 		attnGradWorkspace_ = sharedAttnGradWorkspace;
 		if(gradWorkspaceElems > 0 && attnGradWorkspace_ == nullptr){
@@ -62,12 +86,13 @@ WmmaAttentionLayer::WmmaAttentionLayer(int batchSize, int tokens, int embedDim, 
 		dQPacked_ = sharedDQPacked;
 		dKPacked_ = sharedDKPacked;
 		dVPacked_ = sharedDVPacked;
-		if(dQPacked_ == nullptr || dKPacked_ == nullptr || dVPacked_ == nullptr){
+		if(!allSharedGrads){
 			ownsPackedGradTemporaries_ = true;
 			CUDAMallocZero(&dQPacked_, outNCHW_*sizeof(__half));
-			CUDAMallocZero(&dKPacked_, outNCHW_*sizeof(__half));
 			CUDAMallocZero(&dVPacked_, outNCHW_*sizeof(__half));
+			dKPacked_ = kPacked_;
 		} else{ ownsPackedGradTemporaries_ = false; }
+		trainingAllocated_ = true;
 	}
 }
 WmmaAttentionLayer::~WmmaAttentionLayer(){
@@ -83,7 +108,7 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	}
 	cudaFree(relPosBias_);
 	cudaFree(relPosIndex_);
-	if(train_){
+	if(trainingAllocated_){
 		if(ownsAttnGradWorkspace_){ cudaFree(attnGradWorkspace_); }
 		cudaFree(gradQkvBase_);
 		cudaFree(gradOut_);
@@ -98,7 +123,6 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 		cudaFree(outGrad_);
 		if(ownsPackedGradTemporaries_){
 			cudaFree(dQPacked_);
-			cudaFree(dKPacked_);
 			cudaFree(dVPacked_);
 		}
 		cudaFree(gradRelPosBias_);
@@ -107,43 +131,60 @@ WmmaAttentionLayer::~WmmaAttentionLayer(){
 	}
 }
 __half* WmmaAttentionLayer::Forward(__half* data){
+	if(data == nullptr){ throw std::invalid_argument("WmmaAttentionLayer::Forward received null input"); }
 	const auto Q = workspace_;
 	const auto K = workspace_ + outNCHW_;
 	const auto V = workspace_ + 2*outNCHW_;
-	const auto attnOut = workspace_ + 3*outNCHW_;
-	const auto attentionWeights = workspace_ + 4*outNCHW_;
+	const auto attnOut = workspace_;
 	inData_ = data;
 	const long long qkvStrideA = static_cast<long long>(embedDim_)*embedDim_;
 	const long long qkvStrideC = static_cast<long long>(outNCHW_);
 	checkCLNN(CLNNGemmStridedBatchedEx(CLNN_OP_N, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, qWeights_, CUDA_R_16F, embedDim_, qkvStrideA, data, CUDA_R_16F, embedDim_, 0, &zero_, Q, CUDA_R_16F, embedDim_, qkvStrideC, 3, CUDA_R_32F));
-	PackColumnsToHeads(Q, K, V, qPacked_, kPacked_, vPacked_, batchSize_, tokens_, embedDim_, numHeads_);
+	if(!PackColumnsToHeads(Q, K, V, qPacked_, kPacked_, vPacked_, batchSize_, tokens_, embedDim_, numHeads_)){
+		throw std::runtime_error("WmmaAttentionLayer QKV packing failed");
+	}
 	dQ = Q;
 	dK = K;
 	dV = V;
 	const float* relPosBias = useRelPosBias_ ? relPosBias_ : nullptr;
 	const int* relPosIndex = useRelPosBias_ ? relPosIndex_ : nullptr;
-	WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights : nullptr, attentionMask_, relPosBias, relPosIndex, relPosSize_, batchSize_, tokens_, headDim_, numHeads_, maskBatchSize_, maskHeads_);
-	PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_);
+	if(!WmmaAttention(qPacked_, kPacked_, vPacked_, attnOutPacked_, train_ ? attentionWeights_ : nullptr, attentionMask_, relPosBias, relPosIndex, relPosSize_, batchSize_, tokens_, headDim_, numHeads_, maskBatchSize_, maskHeads_)){
+		throw std::runtime_error("WmmaAttentionLayer forward kernel failed");
+	}
+	if(!PackHeadsToColumns(attnOutPacked_, attnOut, batchSize_, tokens_, embedDim_, numHeads_)){
+		throw std::runtime_error("WmmaAttentionLayer attention unpacking failed");
+	}
 	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, &zero_, outData_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	return outData_;
 }
 __half* WmmaAttentionLayer::Backward(__half* grad){
-	const auto attnOut = workspace_ + 3*outNCHW_;
-	const __half* attentionWeights = workspace_ + 4*outNCHW_;
+	if(!train_ || !trainingAllocated_){ throw std::runtime_error("WmmaAttentionLayer::Backward requires training mode"); }
+	if(grad == nullptr){ throw std::invalid_argument("WmmaAttentionLayer::Backward received null gradient"); }
+	const auto attnOut = workspace_;
 	const float* betaWeights = accumCount_++ % gradAccumLength_ == 0 ? &zero_ : &one_;
 	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, attnOut, CUDA_R_16F, embedDim_, betaWeights, gradOut_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, oWeights_, CUDA_R_16F, embedDim_, grad, CUDA_R_16F, embedDim_, &zero_, attnOut, CUDA_R_16F, embedDim_, CUDA_R_32F));
-	PackColumnsToHeads(attnOut, attnOutPacked_, batchSize_, tokens_, embedDim_, numHeads_);
-	WmmaAttentionBackward(qPacked_, kPacked_, vPacked_, attnOutPacked_, attentionWeights, dQPacked_, dKPacked_, dVPacked_, attnGradWorkspace_, attnGradWorkspaceSize_, batchSize_, tokens_, headDim_, numHeads_);
+	if(!PackColumnsToHeads(attnOut, attnOutPacked_, batchSize_, tokens_, embedDim_, numHeads_)){
+		throw std::runtime_error("WmmaAttentionLayer output-gradient packing failed");
+	}
+	if(!WmmaAttentionBackward(qPacked_, kPacked_, vPacked_, attnOutPacked_, attentionWeights_, dQPacked_, dKPacked_, dVPacked_, attnGradWorkspace_, attnGradWorkspaceSize_, batchSize_, tokens_, headDim_, numHeads_)){
+		throw std::runtime_error("WmmaAttentionLayer backward kernel failed");
+	}
 	if(useRelPosBias_ && train_ && gradRelPosBias_ && relPosIndex_){
 		const bool resetGrad = (accumCount_ - 1) % gradAccumLength_ == 0;
 		if(resetGrad){
 			const size_t gradSizeBytes = static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float);
 			checkCUDA(cudaMemset(gradRelPosBias_, 0, gradSizeBytes));
 		}
-		AccumulateRelPosBiasGrad(attnGradWorkspace_, relPosIndex_, gradRelPosBias_, batchSize_, tokens_, numHeads_, relPosSize_, alphaWeights_);
+		if(headDim_ == 32 && tokens_ <= 64){
+			AccumulateRelPosBiasGradHalf(attentionWeights_, relPosIndex_, gradRelPosBias_, batchSize_, tokens_, numHeads_, relPosSize_, alphaWeights_);
+		} else{
+			AccumulateRelPosBiasGrad(attnGradWorkspace_, relPosIndex_, gradRelPosBias_, batchSize_, tokens_, numHeads_, relPosSize_, alphaWeights_);
+		}
 	}
-	PackHeadsToColumns(dQPacked_, dKPacked_, dVPacked_, dQ, dK, dV, batchSize_, tokens_, embedDim_, numHeads_);
+	if(!PackHeadsToColumns(dQPacked_, dKPacked_, dVPacked_, dQ, dK, dV, batchSize_, tokens_, embedDim_, numHeads_)){
+		throw std::runtime_error("WmmaAttentionLayer QKV-gradient unpacking failed");
+	}
 	const long long dqdvdStrideA = static_cast<long long>(outNCHW_);
 	const long long dqdvdStrideC = static_cast<long long>(embedDim_)*embedDim_;
 	checkCLNN(CLNNGemmStridedBatchedEx(CLNN_OP_N, CLNN_OP_T, embedDim_, embedDim_, tokens_*batchSize_, &alphaWeights_, dQ, CUDA_R_16F, embedDim_, dqdvdStrideA, inData_, CUDA_R_16F, embedDim_, 0, betaWeights, gradQ_, CUDA_R_16F, embedDim_, dqdvdStrideC, 3, CUDA_R_32F));
@@ -151,6 +192,44 @@ __half* WmmaAttentionLayer::Backward(__half* grad){
 	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, kWeights_, CUDA_R_16F, embedDim_, dK, CUDA_R_16F, embedDim_, &one_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	checkCLNN(CLNNGemmEx(CLNN_OP_T, CLNN_OP_N, embedDim_, tokens_*batchSize_, embedDim_, &one_, vWeights_, CUDA_R_16F, embedDim_, dV, CUDA_R_16F, embedDim_, &one_, outGrad_, CUDA_R_16F, embedDim_, CUDA_R_32F));
 	return outGrad_;
+}
+size_t WmmaAttentionLayer::GetActivationCacheSize() const{
+	const size_t attentionElems = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_;
+	return (5*outNCHW_ + attentionElems)*sizeof(__half);
+}
+void WmmaAttentionLayer::CacheActivations(__half* cache) const{
+	if(!train_ || attentionWeights_ == nullptr){ throw std::runtime_error("WmmaAttentionLayer activation caching requires training mode"); }
+	if(cache == nullptr || inData_ == nullptr){ throw std::invalid_argument("WmmaAttentionLayer cannot cache null activations"); }
+	const size_t tensorBytes = outNCHW_*sizeof(__half);
+	const size_t attentionBytes = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_*sizeof(__half);
+	checkCUDA(cudaMemcpy(cache, inData_, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(cache, workspace_, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(cache, qPacked_, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(cache, kPacked_, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(cache, vPacked_, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(cache, attentionWeights_, attentionBytes, cudaMemcpyDeviceToDevice));
+}
+void WmmaAttentionLayer::RestoreActivations(const __half* cache){
+	if(!train_ || attentionWeights_ == nullptr){ throw std::runtime_error("WmmaAttentionLayer activation restore requires training mode"); }
+	if(cache == nullptr || inData_ == nullptr){ throw std::invalid_argument("WmmaAttentionLayer cannot restore null activations"); }
+	const size_t tensorBytes = outNCHW_*sizeof(__half);
+	const size_t attentionBytes = static_cast<size_t>(batchSize_)*tokens_*tokens_*numHeads_*sizeof(__half);
+	checkCUDA(cudaMemcpy(const_cast<__half*>(inData_), cache, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(workspace_, cache, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(qPacked_, cache, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(kPacked_, cache, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(vPacked_, cache, tensorBytes, cudaMemcpyDeviceToDevice));
+	cache += outNCHW_;
+	checkCUDA(cudaMemcpy(attentionWeights_, cache, attentionBytes, cudaMemcpyDeviceToDevice));
 }
 void WmmaAttentionLayer::UpdateParameters(float lr){
 	if(accumCount_ % gradAccumLength_ > 0) return;
@@ -263,7 +342,10 @@ size_t WmmaAttentionLayer::GetOptimizerStateSize(){
 	if(useRelPosBias_){ size += 2*static_cast<size_t>(numHeads_) * relPosSize_ * sizeof(float); }
 	return size + sizeof(int);
 }
-void WmmaAttentionLayer::SetTrain(bool enable){ train_ = enable; }
+void WmmaAttentionLayer::SetTrain(const bool enable){
+	if(enable && !trainingAllocated_){ throw std::runtime_error("WmmaAttentionLayer cannot enable training when constructed for inference"); }
+	train_ = enable;
+}
 
 void WmmaAttentionLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){
 	if(!train_) return;
@@ -279,6 +361,9 @@ void WmmaAttentionLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks
 }
 
 void WmmaAttentionLayer::SetAttentionMask(const float* attentionMask, const int maskBatchSize, const int maskHeads){
+	if(attentionMask != nullptr && (maskBatchSize <= 0 || maskHeads <= 0)){
+		throw std::invalid_argument("WmmaAttentionLayer attention mask dimensions must be positive");
+	}
 	attentionMask_ = attentionMask;
 	maskBatchSize_ = maskBatchSize;
 	maskHeads_ = maskHeads;
@@ -288,11 +373,14 @@ void WmmaAttentionLayer::InitRelativePositionBias(int windowHeight, int windowWi
 	const size_t expectedSize = static_cast<size_t>(tokens_) * tokens_;
 	if(relPosIndex.size() != expectedSize){ throw std::invalid_argument("InitRelativePositionBias relPosIndex size mismatch"); }
 	relPosSize_ = (2*windowHeight - 1) * (2*windowWidth - 1);
+	for(const int index : relPosIndex){
+		if(index < 0 || index >= relPosSize_){ throw std::invalid_argument("InitRelativePositionBias index out of range"); }
+	}
 	const size_t biasElems = static_cast<size_t>(numHeads_) * relPosSize_;
 	if(relPosBias_ == nullptr){ CUDAMallocZero(&relPosBias_, biasElems * sizeof(float)); }
 	if(relPosIndex_ == nullptr){ CUDAMallocZero(&relPosIndex_, expectedSize * sizeof(int)); }
 	checkCUDA(cudaMemcpy(relPosIndex_, relPosIndex.data(), expectedSize * sizeof(int), cudaMemcpyHostToDevice));
-	if(train_){
+	if(trainingAllocated_){
 		if(gradRelPosBias_ == nullptr){ CUDAMallocZero(&gradRelPosBias_, biasElems * sizeof(float)); }
 		if(m_relPosBias_ == nullptr){ CUDAMallocZero(&m_relPosBias_, biasElems * sizeof(float)); }
 		if(v_relPosBias_ == nullptr){ CUDAMallocZero(&v_relPosBias_, biasElems * sizeof(float)); }

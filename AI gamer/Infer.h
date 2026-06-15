@@ -15,11 +15,14 @@ public:
 	void StartInfer();
 	void PauseInfer();
 	static void ProcessOutput(const float* predictions);
+	static void ReleaseOutputs();
 	void Step();
 	Record* record_ = nullptr;
 	Train* train_ = nullptr;
 	HWND hwnd_ = nullptr;
 	std::atomic<bool> stop_ = false;
+	std::atomic<bool> inferEnable_ = false;
+	std::atomic<bool> disposed_ = false;
 	cudnnContext* cudnn_ = nullptr;
 	NN* nn_ = nullptr;
 	std::thread inferThread_;
@@ -27,6 +30,5 @@ public:
 	float* predictionsF_ = nullptr;
 	__half* frameHalf_ = nullptr;
 	int scaleFactor_ = 2;
-	bool inferEnable_ = false;
 	bool inferLast_ = false;
 };

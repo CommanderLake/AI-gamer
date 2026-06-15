@@ -6,6 +6,7 @@ public:
 	~Dropout() override;
 	__half* Forward(__half* data) override;
 	__half* Backward(__half* grad) override;
+	__half* ReplayForward(__half* data);
 	void SetTrain(bool enable) override;
 	float dropoutRate_;
 	float keepProb_;

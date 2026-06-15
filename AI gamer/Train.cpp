@@ -99,38 +99,53 @@ void Train::TrainModel(const int width, const int height, const bool validate){
 	std::cout << "\n";
 	InitCUDA();
 	const auto nn = new NN(width, height, true);
+	if(trainRecordIndices.empty()){
+		delete nn;
+		throw std::runtime_error("No training records were loaded");
+	}
+	if(validate && valRecordIndices.empty()){
+		delete nn;
+		throw std::runtime_error("Validation was requested but no validation records were loaded");
+	}
 	StateBatch sb0(nn->batchSize_, nn->stateSize_);
 	StateBatch sb1(nn->batchSize_, nn->stateSize_);
-	auto sbRead = &sb0;
-	bool sbSwitch = false;
-	auto fetchBatch = [&](const bool validation){
+	auto queueBatch = [&](StateBatch* batch, const bool validation){
 		ResetLoadBatchFailureCount();
-		sbSwitch = !sbSwitch;
-		StateBatch* nextBatch = sbSwitch ? &sb1 : &sb0;
-		threadPool.Enqueue([&, nextBatch, validation]{ LoadBatch(nextBatch, nn->batchSize_, nn->stateSize_, validation); });
-		sbRead = sbSwitch ? &sb0 : &sb1;
+		LoadBatch(batch, nn->batchSize_, nn->stateSize_, validation);
 	};
 	Allocate(nn->batchSize_, nn->stateSize_);
 	bool stopTraining = false;
 	const auto epochBatchCount = (trainRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
 	const auto epochBatchCountVal = (valRecordIndices.size() + nn->batchSize_ - 1)/nn->batchSize_;
-	for(auto epoch = 0; epoch < epochs; ++epoch){
-		ShuffleBatchOrder(false);
-		fetchBatch(false);
-		emaLossButs_ = emaLossAxes_ = 0;
-		std::cout << "\nEpoch: " << epoch << "\n";
-		for(auto batch = 0; batch < epochBatchCount && !stopTraining; ++batch){
+	auto runBatches = [&](const bool validation, const size_t batchCount, const int epoch){
+		if(batchCount == 0){ return true; }
+		StateBatch* currentBatch = &sb0;
+		StateBatch* nextBatch = &sb1;
+		queueBatch(currentBatch, validation);
+		for(size_t batch = 0; batch < batchCount; ++batch){
 			threadPool.WaitAll();
 			const auto loadBatchFailures = GetLoadBatchFailureCount();
-			fetchBatch(false);
+			const bool hasNextBatch = batch + 1 < batchCount;
+			if(hasNextBatch){ queueBatch(nextBatch, validation); }
 			if(loadBatchFailures > 0){
-				std::cerr << "\nWarning: skipped batch " << (batch + 1) << "/" << epochBatchCount << " due to " << loadBatchFailures << " load failures\n";
-				continue;
+				std::cerr << "\nWarning: skipped batch " << (batch + 1) << "/" << batchCount << " due to " << loadBatchFailures << " load failures\n";
+			} else{
+				const float lr = validation ? 0.0f : GetLearningRate(epoch, static_cast<int>(batch), static_cast<int>(batchCount), epochs);
+				const auto result = TrainBatch(nn, currentBatch, true, lr, static_cast<int>(batch), static_cast<int>(batchCount));
+				if(result == -1){
+					threadPool.WaitAll();
+					return false;
+				}
 			}
-			const float lr = GetLearningRate(epoch, batch, epochBatchCount, epochs);
-			const auto result = TrainBatch(nn, sbRead, true, lr, batch, epochBatchCount);
-			if(result == -1){ stopTraining = true; }
+			if(hasNextBatch){ std::swap(currentBatch, nextBatch); }
 		}
+		return true;
+	};
+	for(auto epoch = 0; epoch < epochs; ++epoch){
+		ShuffleBatchOrder(false);
+		emaLossButs_ = emaLossAxes_ = 0;
+		std::cout << "\nEpoch: " << epoch << "\n";
+		stopTraining = !runBatches(false, epochBatchCount, epoch);
 		if(stopTraining){
 			std::cout << "\nNaN encountered during training. Stopping.\n";
 			break;
@@ -143,13 +158,7 @@ void Train::TrainModel(const int width, const int height, const bool validate){
 		std::cout << "\nRunning validation...\n";
 		nn->SetTrain(false);
 		ShuffleBatchOrder(true);
-		fetchBatch(true);
-		for(auto batch = 0; batch < epochBatchCountVal && !stopTraining; ++batch){
-			threadPool.WaitAll();
-			fetchBatch(true);
-			const auto result = TrainBatch(nn, sbRead, true, 0.0f, batch, epochBatchCountVal);
-			if(result == -1){ stopTraining = true; }
-		}
+		stopTraining = !runBatches(true, epochBatchCountVal, epoch);
 		nn->SetTrain(true);
 		if(stopTraining){
 			std::cout << "\nNaN encountered during validation. Stopping.\n";

@@ -8,7 +8,7 @@
 #include "GELULayer.h"
 #include <algorithm>
 #include <stdexcept>
-SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod) : batchSize_(batchSize), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod){
+SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int inWidth, const int patchSize, const int embedH, const int embedW, const int blocksPerStage, const int numStages, const int baseHeads, const int baseWindowSize, const float maxDropPathRate, std::string layerName, const bool train, const float weightDecay, const int gradAccumLength, const WeightInitMethod weightInitMethod, const bool cacheActivations) : batchSize_(batchSize), inHeight_(inHeight), inWidth_(inWidth), patchSize_(patchSize), embedH_(embedH), embedW_(embedW), blocksPerStage_(blocksPerStage), numStages_(numStages), baseHeads_(baseHeads), baseWindowSize_(baseWindowSize), maxDropPathRate_(maxDropPathRate), weightDecay_(weightDecay), gradAccumLength_(gradAccumLength), weightInitMethod_(weightInitMethod), cacheActivations_(cacheActivations){
 	layerName_ = layerName;
 	train_ = train;
 	const int embedSize = embedH_*embedW_;
@@ -20,28 +20,32 @@ SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int 
 		size_t maxAttentionWorkspaceElems = 0;
 		size_t maxAttentionPackedElems = 0;
 		size_t maxAttentionGradWorkspaceElems = 0;
-		auto updateWorkspaceSizes = [&](const int tokens, const int embedDim, const int patchRowsSize, const int patchColsSize, const int windowHeight, const int windowWidth){
+		auto updateWorkspaceSizes = [&](const int tokens, const int embedDim, const int heads, const int patchRowsSize, const int patchColsSize, const int windowHeight, const int windowWidth){
 			const int windowTokens = windowHeight*windowWidth;
 			const int windowCount = (patchRowsSize / windowHeight)*(patchColsSize / windowWidth);
 			const int windowBatch = batchSize_*windowCount;
 			const size_t windowElems = static_cast<size_t>(windowBatch)*windowTokens*embedDim;
 			const size_t tokenElems = static_cast<size_t>(batchSize_)*tokens*embedDim;
-			const int maxHeads = baseHeads_ << std::max(0, numStages_ - 1);
-			const size_t attentionElems = static_cast<size_t>(windowBatch)*windowTokens*windowTokens*maxHeads;
+			const size_t attentionElems = static_cast<size_t>(windowBatch)*windowTokens*windowTokens*heads;
 			maxWindowElems = std::max(maxWindowElems, windowElems);
 			maxTokenElems = std::max(maxTokenElems, tokenElems);
-			maxAttentionWorkspaceElems = std::max(maxAttentionWorkspaceElems, static_cast<size_t>(4)*windowElems + attentionElems);
+			const size_t workspaceElems = static_cast<size_t>(3)*windowElems + (train_ ? attentionElems : 0);
+			maxAttentionWorkspaceElems = std::max(maxAttentionWorkspaceElems, workspaceElems);
 			maxAttentionPackedElems = std::max(maxAttentionPackedElems, windowElems);
-			maxAttentionGradWorkspaceElems = std::max(maxAttentionGradWorkspaceElems, attentionElems);
+			const bool usesInPlaceAttentionGrad = embedDim/heads == 32 && windowTokens <= 64;
+			if(train_ && !usesInPlaceAttentionGrad){
+				maxAttentionGradWorkspaceElems = std::max(maxAttentionGradWorkspaceElems, attentionElems);
+			}
 		};
 		int nTokensWorkspace = patchRows*patchCols;
 		int embedDimWorkspace = embedSize;
 		int currentPatchRows = patchRows;
 		int currentPatchCols = patchCols;
 		for(int stage = 0; stage < numStages_; ++stage){
+			const int stageHeads = baseHeads_ << stage;
 			const int windowHeight = std::min(baseWindowSize_, currentPatchRows);
 			const int windowWidth = std::min(baseWindowSize_, currentPatchCols);
-			updateWorkspaceSizes(nTokensWorkspace, embedDimWorkspace, currentPatchRows, currentPatchCols, windowHeight, windowWidth);
+			updateWorkspaceSizes(nTokensWorkspace, embedDimWorkspace, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth);
 			currentPatchRows /= 2;
 			currentPatchCols /= 2;
 			nTokensWorkspace = currentPatchRows*currentPatchCols;
@@ -54,7 +58,8 @@ SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int 
 			embedDimWorkspace /= 2;
 			const int windowHeight = std::min(baseWindowSize_, currentPatchRows);
 			const int windowWidth = std::min(baseWindowSize_, currentPatchCols);
-			updateWorkspaceSizes(nTokensWorkspace, embedDimWorkspace, currentPatchRows, currentPatchCols, windowHeight, windowWidth);
+			const int stageHeads = baseHeads_ << (numStages_ - stage - 1);
+			updateWorkspaceSizes(nTokensWorkspace, embedDimWorkspace, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth);
 		}
 		blockWorkspace_.windowBytes = maxWindowElems*sizeof(__half);
 		blockWorkspace_.tokenBytes = maxTokenElems*sizeof(__half);
@@ -71,7 +76,7 @@ SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int 
 		CUDAMallocZero(&attentionWorkspace_.attnOutPacked, attentionWorkspace_.packedBytes);
 		if(train_){
 			CUDAMallocZero(&attentionWorkspace_.dQPacked, attentionWorkspace_.packedBytes);
-			CUDAMallocZero(&attentionWorkspace_.dKPacked, attentionWorkspace_.packedBytes);
+			attentionWorkspace_.dKPacked = attentionWorkspace_.kPacked;
 			CUDAMallocZero(&attentionWorkspace_.dVPacked, attentionWorkspace_.packedBytes);
 			if(attentionWorkspace_.gradWorkspaceBytes > 0){ CUDAMallocZero(&attentionWorkspace_.gradWorkspace, attentionWorkspace_.gradWorkspaceBytes); }
 		}
@@ -148,7 +153,7 @@ SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int 
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
 			encoderStage.blocks.push_back(new SwinBlockLayer(batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
 				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
-				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
+				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace, cacheActivations_));
 			++blockIndex;
 		}
 		encoderStage.skip.elements = batchSize_*nTokens*embedDim;
@@ -189,7 +194,7 @@ SwinUnetLayer::SwinUnetLayer(const int batchSize, const int inHeight, const int 
 			const auto maskRef = getOrCreateAttentionMask(currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth);
 			decoderStage.blocks.push_back(new SwinBlockLayer(batchSize_, nTokens, embedDim, ffDim, stageHeads, currentPatchRows, currentPatchCols, windowHeight, windowWidth, blockShiftHeight, blockShiftWidth, dropPathRate, name.c_str(), train_, weightDecay_, gradAccumLength_, weightInitMethod_, blockWorkspace_.windowedInput, blockWorkspace_.windowedGrad, blockWorkspace_.tokens, maskRef.ptr, maskRef.owns,
 				attentionWorkspace_.workspace, attentionWorkspace_.qPacked, attentionWorkspace_.kPacked, attentionWorkspace_.vPacked, attentionWorkspace_.attnOutPacked,
-				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace));
+				attentionWorkspace_.dQPacked, attentionWorkspace_.dKPacked, attentionWorkspace_.dVPacked, attentionWorkspace_.gradWorkspace, cacheActivations_));
 			++blockIndex;
 		}
 		decoderStages_.push_back(decoderStage);
@@ -219,7 +224,6 @@ SwinUnetLayer::~SwinUnetLayer(){
 	cudaFree(attentionWorkspace_.vPacked);
 	cudaFree(attentionWorkspace_.attnOutPacked);
 	cudaFree(attentionWorkspace_.dQPacked);
-	cudaFree(attentionWorkspace_.dKPacked);
 	cudaFree(attentionWorkspace_.dVPacked);
 	cudaFree(attentionWorkspace_.gradWorkspace);
 	for(const auto& entry : attentionMaskCache_) cudaFree(entry.second);

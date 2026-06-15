@@ -1,17 +1,17 @@
-#define __CUDACC__
 #include "CuCommon.h"
 #include <device_launch_parameters.h>
-#include <device_functions.h>
-#include <math_functions.h>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <mma.h>
 #include <algorithm>
+#include <climits>
+#include <mutex>
 using namespace nvcuda;
 // Configuration constants with safer defaults
 constexpr int kMaxTileCols = 128;
 constexpr int kMaxValueBlocks = 32;
 constexpr int kSharedMemPad = 8;
+constexpr int kFastSharedMemPad = 0;
 constexpr float SOFTMAX_FTZ_THRESHOLD = -12.0f;
 constexpr float SOFTMAX_MAX_INPUT = 20.0f;
 constexpr size_t kMaxSharedMemory = 98304;
@@ -19,9 +19,6 @@ constexpr int kMinTokens = 1;
 constexpr int kMaxTokens = 8192;
 constexpr int kMaxBatch = 4096;
 constexpr int kMaxHeadDim = 512;
-constexpr int kWarpSize = 32;
-constexpr int kTileSize = 16;
-constexpr int kDefaultThreads = 128;
 // Helper for ceiling division
 __host__ __device__ inline int DivCeil(int a, int b){ return (a + b - 1)/b; }
 // Get optimal tile columns based on token count
@@ -37,7 +34,7 @@ __host__ int GetAttentionTileCols(const int T){
 	return limited;
 }
 // Validate dimensions before kernel launch
-__host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim, int heads, size_t& sharedMemRequired){
+__host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim, int heads, int warpCount, size_t& sharedMemRequired){
 	if(batchSize <= 0 || batchSize > kMaxBatch){
 		std::cerr << "Invalid batch size: " << batchSize << " (must be 1-" << kMaxBatch << ")" << std::endl;
 		return false;
@@ -62,7 +59,6 @@ __host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim
 	}
 	// Calculate shared memory requirement
 	const int tileCols = GetAttentionTileCols(tokens);
-	const int warpCount = kDefaultThreads/32;
 	const int qStride = (headDim + 15)/16*16 + kSharedMemPad;
 	const int tileStride = 16 + kSharedMemPad;
 	const int valueBlocks = (headDim + 15)/16;
@@ -71,7 +67,8 @@ __host__ bool ValidateAttentionDimensions(int batchSize, int tokens, int headDim
 		return false;
 	}
 	const int valueStride = valueBlocks*16;
-	sharedMemRequired = sizeof(__half)*(16*qStride + warpCount*tileStride*16 + tileStride*16) + sizeof(float)*(16*tileCols + 48 + 16*valueStride);
+	sharedMemRequired = sizeof(__half)*(16*qStride + warpCount*tileStride*16 + tileStride*16) +
+		sizeof(float)*(16*tileCols + 64 + 16*valueStride + warpCount*tileStride*16);
 	if(sharedMemRequired > kMaxSharedMemory){
 		std::cerr << "Required shared memory " << sharedMemRequired << " exceeds limit " << kMaxSharedMemory << " (tokens=" << tokens << ", headDim=" << headDim << ")" << std::endl;
 		return false;
@@ -137,10 +134,11 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 	float* rowMax = scoresTile + 16*tileCols;
 	float* rowSum = rowMax + 16;
 	float* rowScale = rowSum + 16;
-	float* outAccum = rowScale + 16;
+	float* rowProbScale = rowScale + 16;
+	float* outAccum = rowProbScale + 16;
+	float* outProductTiles = outAccum + 16*valueStride;
 	const float scale = rsqrtf(fmaxf(static_cast<float>(headDim), 1.0f));
 	const __half scaleHalf = __float2half(scale);
-	const __half2 scaleHalf2 = __halves2half2(scaleHalf, scaleHalf);
 	const int qBlocks = (headDim + 15)/16;
 	// Runtime validation
 	if(qBlocks > kMaxValueBlocks || qBlocks <= 0) return;
@@ -152,40 +150,23 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 	// Initialize row statistics
 	if(threadIdx.x < 16){
 		const int row = threadIdx.x;
-		const int globalRow = rowBlock*16 + row;
 		rowMax[row] = -1e20f; // Use large but not infinite value
 		rowSum[row] = 0.0f;
 		rowScale[row] = 0.0f;
+		rowProbScale[row] = 0.0f;
+	}
+	for(int idx = threadIdx.x; idx < 16*qStride; idx += blockDim.x){
+		qShared[idx] = __float2half(0.0f);
 	}
 	__syncthreads();
-	// Load and scale Q matrix
-	for(int row = 0; row < 16; ++row){
+	// Load the whole Q tile cooperatively. The previous row-at-a-time path paid 16 block barriers.
+	for(int idx = threadIdx.x; idx < 16*headDim; idx += blockDim.x){
+		const int row = idx/headDim;
+		const int col = idx % headDim;
 		const int globalRow = rowBlock*16 + row;
-		__half* sharedRow = qShared + row*qStride;
-		// Initialize shared memory
-		for(int col = threadIdx.x; col < qStride; col += blockDim.x){ sharedRow[col] = __float2half(0.0f); }
-		__syncthreads();
 		if(globalRow < tokens){
-			const size_t qRowOffset = batchHeadOffset + globalRow*headDim;
-			const __half* rowSrc = Q + qRowOffset;
-			__half* rowDst = sharedRow;
-			const int vecCount = headDim/2;
-			auto srcVec = reinterpret_cast<const __half2*>(rowSrc);
-			auto dstVec = reinterpret_cast<__half2*>(rowDst);
-			for(int vec = threadIdx.x; vec < vecCount; vec += blockDim.x){
-				const size_t baseIdx = static_cast<size_t>(vec)*2;
-				const size_t maxIdx = qRowOffset + baseIdx + 1;
-				if(maxIdx < totalElements){
-					dstVec[vec] = __hmul2(srcVec[vec], scaleHalf2);
-				} else if(qRowOffset + baseIdx < totalElements){
-					const __half first = __hmul(rowSrc[baseIdx], scaleHalf);
-					dstVec[vec] = __halves2half2(first, __float2half(0.0f));
-				}
-			}
-			if(headDim & 1 && threadIdx.x == 0){
-				const size_t tailIdx = qRowOffset + headDim - 1;
-				if(tailIdx < totalElements){ rowDst[headDim - 1] = __hmul(rowSrc[headDim - 1], scaleHalf); } else{ rowDst[headDim - 1] = __float2half(0.0f); }
-			}
+			const size_t qIdx = batchHeadOffset + static_cast<size_t>(globalRow)*headDim + col;
+			if(qIdx < totalElements){ qShared[row*qStride + col] = __hmul(Q[qIdx], scaleHalf); }
 		}
 	}
 	__syncthreads();
@@ -281,8 +262,10 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 				for(int col = laneId; col < remaining; col += 32){
 					const int globalCol = tileStart + col;
 					if(globalCol < tokens){
-						const size_t relIdx = static_cast<size_t>(RelPosIndex[globalRow*tokens + globalCol]);
-						scoresTile[row*tileCols + col] += RelPosBias[relPosBase + relIdx];
+						const int relIdx = RelPosIndex[globalRow*tokens + globalCol];
+						if(static_cast<unsigned int>(relIdx) < static_cast<unsigned int>(relPosSize)){
+							scoresTile[row*tileCols + col] += RelPosBias[relPosBase + relIdx];
+						}
 					}
 				}
 			}
@@ -301,6 +284,10 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 			for(int col = laneId; col < remaining; col += 32){
 				const int globalCol = tileStart + col;
 				if(globalCol < tokens){
+					if(AttentionMask != nullptr){
+						const size_t maskIdx = maskOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
+						if(AttentionMask[maskIdx] <= -1000.0f) continue;
+					}
 					const float val = scoresTile[row*tileCols + col];
 					localMax = fmaxf(localMax, val);
 				}
@@ -318,6 +305,10 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 			for(int col = laneId; col < remaining; col += 32){
 				const int globalCol = tileStart + col;
 				if(globalCol < tokens){
+					if(AttentionMask != nullptr){
+						const size_t maskIdx = maskOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
+						if(AttentionMask[maskIdx] <= -1000.0f) continue;
+					}
 					const float val = scoresTile[row*tileCols + col];
 					const float diff = val - newMax;
 					if(diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT){ localSum += __expf(diff); }
@@ -325,12 +316,28 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 			}
 			localSum = WarpReduceSum(localSum);
 			if(laneId == 0){
+				const float newSum = prevSum*scalePrev + localSum;
 				rowMax[row] = newMax;
-				rowSum[row] = prevSum*scalePrev + localSum;
+				rowSum[row] = newSum;
 				rowScale[row] = scalePrev;
+				rowProbScale[row] = newSum > 1e-10f ? prevSum*scalePrev/newSum : 0.0f;
 			}
 		}
 		__syncthreads();
+		// Previously stored probabilities used an earlier online-softmax denominator.
+		if(AttentionWeights != nullptr && tileStart > 0){
+			for(int idx = threadIdx.x; idx < 16*tileStart; idx += blockDim.x){
+				const int row = idx/tileStart;
+				const int col = idx % tileStart;
+				const int globalRow = rowBlock*16 + row;
+				if(globalRow < tokens){
+					const size_t attIdx = attentionOffset + static_cast<size_t>(globalRow)*tokens + col;
+					if(attIdx < maxAttentionIdx){
+						AttentionWeights[attIdx] = __float2half(__half2float(AttentionWeights[attIdx])*rowProbScale[row]);
+					}
+				}
+			}
+		}
 		// Rescale prior output accumulation to match new max.
 		for(int idx = threadIdx.x; idx < 16*valueStride; idx += blockDim.x){
 			const int row = idx/valueStride;
@@ -352,7 +359,12 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 					const float logit = scoresTile[row*tileCols + col];
 					const float diff = logit - maxVal;
 					float expVal = 0.0f;
-					if(diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT){ expVal = __expf(diff); }
+					bool isMasked = false;
+					if(AttentionMask != nullptr){
+						const size_t maskIdx = maskOffset + static_cast<size_t>(globalRow)*tokens + globalCol;
+						isMasked = AttentionMask[maskIdx] <= -1000.0f;
+					}
+					if(!isMasked && diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT){ expVal = __expf(diff); }
 					scoresTile[row*tileCols + col] = expVal;
 					if(AttentionWeights != nullptr){
 						float normalized = 0.0f;
@@ -382,13 +394,14 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 			__syncthreads();
 			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> att_frag;
 			load_matrix_sync(att_frag, attTile, tileStride);
-			// Process V blocks
-			for(int vb = 0; vb < valueBlocks; ++vb){
-				if(vb*16 >= headDim) break;
+			// Process V blocks in warp-sized groups. WMMA fragment element ownership is
+			// unspecified, so every fragment is first stored to a distinct shared tile.
+			for(int vbBase = 0; vbBase < valueBlocks; vbBase += numWarps){
+				const int vb = vbBase + warpId;
+				if(vb < valueBlocks && vb*16 < headDim){
 				// Load V tile
 				const int colPairs = 8;
 				const int totalPairs = 16*colPairs;
-				if(vb % numWarps == warpId){
 					for(int pairIdx = laneId; pairIdx < totalPairs; pairIdx += 32){
 						const int row = pairIdx/colPairs;
 						const int pair = pairIdx % colPairs;
@@ -416,18 +429,21 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 					wmma::fragment<wmma::accumulator, 16, 16, 16, float> outFrag;
 					fill_fragment(outFrag, 0.0f);
 					mma_sync(outFrag, att_frag, v_frag, outFrag);
-					for(int i = 0; i < outFrag.num_elements; ++i){
-						const int row = i/16;
-						const int col = i % 16;
-						const int outRow = row;
-						const int outCol = vb*16 + col;
-						if(outRow < 16 && outCol < headDim){
-							const int outIdx = outRow*valueStride + outCol;
-							outAccum[outIdx] += outFrag.x[i];
-						}
-					}
-					__syncwarp();
+					store_matrix_sync(outProductTiles + warpId*tileStride*16, outFrag, tileStride, wmma::mem_row_major);
 				}
+				__syncthreads();
+				const int activeValueWarps = min(numWarps, valueBlocks - vbBase);
+				for(int idx = threadIdx.x; idx < activeValueWarps*16*16; idx += blockDim.x){
+					const int sourceWarp = idx/(16*16);
+					const int tileIdx = idx % (16*16);
+					const int row = tileIdx/16;
+					const int col = tileIdx % 16;
+					const int outCol = (vbBase + sourceWarp)*16 + col;
+					if(outCol < headDim){
+						outAccum[row*valueStride + outCol] += outProductTiles[sourceWarp*tileStride*16 + row*tileStride + col];
+					}
+				}
+				__syncthreads();
 			}
 		}
 	}
@@ -446,9 +462,315 @@ __global__ void WmmaAttKernel(const __half* __restrict__ Q, const __half* __rest
 		}
 	}
 }
+
+// Volta fast path for the Swin configuration used by AI Gamer. It keeps both
+// output fragments in registers across the complete window and performs one
+// softmax pass because the whole <=64-token row fits in shared memory.
+__global__ void WmmaAttD32T64Kernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V,
+	__half* __restrict__ Out, __half* __restrict__ AttentionWeights, const float* __restrict__ AttentionMask,
+	const float* __restrict__ RelPosBias, const int* __restrict__ RelPosIndex, int relPosSize,
+	int batchSize, int tokens, int heads, int maskBatchSize, int maskHeads){
+	const int rowBlock = blockIdx.x;
+	const int batch = blockIdx.y;
+	const int head = blockIdx.z;
+	const int warpId = threadIdx.x/32;
+	const int laneId = threadIdx.x & 31;
+	const int numWarps = blockDim.x/32;
+	const int rowStart = rowBlock*16;
+	if(batch >= batchSize || head >= heads || rowStart >= tokens) return;
+
+	constexpr int headDim = 32;
+	constexpr int qStride = headDim + kFastSharedMemPad;
+	constexpr int tileStride = 16 + kFastSharedMemPad;
+	const int scoreStride = DivCeil(tokens, 16)*16;
+	const size_t embOffset = (static_cast<size_t>(batch)*heads + head)*tokens*headDim;
+	const size_t attOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
+	extern __shared__ char sharedBytes[];
+	auto qTile = reinterpret_cast<__half*>(sharedBytes);
+	__half* kTiles = qTile + 16*qStride;
+	__half* attTile = kTiles + numWarps*tileStride*16;
+	__half* vTiles = attTile + tileStride*16;
+	auto scores = reinterpret_cast<float*>(vTiles + 2*tileStride*16);
+	const int floatTileElements = 16*(scoreStride > headDim ? scoreStride : headDim);
+	float* outputTile = scores;
+	float* rowSums = scores + floatTileElements;
+
+	const __half scale = __float2half(0.1767766952966369f);
+	for(int idx = threadIdx.x; idx < 16*qStride; idx += blockDim.x){ qTile[idx] = __float2half(0.0f); }
+	__syncthreads();
+	for(int idx = threadIdx.x; idx < 16*headDim; idx += blockDim.x){
+		const int row = idx/headDim;
+		const int col = idx % headDim;
+		const int globalRow = rowStart + row;
+		if(globalRow < tokens){ qTile[row*qStride + col] = __hmul(Q[embOffset + static_cast<size_t>(globalRow)*headDim + col], scale); }
+	}
+	__syncthreads();
+
+	const int colBase = warpId*16;
+	if(colBase < tokens){
+		wmma::fragment<wmma::accumulator, 16, 16, 16, float> scoreFrag;
+		fill_fragment(scoreFrag, 0.0f);
+#pragma unroll
+		for(int dBlock = 0; dBlock < 2; ++dBlock){
+			__half* kTile = kTiles + warpId*tileStride*16;
+#pragma unroll
+			for(int pairIdx = laneId; pairIdx < 16*8; pairIdx += 32){
+				const int col = pairIdx/8;
+				const int pair = pairIdx % 8;
+				const int dim = dBlock*16 + pair*2;
+				const int token = colBase + col;
+				__half2 packed = __float2half2_rn(0.0f);
+				if(token < tokens){
+					packed = reinterpret_cast<const __half2*>(K + embOffset + static_cast<size_t>(token)*headDim + dim)[0];
+				}
+				reinterpret_cast<__half2*>(kTile + col*tileStride + pair*2)[0] = packed;
+			}
+			__syncwarp();
+			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> qFrag;
+			wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> kFrag;
+			load_matrix_sync(qFrag, qTile + dBlock*16, qStride);
+			load_matrix_sync(kFrag, kTile, tileStride);
+			mma_sync(scoreFrag, qFrag, kFrag, scoreFrag);
+		}
+		store_matrix_sync(scores + colBase, scoreFrag, scoreStride, wmma::mem_row_major);
+	}
+	__syncthreads();
+
+	const int effectiveMaskBatchSize = maskBatchSize > 0 ? maskBatchSize : batchSize;
+	const int effectiveMaskHeads = maskHeads > 0 ? maskHeads : heads;
+	const int maskBatch = batch % effectiveMaskBatchSize;
+	const int maskHead = head % effectiveMaskHeads;
+	const size_t maskOffset = (static_cast<size_t>(maskBatch)*effectiveMaskHeads + maskHead)*tokens*tokens;
+	const size_t relPosBase = static_cast<size_t>(head)*relPosSize;
+	for(int row = warpId; row < 16; row += numWarps){
+		const int globalRow = rowStart + row;
+		if(globalRow >= tokens) continue;
+		float localMax = -1e20f;
+		for(int col = laneId; col < tokens; col += 32){
+			float value = scores[row*scoreStride + col];
+			bool isMasked = false;
+			if(AttentionMask != nullptr){
+				const float maskValue = AttentionMask[maskOffset + static_cast<size_t>(globalRow)*tokens + col];
+				value += maskValue;
+				isMasked = maskValue <= -1000.0f;
+			}
+			if(RelPosBias != nullptr && RelPosIndex != nullptr && relPosSize > 0){
+				const int relIdx = RelPosIndex[globalRow*tokens + col];
+				if(static_cast<unsigned int>(relIdx) < static_cast<unsigned int>(relPosSize)){ value += RelPosBias[relPosBase + relIdx]; }
+			}
+			scores[row*scoreStride + col] = value;
+			if(!isMasked){ localMax = fmaxf(localMax, value); }
+		}
+		const float maxValue = WarpReduceMax(localMax);
+		float localSum = 0.0f;
+		for(int col = laneId; col < tokens; col += 32){
+			const float diff = scores[row*scoreStride + col] - maxValue;
+			const bool isMasked = AttentionMask != nullptr &&
+				AttentionMask[maskOffset + static_cast<size_t>(globalRow)*tokens + col] <= -1000.0f;
+			const float exponential = !isMasked && diff > SOFTMAX_FTZ_THRESHOLD && diff < SOFTMAX_MAX_INPUT ? __expf(diff) : 0.0f;
+			scores[row*scoreStride + col] = exponential;
+			localSum += exponential;
+		}
+		const float sum = WarpReduceSum(localSum);
+		if(laneId == 0){ rowSums[row] = sum; }
+		if(AttentionWeights != nullptr){
+			const float invSum = sum > 1e-10f ? 1.0f/sum : 0.0f;
+			for(int col = laneId; col < tokens; col += 32){
+				AttentionWeights[attOffset + static_cast<size_t>(globalRow)*tokens + col] =
+					__float2half(fminf(fmaxf(scores[row*scoreStride + col]*invSum, 0.0f), 1.0f));
+			}
+		}
+	}
+	__syncthreads();
+
+	wmma::fragment<wmma::accumulator, 16, 16, 16, float> outFrag;
+	if(warpId < 2){ fill_fragment(outFrag, 0.0f); }
+	const int keyBlocks = DivCeil(tokens, 16);
+	for(int keyBlock = 0; keyBlock < keyBlocks; ++keyBlock){
+		for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
+			const int row = idx/16;
+			const int col = idx % 16;
+			const int key = keyBlock*16 + col;
+			const float value = rowStart + row < tokens && key < tokens ? scores[row*scoreStride + key] : 0.0f;
+			attTile[row*tileStride + col] = __float2half(value);
+		}
+		if(warpId < 2){
+			__half* vTile = vTiles + warpId*tileStride*16;
+			for(int pairIdx = laneId; pairIdx < 16*8; pairIdx += 32){
+				const int row = pairIdx/8;
+				const int pair = pairIdx % 8;
+				const int key = keyBlock*16 + row;
+				__half2 packed = __float2half2_rn(0.0f);
+				if(key < tokens){
+					packed = reinterpret_cast<const __half2*>(V + embOffset + static_cast<size_t>(key)*headDim + warpId*16 + pair*2)[0];
+				}
+				reinterpret_cast<__half2*>(vTile + row*tileStride + pair*2)[0] = packed;
+			}
+		}
+		__syncthreads();
+		if(warpId < 2){
+			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> attFrag;
+			wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> vFrag;
+			load_matrix_sync(attFrag, attTile, tileStride);
+			load_matrix_sync(vFrag, vTiles + warpId*tileStride*16, tileStride);
+			mma_sync(outFrag, attFrag, vFrag, outFrag);
+		}
+		__syncthreads();
+	}
+	if(warpId < 2){ store_matrix_sync(outputTile + warpId*16, outFrag, headDim, wmma::mem_row_major); }
+	__syncthreads();
+	for(int idx = threadIdx.x; idx < 16*headDim; idx += blockDim.x){
+		const int row = idx/headDim;
+		const int col = idx % headDim;
+		const int globalRow = rowStart + row;
+		if(globalRow < tokens){
+			const float sum = rowSums[row];
+			Out[embOffset + static_cast<size_t>(globalRow)*headDim + col] =
+				__float2half(sum > 1e-10f ? outputTile[idx]/sum : 0.0f);
+		}
+	}
+}
+
 // ============================================================================
 // BACKWARD KERNELS
 // ============================================================================
+__global__ void WmmaAttDAttDQD32T64Kernel(const __half* __restrict__ K, const __half* __restrict__ V,
+	const __half* __restrict__ dOut, __half* __restrict__ attentionAndDAtt, __half* __restrict__ dQ,
+	int batchSize, int tokens, int heads){
+	const int rowBlock = blockIdx.x;
+	const int batch = blockIdx.y;
+	const int head = blockIdx.z;
+	const int warpId = threadIdx.x/32;
+	const int laneId = threadIdx.x & 31;
+	const int numWarps = blockDim.x/32;
+	const int rowStart = rowBlock*16;
+	if(batch >= batchSize || head >= heads || rowStart >= tokens) return;
+
+	constexpr int headDim = 32;
+	constexpr int qStride = headDim + kFastSharedMemPad;
+	constexpr int tileStride = 16 + kFastSharedMemPad;
+	const int scoreStride = DivCeil(tokens, 16)*16;
+	const size_t embOffset = (static_cast<size_t>(batch)*heads + head)*tokens*headDim;
+	const size_t attOffset = (static_cast<size_t>(batch)*heads + head)*tokens*tokens;
+	extern __shared__ char sharedBytes[];
+	auto outTile = reinterpret_cast<__half*>(sharedBytes);
+	__half* vTiles = outTile + 16*qStride;
+	__half* attTile = vTiles + numWarps*tileStride*16;
+	__half* kTiles = attTile + tileStride*16;
+	auto dLogits = reinterpret_cast<float*>(kTiles + 2*tileStride*16);
+	float* dQTile = dLogits;
+
+	for(int idx = threadIdx.x; idx < 16*qStride; idx += blockDim.x){ outTile[idx] = __float2half(0.0f); }
+	__syncthreads();
+	for(int idx = threadIdx.x; idx < 16*headDim; idx += blockDim.x){
+		const int row = idx/headDim;
+		const int col = idx % headDim;
+		const int globalRow = rowStart + row;
+		if(globalRow < tokens){ outTile[row*qStride + col] = dOut[embOffset + static_cast<size_t>(globalRow)*headDim + col]; }
+	}
+	__syncthreads();
+
+	const int colBase = warpId*16;
+	if(colBase < tokens){
+		wmma::fragment<wmma::accumulator, 16, 16, 16, float> rawFrag;
+		fill_fragment(rawFrag, 0.0f);
+#pragma unroll
+		for(int dBlock = 0; dBlock < 2; ++dBlock){
+			__half* vTile = vTiles + warpId*tileStride*16;
+			for(int pairIdx = laneId; pairIdx < 16*8; pairIdx += 32){
+				const int col = pairIdx/8;
+				const int pair = pairIdx % 8;
+				const int token = colBase + col;
+				__half2 packed = __float2half2_rn(0.0f);
+				if(token < tokens){
+					packed = reinterpret_cast<const __half2*>(V + embOffset + static_cast<size_t>(token)*headDim + dBlock*16 + pair*2)[0];
+				}
+				reinterpret_cast<__half2*>(vTile + col*tileStride + pair*2)[0] = packed;
+			}
+			__syncwarp();
+			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> outFrag;
+			wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> vFrag;
+			load_matrix_sync(outFrag, outTile + dBlock*16, qStride);
+			load_matrix_sync(vFrag, vTile, tileStride);
+			mma_sync(rawFrag, outFrag, vFrag, rawFrag);
+		}
+		store_matrix_sync(dLogits + colBase, rawFrag, scoreStride, wmma::mem_row_major);
+	}
+	__syncthreads();
+
+	for(int row = warpId; row < 16; row += numWarps){
+		const int globalRow = rowStart + row;
+		if(globalRow >= tokens) continue;
+		float localDot = 0.0f;
+		for(int col = laneId; col < tokens; col += 32){
+			const float att = __half2float(attentionAndDAtt[attOffset + static_cast<size_t>(globalRow)*tokens + col]);
+			localDot += dLogits[row*scoreStride + col]*att;
+		}
+		const float dot = WarpReduceSum(localDot);
+		for(int col = laneId; col < tokens; col += 32){
+			const size_t attIdx = attOffset + static_cast<size_t>(globalRow)*tokens + col;
+			const float att = __half2float(attentionAndDAtt[attIdx]);
+			dLogits[row*scoreStride + col] = att*(dLogits[row*scoreStride + col] - dot);
+		}
+	}
+	__syncthreads();
+	for(int idx = threadIdx.x; idx < 16*tokens; idx += blockDim.x){
+		const int row = idx/tokens;
+		const int col = idx % tokens;
+		const int globalRow = rowStart + row;
+		if(globalRow < tokens){
+			attentionAndDAtt[attOffset + static_cast<size_t>(globalRow)*tokens + col] = __float2half(dLogits[row*scoreStride + col]);
+		}
+	}
+	__syncthreads();
+
+	wmma::fragment<wmma::accumulator, 16, 16, 16, float> dQFrag;
+	if(warpId < 2){ fill_fragment(dQFrag, 0.0f); }
+	const int keyBlocks = DivCeil(tokens, 16);
+	for(int keyBlock = 0; keyBlock < keyBlocks; ++keyBlock){
+		for(int idx = threadIdx.x; idx < 16*16; idx += blockDim.x){
+			const int row = idx/16;
+			const int col = idx % 16;
+			const int key = keyBlock*16 + col;
+			const float value = rowStart + row < tokens && key < tokens ? dLogits[row*scoreStride + key] : 0.0f;
+			attTile[row*tileStride + col] = __float2half(value);
+		}
+		if(warpId < 2){
+			__half* kTile = kTiles + warpId*tileStride*16;
+			for(int pairIdx = laneId; pairIdx < 16*8; pairIdx += 32){
+				const int row = pairIdx/8;
+				const int pair = pairIdx % 8;
+				const int key = keyBlock*16 + row;
+				__half2 packed = __float2half2_rn(0.0f);
+				if(key < tokens){
+					packed = reinterpret_cast<const __half2*>(K + embOffset + static_cast<size_t>(key)*headDim + warpId*16 + pair*2)[0];
+				}
+				reinterpret_cast<__half2*>(kTile + row*tileStride + pair*2)[0] = packed;
+			}
+		}
+		__syncthreads();
+		if(warpId < 2){
+			wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> attFrag;
+			wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> kFrag;
+			load_matrix_sync(attFrag, attTile, tileStride);
+			load_matrix_sync(kFrag, kTiles + warpId*tileStride*16, tileStride);
+			mma_sync(dQFrag, attFrag, kFrag, dQFrag);
+		}
+		__syncthreads();
+	}
+	if(warpId < 2){ store_matrix_sync(dQTile + warpId*16, dQFrag, headDim, wmma::mem_row_major); }
+	__syncthreads();
+	const float scale = 0.1767766952966369f;
+	for(int idx = threadIdx.x; idx < 16*headDim; idx += blockDim.x){
+		const int row = idx/headDim;
+		const int col = idx % headDim;
+		const int globalRow = rowStart + row;
+		if(globalRow < tokens){
+			dQ[embOffset + static_cast<size_t>(globalRow)*headDim + col] = __float2half(dQTile[idx]*scale);
+		}
+	}
+}
+
 __global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* __restrict__ K, const __half* __restrict__ V, const __half* __restrict__ dOut, const __half* __restrict__ attention, float* __restrict__ dAtt, __half* __restrict__ dQ, int batchSize, int tokens, int headDim, int heads, int tileCols){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
@@ -664,6 +986,7 @@ __global__ void WmmaAttDAttDQKernel(const __half* __restrict__ Q, const __half* 
 			}
 		}
 	}
+	__syncthreads();
 	// Compute dQ = scale*(dAtt @ K)
 	const float scale = rsqrtf(fmaxf(static_cast<float>(headDim), 1.0f));
 	for(int dBlock = 0; dBlock < numDBlocks; ++dBlock){
@@ -842,7 +1165,13 @@ __global__ void WmmaAttDVKernel(const __half* __restrict__ attention, const __ha
 		__syncthreads();
 	}
 }
-__global__ void WmmaAttDKKernel(const float* __restrict__ dAtt, const __half* __restrict__ Q, __half* __restrict__ dK, int batchSize, int tokens, int headDim, int heads){
+template<typename DAttType>
+__device__ __forceinline__ __half DAttToHalf(DAttType value){ return __float2half(value); }
+template<>
+__device__ __forceinline__ __half DAttToHalf<__half>(__half value){ return value; }
+
+template<typename DAttType>
+__global__ void WmmaAttDKKernel(const DAttType* __restrict__ dAtt, const __half* __restrict__ Q, __half* __restrict__ dK, int batchSize, int tokens, int headDim, int heads){
 	const int head = blockIdx.z;
 	const int batch = blockIdx.y;
 	const int keyBlock = blockIdx.x;
@@ -891,11 +1220,11 @@ __global__ void WmmaAttDKKernel(const float* __restrict__ dAtt, const __half* __
 				if(globalQuery < tokens){
 					if(globalKey0 < tokens){
 						const size_t attIdx0 = attOffset + static_cast<size_t>(globalQuery)*tokens + globalKey0;
-						if(attIdx0 < totalAttElements){ h0 = __float2half(dAtt[attIdx0]); }
+						if(attIdx0 < totalAttElements){ h0 = DAttToHalf(dAtt[attIdx0]); }
 					}
 					if(r1 < 16 && globalKey1 < tokens){
 						const size_t attIdx1 = attOffset + static_cast<size_t>(globalQuery)*tokens + globalKey1;
-						if(attIdx1 < totalAttElements){ h1 = __float2half(dAtt[attIdx1]); }
+						if(attIdx1 < totalAttElements){ h1 = DAttToHalf(dAtt[attIdx1]); }
 					}
 				}
 				__half* tileBase = attTile + c*tileStride + r0;
@@ -946,47 +1275,92 @@ __global__ void WmmaAttDKKernel(const float* __restrict__ dAtt, const __half* __
 // ============================================================================
 // WRAPPER FUNCTIONS
 // ============================================================================
-void WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, const int relPosSize, const int batchSize, const int tokens, const int headDim, const int heads, const int maskBatchSize, const int maskHeads){
+static cudaError_t ConfigureWmmaKernels(){
+	static std::once_flag configured;
+	static cudaError_t result = cudaSuccess;
+	std::call_once(configured, []{
+		const void* kernels[] = {WmmaAttKernel, WmmaAttD32T64Kernel, WmmaAttDAttDQD32T64Kernel, WmmaAttDAttDQKernel,
+			WmmaAttDVKernel, WmmaAttDKKernel<float>, WmmaAttDKKernel<__half>};
+		for(const void* kernel : kernels){
+			const cudaError_t status = cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(kMaxSharedMemory));
+			if(status != cudaSuccess){
+				result = status;
+				break;
+			}
+		}
+	});
+	return result;
+}
+
+static int GetAttentionWarpCount(const int tokens){
+	if(tokens <= 32) return 2;
+	return 4;
+}
+
+bool WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, const int relPosSize, const int batchSize, const int tokens, const int headDim, const int heads, const int maskBatchSize, const int maskHeads){
+	const int warpCount = GetAttentionWarpCount(tokens);
 	size_t sharedMemRequired;
-	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
+	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, warpCount, sharedMemRequired)){
 		std::cerr << "WmmaAttention: Invalid dimensions, aborting" << std::endl;
-		return;
+		return false;
 	}
 	if(!Q || !K || !V || !Out){
 		std::cerr << "WmmaAttention: Null input/output pointer(s)" << std::endl;
-		return;
+		return false;
+	}
+	if((relPosBias == nullptr) != (relPosIndex == nullptr) || (relPosBias != nullptr && relPosSize <= 0)){
+		std::cerr << "WmmaAttention: Relative-position bias arguments are inconsistent" << std::endl;
+		return false;
+	}
+	if(attentionMask != nullptr && (maskBatchSize <= 0 || maskHeads <= 0)){
+		std::cerr << "WmmaAttention: Attention-mask dimensions must be positive" << std::endl;
+		return false;
 	}
 	const int numRowBlocks = DivCeil(tokens, 16);
 	if(numRowBlocks > 65535 || batchSize > 65535 || heads > 65535){
 		std::cerr << "WmmaAttention: Grid dimensions exceed limits (blocks=" << numRowBlocks << ", batch=" << batchSize << ", heads=" << heads << ")" << std::endl;
-		return;
+		return false;
 	}
-	dim3 block(kDefaultThreads);
+	dim3 block(warpCount*32);
 	dim3 grid(numRowBlocks, batchSize, heads);
 	const int tileCols = GetAttentionTileCols(tokens);
-	const cudaError_t err = cudaFuncSetAttribute(WmmaAttKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
+	const cudaError_t err = ConfigureWmmaKernels();
 	if(err != cudaSuccess){
 		std::cerr << "WmmaAttention: Failed to set shared memory size: " << cudaGetErrorString(err) << std::endl;
-		return;
+		return false;
 	}
-	//cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	WmmaAttKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols, maskBatchSize, maskHeads);
-	checkCUDA(cudaGetLastError());
+	if(headDim == 32 && tokens <= 64){
+		const int scoreStride = DivCeil(tokens, 16)*16;
+		const int tileStride = 16 + kFastSharedMemPad;
+		const size_t fastShared = sizeof(__half)*(16*(32 + kFastSharedMemPad) + warpCount*tileStride*16 + tileStride*16 + 2*tileStride*16) +
+			sizeof(float)*(16*std::max(scoreStride, 32) + 16);
+		WmmaAttD32T64Kernel<<<grid, block, fastShared>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, heads, maskBatchSize, maskHeads);
+	} else{
+		WmmaAttKernel<<<grid, block, sharedMemRequired>>>(Q, K, V, Out, AttentionWeights, attentionMask, relPosBias, relPosIndex, relPosSize, batchSize, tokens, headDim, heads, tileCols, maskBatchSize, maskHeads);
+	}
+	const cudaError_t launchStatus = cudaGetLastError();
+	if(launchStatus != cudaSuccess){
+		std::cerr << "WmmaAttention launch error: " << cudaGetErrorString(launchStatus) << std::endl;
+		return false;
+	}
+	return true;
 }
-void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, const __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, const size_t workspaceElements, const int batchSize, const int tokens, const int headDim, const int heads){
-	if(!Q || !K || !V || !dOut || !Att || !dQ || !dK || !dV || !dAttWorkspace){
+bool WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, const size_t workspaceElements, const int batchSize, const int tokens, const int headDim, const int heads){
+	const bool useInPlaceFastPath = headDim == 32 && tokens <= 64;
+	if(!Q || !K || !V || !dOut || !Att || !dQ || !dK || !dV || (!useInPlaceFastPath && !dAttWorkspace)){
 		std::cerr << "WmmaAttentionBackward: Null pointer(s) provided" << std::endl;
-		return;
+		return false;
 	}
 	const size_t requiredElements = static_cast<size_t>(batchSize)*heads*tokens*tokens;
-	if(requiredElements > workspaceElements){
+	if(!useInPlaceFastPath && requiredElements > workspaceElements){
 		std::cerr << "WmmaAttentionBackward: Workspace too small (" << requiredElements << " required, " << workspaceElements << " provided)" << std::endl;
-		return;
+		return false;
 	}
+	const int warpCount = std::max(useInPlaceFastPath ? 2 : 1, std::min(4, DivCeil(tokens, 16)));
 	size_t sharedMemRequired;
-	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, sharedMemRequired)){
+	if(!ValidateAttentionDimensions(batchSize, tokens, headDim, heads, warpCount, sharedMemRequired)){
 		std::cerr << "WmmaAttentionBackward: Invalid dimensions" << std::endl;
-		return;
+		return false;
 	}
 	const int numRowBlocks = DivCeil(tokens, 16);
 	const int numKeyBlocks = DivCeil(tokens, 16);
@@ -994,41 +1368,57 @@ void WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, co
 	// Validate grid dimensions
 	if(numRowBlocks > 65535 || numKeyBlocks > 65535 || batchSize > 65535 || heads > 65535){
 		std::cerr << "WmmaAttentionBackward: Grid dimensions exceed limits" << std::endl;
-		return;
+		return false;
 	}
-	dim3 block(kDefaultThreads);
+	dim3 block(warpCount*32);
 	dim3 gridDQ(numRowBlocks, batchSize, heads);
 	dim3 gridKV(numKeyBlocks, batchSize, heads);
-	const int warpCount = block.x/32;
 	const int tileStride = 16 + kSharedMemPad;
 	const size_t paddedTileElements = static_cast<size_t>(tileStride)*16;
 	const size_t smemDQ = sizeof(float)*(warpCount*paddedTileElements + 16) + sizeof(__half)*((1 + 2*warpCount)*paddedTileElements);
 	const size_t smemKV = sizeof(float)*(warpCount*paddedTileElements) + sizeof(__half)*(2*warpCount*paddedTileElements);
-	if(smemDQ > kMaxSharedMemory || smemKV > kMaxSharedMemory){
+	const int scoreStride = DivCeil(tokens, 16)*16;
+	const int fastTileStride = 16 + kFastSharedMemPad;
+	const size_t fastPaddedTileElements = static_cast<size_t>(fastTileStride)*16;
+	const size_t smemFastDQ = sizeof(__half)*(16*(32 + kFastSharedMemPad) + warpCount*fastPaddedTileElements + 3*fastPaddedTileElements) +
+		sizeof(float)*(16*std::max(scoreStride, 32));
+	if((!useInPlaceFastPath && smemDQ > kMaxSharedMemory) || smemKV > kMaxSharedMemory || (useInPlaceFastPath && smemFastDQ > kMaxSharedMemory)){
 		std::cerr << "WmmaAttentionBackward: Shared memory requirements exceed limits" << std::endl;
-		return;
+		return false;
 	}
-	// Set shared memory configurations
-	cudaFuncSetAttribute(WmmaAttDAttDQKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
-	cudaFuncSetAttribute(WmmaAttDVKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
-	cudaFuncSetAttribute(WmmaAttDKKernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kMaxSharedMemory);
-	//cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
-	// Launch kernels
-	WmmaAttDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
+	const cudaError_t configureStatus = ConfigureWmmaKernels();
+	if(configureStatus != cudaSuccess){
+		std::cerr << "WmmaAttentionBackward: Failed to configure kernels: " << cudaGetErrorString(configureStatus) << std::endl;
+		return false;
+	}
+	// dV must consume the original attention matrix before the fast path overwrites it with dLogit.
+	WmmaAttDVKernel<<<gridKV, block, smemKV>>>(Att, dOut, dV, batchSize, tokens, headDim, heads);
 	cudaError_t err = cudaGetLastError();
 	if(err != cudaSuccess){
-		std::cerr << "WmmaAttentionBackward dAtt+dQ error: " << cudaGetErrorString(err) << std::endl;
-		return;
+		std::cerr << "WmmaAttentionBackward dV error: " << cudaGetErrorString(err) << std::endl;
+		return false;
 	}
-	WmmaAttDVKernel<<<gridKV, block, smemKV>>>(Att, dOut, dV, batchSize, tokens, headDim, heads);
+	if(useInPlaceFastPath){
+		WmmaAttDAttDQD32T64Kernel<<<gridDQ, block, smemFastDQ>>>(K, V, dOut, Att, dQ, batchSize, tokens, heads);
+	} else{
+		WmmaAttDAttDQKernel<<<gridDQ, block, smemDQ>>>(Q, K, V, dOut, Att, dAttWorkspace, dQ, batchSize, tokens, headDim, heads, tileCols);
+	}
 	err = cudaGetLastError();
 	if(err != cudaSuccess){
-		std::cerr << "WmmaAttentionBackward dV error: " << cudaGetErrorString(err) << std::endl;
-		return;
+		std::cerr << "WmmaAttentionBackward dAtt+dQ error: " << cudaGetErrorString(err) << std::endl;
+		return false;
 	}
-	WmmaAttDKKernel<<<gridKV, block, smemKV>>>(dAttWorkspace, Q, dK, batchSize, tokens, headDim, heads);
+	if(useInPlaceFastPath){
+		WmmaAttDKKernel<__half><<<gridKV, block, smemKV>>>(Att, Q, dK, batchSize, tokens, headDim, heads);
+	} else{
+		WmmaAttDKKernel<float><<<gridKV, block, smemKV>>>(dAttWorkspace, Q, dK, batchSize, tokens, headDim, heads);
+	}
 	err = cudaGetLastError();
-	if(err != cudaSuccess){ std::cerr << "WmmaAttentionBackward dK error: " << cudaGetErrorString(err) << std::endl; }
+	if(err != cudaSuccess){
+		std::cerr << "WmmaAttentionBackward dK error: " << cudaGetErrorString(err) << std::endl;
+		return false;
+	}
+	return true;
 }
 __global__ void RelPosBiasGradKernel(const float* __restrict__ dAtt, const int* __restrict__ relPosIndex, float* __restrict__ gradBias, const int batchSize, const int tokens, const int heads, const int relPosSize, const float scale){
 	const size_t total = static_cast<size_t>(batchSize)*heads*tokens*tokens;
@@ -1038,6 +1428,7 @@ __global__ void RelPosBiasGradKernel(const float* __restrict__ dAtt, const int* 
 	const int row = static_cast<int>(idx / tokens % tokens);
 	const int head = static_cast<int>(idx / (static_cast<size_t>(tokens)*tokens) % heads);
 	const int relIdx = relPosIndex[row*tokens + col];
+	if(static_cast<unsigned int>(relIdx) >= static_cast<unsigned int>(relPosSize)) return;
 	const size_t biasIdx = static_cast<size_t>(head)*relPosSize + relIdx;
 	atomicAdd(&gradBias[biasIdx], dAtt[idx]*scale);
 }
@@ -1048,7 +1439,28 @@ void AccumulateRelPosBiasGrad(const float* dAtt, const int* relPosIndex, float* 
 	if(total == 0 || relPosSize <= 0) return;
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(total, blocks, tpb);
-	RelPosBiasGradKernel<<<blocks, tpb>>>(dAtt, relPosIndex, gradBias, batchSize, tokens, heads, relPosSize, scale);
+	RelPosBiasGradKernel<<<static_cast<unsigned int>(blocks), static_cast<unsigned int>(tpb)>>>(dAtt, relPosIndex, gradBias, batchSize, tokens, heads, relPosSize, scale);
+	checkCUDA(cudaGetLastError());
+}
+__global__ void RelPosBiasGradHalfKernel(const __half* __restrict__ dAtt, const int* __restrict__ relPosIndex, float* __restrict__ gradBias, const int batchSize, const int tokens, const int heads, const int relPosSize, const float scale){
+	const size_t total = static_cast<size_t>(batchSize)*heads*tokens*tokens;
+	const size_t idx = static_cast<size_t>(blockIdx.x)*blockDim.x + threadIdx.x;
+	if(idx >= total) return;
+	const int col = static_cast<int>(idx % tokens);
+	const int row = static_cast<int>(idx / tokens % tokens);
+	const int head = static_cast<int>(idx / (static_cast<size_t>(tokens)*tokens) % heads);
+	const int relIdx = relPosIndex[row*tokens + col];
+	if(static_cast<unsigned int>(relIdx) >= static_cast<unsigned int>(relPosSize)) return;
+	const size_t biasIdx = static_cast<size_t>(head)*relPosSize + relIdx;
+	atomicAdd(&gradBias[biasIdx], __half2float(dAtt[idx])*scale);
+}
+void AccumulateRelPosBiasGradHalf(const __half* dAtt, const int* relPosIndex, float* gradBias, int batchSize, int tokens, int heads, int relPosSize, float scale){
+	if(dAtt == nullptr || relPosIndex == nullptr || gradBias == nullptr) return;
+	const size_t total = static_cast<size_t>(batchSize)*heads*tokens*tokens;
+	if(total == 0 || relPosSize <= 0) return;
+	size_t blocks, tpb = 256;
+	GetLaunchConfigGridStride(total, blocks, tpb);
+	RelPosBiasGradHalfKernel<<<static_cast<unsigned int>(blocks), static_cast<unsigned int>(tpb)>>>(dAtt, relPosIndex, gradBias, batchSize, tokens, heads, relPosSize, scale);
 	checkCUDA(cudaGetLastError());
 }
 // ============================================================================
@@ -1072,44 +1484,49 @@ __global__ void PackColumnsToHeadsKernel(const __half* __restrict__ inputQ, cons
 		if(inputV && outputV){ outputV[idx] = inputV[inIdx]; }
 	}
 }
-void PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, const int batch, const int tokens, const int embedDim, const int numHeads){
+bool PackColumnsToHeads(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(inputQ && !outputQ || inputK && !outputK || inputV && !outputV || !inputQ && outputQ || !inputK && outputK || !inputV && outputV){
 		std::cerr << "PackColumnsToHeads: Mismatched input/output pointers" << std::endl;
-		return;
+		return false;
 	}
 	if(!inputQ && !inputK && !inputV){
 		std::cerr << "PackColumnsToHeads: No input tensors provided" << std::endl;
-		return;
+		return false;
 	}
 	if(numHeads <= 0 || numHeads > 128){
 		std::cerr << "PackColumnsToHeads: Invalid head count " << numHeads << std::endl;
-		return;
+		return false;
 	}
 	if(embedDim % numHeads != 0){
 		std::cerr << "PackColumnsToHeads: embedDim " << embedDim << " not divisible by numHeads " << numHeads << std::endl;
-		return;
+		return false;
 	}
 	if(batch <= 0 || batch > kMaxBatch || tokens <= 0 || tokens > kMaxTokens){
 		std::cerr << "PackColumnsToHeads: Invalid dimensions B=" << batch << ", T=" << tokens << std::endl;
-		return;
+		return false;
 	}
 	const int headDim = embedDim/numHeads;
-	const int total = batch*tokens*embedDim;
-	if(total <= 0){
-		return;
+	const size_t totalElements = static_cast<size_t>(batch)*tokens*embedDim;
+	if(totalElements == 0 || totalElements > static_cast<size_t>(INT_MAX)){
+		return false;
 	}
+	const int total = static_cast<int>(totalElements);
 	constexpr int blockSize = 256;
 	const int gridSize = std::min(65535, std::max(1, DivCeil(total, blockSize)));
 	PackColumnsToHeadsKernel<<<gridSize, blockSize>>>(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, numHeads, headDim);
 	const cudaError_t err = cudaGetLastError();
-	if(err != cudaSuccess){ std::cerr << "PackColumnsToHeads error: " << cudaGetErrorString(err) << std::endl; }
+	if(err != cudaSuccess){
+		std::cerr << "PackColumnsToHeads error: " << cudaGetErrorString(err) << std::endl;
+		return false;
+	}
+	return true;
 }
-void PackColumnsToHeads(const __half* input, __half* output, const int batch, const int tokens, const int embedDim, const int numHeads){
+bool PackColumnsToHeads(const __half* input, __half* output, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(!input || !output){
 		std::cerr << "PackColumnsToHeads: Null pointer(s)" << std::endl;
-		return;
+		return false;
 	}
-	PackColumnsToHeads(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
+	return PackColumnsToHeads(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
 }
 __global__ void PackHeadsToColumnsKernel(const __half* __restrict__ inputQ, const __half* __restrict__ inputK, const __half* __restrict__ inputV, __half* __restrict__ outputQ, __half* __restrict__ outputK, __half* __restrict__ outputV, const int B, const int T, const int H, const int D){
 	const int total = B*T*H*D;
@@ -1129,42 +1546,47 @@ __global__ void PackHeadsToColumnsKernel(const __half* __restrict__ inputQ, cons
 		if(inputV && outputV){ outputV[outIdx] = inputV[idx]; }
 	}
 }
-void PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, const int batch, const int tokens, const int embedDim, const int numHeads){
+bool PackHeadsToColumns(const __half* inputQ, const __half* inputK, const __half* inputV, __half* outputQ, __half* outputK, __half* outputV, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(inputQ && !outputQ || inputK && !outputK || inputV && !outputV || !inputQ && outputQ || !inputK && outputK || !inputV && outputV){
 		std::cerr << "PackHeadsToColumns: Mismatched input/output pointers" << std::endl;
-		return;
+		return false;
 	}
 	if(!inputQ && !inputK && !inputV){
 		std::cerr << "PackHeadsToColumns: No input tensors provided" << std::endl;
-		return;
+		return false;
 	}
 	if(numHeads <= 0 || numHeads > 128){
 		std::cerr << "PackHeadsToColumns: Invalid head count " << numHeads << std::endl;
-		return;
+		return false;
 	}
 	if(embedDim % numHeads != 0){
 		std::cerr << "PackHeadsToColumns: embedDim " << embedDim << " not divisible by numHeads " << numHeads << std::endl;
-		return;
+		return false;
 	}
 	if(batch <= 0 || batch > kMaxBatch || tokens <= 0 || tokens > kMaxTokens){
 		std::cerr << "PackHeadsToColumns: Invalid dimensions B=" << batch << ", T=" << tokens << std::endl;
-		return;
+		return false;
 	}
 	const int headDim = embedDim/numHeads;
-	const int total = batch*tokens*embedDim;
-	if(total <= 0){
-		return;
+	const size_t totalElements = static_cast<size_t>(batch)*tokens*embedDim;
+	if(totalElements == 0 || totalElements > static_cast<size_t>(INT_MAX)){
+		return false;
 	}
+	const int total = static_cast<int>(totalElements);
 	constexpr int blockSize = 256;
 	const int gridSize = std::min(65535, std::max(1, DivCeil(total, blockSize)));
 	PackHeadsToColumnsKernel<<<gridSize, blockSize>>>(inputQ, inputK, inputV, outputQ, outputK, outputV, batch, tokens, numHeads, headDim);
 	const cudaError_t err = cudaGetLastError();
-	if(err != cudaSuccess){ std::cerr << "PackHeadsToColumns error: " << cudaGetErrorString(err) << std::endl; }
+	if(err != cudaSuccess){
+		std::cerr << "PackHeadsToColumns error: " << cudaGetErrorString(err) << std::endl;
+		return false;
+	}
+	return true;
 }
-void PackHeadsToColumns(const __half* input, __half* output, const int batch, const int tokens, const int embedDim, const int numHeads){
+bool PackHeadsToColumns(const __half* input, __half* output, const int batch, const int tokens, const int embedDim, const int numHeads){
 	if(!input || !output){
 		std::cerr << "PackHeadsToColumns: Null pointer(s)" << std::endl;
-		return;
+		return false;
 	}
-	PackHeadsToColumns(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
+	return PackHeadsToColumns(input, nullptr, nullptr, output, nullptr, nullptr, batch, tokens, embedDim, numHeads);
 }

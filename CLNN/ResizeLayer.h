@@ -15,6 +15,10 @@ private:
 	int inWidth_;
 	int outHeight_;
 	int outWidth_;
+	int contentTop_;
+	int contentLeft_;
+	int contentHeight_;
+	int contentWidth_;
 	__half* outData_ = nullptr;
 	__half* inGrad_ = nullptr;
 };

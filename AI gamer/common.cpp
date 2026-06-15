@@ -5,11 +5,11 @@
 #include <vector>
 #include <sstream>
 //std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\DeltaHalo0X11.bin", "E:\\TrainingData\\DeltaHalo1X14.bin"};
-std::vector<std::string> trainDataFiles = {"E:\\TrainingData\\MBU0.bin", "E:\\TrainingData\\MBU1.bin"};
-std::string valDataFile = "E:\\TrainingData\\DeltaHaloValidation.bin";
-std::string trainDataOutFileName = "E:\\TrainingData.bin";
-std::string ckptFileName = "E:\\AIGamer.ckpt";
-std::string optFileName = "E:\\AIGamer.opt";
+std::vector<std::string> trainDataFiles = {"L:\\TrainingData\\MBU0.bin", "L:\\TrainingData\\MBU1.bin"};
+std::string valDataFile = "L:\\TrainingData\\DeltaHaloValidation.bin";
+std::string trainDataOutFileName = "L:\\TrainingData.bin";
+std::string ckptFileName = "L:\\AIGamer.ckpt";
+std::string optFileName = "L:\\AIGamer.opt";
 std::vector<RecordIndex> trainRecordIndices;
 std::vector<RecordIndex> valRecordIndices;
 ThreadPool threadPool(8);

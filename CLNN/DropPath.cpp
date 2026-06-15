@@ -21,4 +21,9 @@ __half* DropPath::Backward(__half* grad){
 	DropPathApply(grad, mask_, batchSize_, elementsPerBatch_);
 	return grad;
 }
+__half* DropPath::ReplayForward(__half* data){
+	if(!train_ || dropRate_ <= 0.0f){ return data; }
+	DropPathApply(data, mask_, batchSize_, elementsPerBatch_);
+	return data;
+}
 void DropPath::SetTrain(const bool enable){ train_ = enable; }

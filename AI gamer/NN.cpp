@@ -5,8 +5,13 @@
 #include "PatchEmbedLayer.h"
 #include "SwinUnetLayer.h"
 #include "ViewerLayer.h"
+#include <cstdint>
 #undef min
 #undef max
+namespace{
+	constexpr std::uint64_t kOptimizerMagic = 0x3154504F4E4E4C43ULL;
+	constexpr std::uint32_t kOptimizerVersion = 1;
+}
 NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	if(!train) batchSize_ = 1;
 	int netWidth = w;
@@ -34,7 +39,7 @@ NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	stateSize_ = inWidth_*inHeight_*3;
 	checkCLNN(InitCublas());
 	std::cout<<"Initializing layers...\n";
-	constexpr auto wd = 0.1f;
+	constexpr auto wd = 0.02f;
 	constexpr auto patchSize = 16;
 	constexpr auto embedH = 16;
 	constexpr auto embedW = 16;
@@ -46,6 +51,7 @@ NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	constexpr float maxDropPathRate = 0.1f;
 	constexpr int scaledHeight = 256;
 	constexpr int scaledWidth = 256;
+	constexpr bool cacheSwinActivations = true;
 	auto patchRows = DivCeil(scaledHeight, patchSize);
 	auto patchCols = DivCeil(scaledWidth, patchSize);
 	constexpr bool enableViewerLayers = false;
@@ -54,7 +60,7 @@ NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 	auto nTokens = patchRows*patchCols;
 	auto embedDim = embedSize;
 	layers_.push_back(new PatchEmbedLayer(batchSize_, 3, scaledHeight, scaledWidth, patchSize, embedDim, "PatchEmbedLayer", train, wd, gradAccumLength_, Xavier));
-	layers_.push_back(new SwinUnetLayer(batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier));
+	layers_.push_back(new SwinUnetLayer(batchSize_, scaledHeight, scaledWidth, patchSize, embedH, embedW, blocksPerStage, numMergeStages, baseHeads, baseWindowSize, maxDropPathRate, "SwinUnet", train, wd, gradAccumLength_, Xavier, cacheSwinActivations));
 	if(enableViewerLayers) layers_.push_back(new ViewerLayer(batchSize_*nTokens*embedDim, nTokens, sqrt(embedDim), sqrt(embedDim), patchCols, "Encoders Output Viewer", true, 1.0f, false));
 	layers_.push_back(new ActionHead(batchSize_, patchRows, patchCols, embedDim, "ActionHead", train, wd, gradAccumLength_));
 	for(const auto& layer : layers_){
@@ -75,6 +81,21 @@ NN::NN(int w, int h, bool train) : batchSize_(160), gradAccumLength_(1){
 			std::cout<<"Loading optimizer state... ";
 			std::ifstream optFile(optFileName, std::ios::binary);
 			if(optFile.is_open()){
+				std::uint64_t magic = 0;
+				optFile.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+				if(magic == kOptimizerMagic){
+					std::uint32_t version = 0;
+					optFile.read(reinterpret_cast<char*>(&version), sizeof(version));
+					optFile.read(reinterpret_cast<char*>(&adamWStep_), sizeof(adamWStep_));
+					if(!optFile || version != kOptimizerVersion || adamWStep_ < 1){
+						throw std::runtime_error("Unsupported or corrupt optimizer state header");
+					}
+				} else{
+					optFile.clear();
+					optFile.seekg(0);
+					adamWStep_ = 1;
+					std::cerr<<"Legacy optimizer state has no global AdamW step; bias correction will restart at step 1\n";
+				}
 				for(const auto& layer : layers_){ layer->LoadOptimizerState(optFile, buffer); }
 				optFile.close();
 				std::cout<<"Done\n";
@@ -132,6 +153,9 @@ void NN::SaveOptimizerState(const std::string& filename){
 	if(file.is_open()){
 		unsigned char* buffer = nullptr;
 		checkCUDA(cudaMallocHost(&buffer, maxBufferSize_));
+		file.write(reinterpret_cast<const char*>(&kOptimizerMagic), sizeof(kOptimizerMagic));
+		file.write(reinterpret_cast<const char*>(&kOptimizerVersion), sizeof(kOptimizerVersion));
+		file.write(reinterpret_cast<const char*>(&adamWStep_), sizeof(adamWStep_));
 		for(const auto& layer : layers_){
 			layer->SaveOptimizerState(file, buffer);
 		}

@@ -21,6 +21,9 @@ public:
 	void CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks) override;
 	void SetAttentionMask(const float* attentionMask, int maskBatchSize, int maskHeads);
 	void InitRelativePositionBias(int windowHeight, int windowWidth, const std::vector<int>& relPosIndex);
+	size_t GetActivationCacheSize() const;
+	void CacheActivations(__half* cache) const;
+	void RestoreActivations(const __half* cache);
 	int batchSize_, tokens_, embedDim_, numHeads_;
 	int headDim_;
 	__half* outData_ = nullptr;
@@ -34,7 +37,8 @@ public:
 	__half *dQ = nullptr, *dK = nullptr, *dV = nullptr;
 	__half *qPacked_ = nullptr, *kPacked_ = nullptr, *vPacked_ = nullptr, *attnOutPacked_ = nullptr;
 	__half *dQPacked_ = nullptr, *dKPacked_ = nullptr, *dVPacked_ = nullptr;
-	__half* workspace_;
+	__half* workspace_ = nullptr;
+	__half* attentionWeights_ = nullptr;
 	float* attnGradWorkspace_ = nullptr;
 	size_t attnGradWorkspaceSize_ = 0;
 	const float* attentionMask_ = nullptr;
@@ -57,4 +61,5 @@ public:
 	bool ownsTemporaries_ = true;
 	bool ownsPackedGradTemporaries_ = true;
 	bool ownsAttnGradWorkspace_ = true;
+	bool trainingAllocated_ = false;
 };
