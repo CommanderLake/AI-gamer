@@ -7,7 +7,10 @@ TokensToSpatialLayer::TokensToSpatialLayer(const int batchSize, const int nToken
 	CUDAMallocZero(&spatialData_, static_cast<size_t>(batchSize_)*embedSize_*nTokens_*sizeof(__half));
 	CUDAMallocZero(&tokenGrad_, static_cast<size_t>(batchSize_)*nTokens_*embedSize_*sizeof(__half));
 }
-TokensToSpatialLayer::~TokensToSpatialLayer(){}
+TokensToSpatialLayer::~TokensToSpatialLayer(){
+	cudaFree(spatialData_);
+	cudaFree(tokenGrad_);
+}
 __half* TokensToSpatialLayer::Forward(__half* data){
 	TokensToSpatial(data, spatialData_, batchSize_, nTokens_, embedSize_, patchRows_, patchCols_);
 	return spatialData_;

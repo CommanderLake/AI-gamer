@@ -30,6 +30,7 @@
     <ClCompile Include="PatchMergingLayer.cpp" />
     <ClCompile Include="ResizeLayer.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
+    <ClCompile Include="SpatialToTokensLayer.cpp" />
     <ClCompile Include="SwinBlockLayer.cpp" />
     <ClCompile Include="SwinUnetLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />
@@ -60,6 +61,7 @@
     <ClInclude Include="PatchMergingLayer.h" />
     <ClInclude Include="ResizeLayer.h" />
     <ClInclude Include="SigmoidLayer.h" />
+    <ClInclude Include="SpatialToTokensLayer.h" />
     <ClInclude Include="SwinBlockLayer.h" />
     <ClInclude Include="SwinUnetLayer.h" />
     <ClInclude Include="SwishLayer.h" />

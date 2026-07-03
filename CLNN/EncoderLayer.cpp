@@ -7,6 +7,7 @@
 #include "GELULayer.h"
 #include "Dropout.h"
 #include <algorithm>
+#include <stdexcept>
 EncoderLayer::EncoderLayer(const int batchSize, const int tokens, const int embedDim, const int ffDim, const int numHeads, const std::string layerName, const bool train, const float weightDecay, const int gradAccumLength) : batchSize_(batchSize), tokens_(tokens), embedDim_(embedDim), ffDim_(ffDim), gradAccumLength_(gradAccumLength){
 	layerName_ = layerName;
 	train_ = train;
@@ -19,10 +20,12 @@ EncoderLayer::EncoderLayer(const int batchSize, const int tokens, const int embe
 	layers_.push_back(new GELULayer(batchSize_*tokens_, ffDim_, 1, 1, "GELU"));
 	layers_.push_back(new FCLayer(batchSize_*tokens_, ffDim_, embedDim_, "FC2", train_, weightDecay, gradAccumLength_, Xavier, true));
 	layers_.push_back(new Dropout(0.1f, batchSize_*tokens_, embedDim_, 1, 1, "FF_Dropout", train));
+	if(train_){ CUDAMallocZero(&residualGrad_, outNCHW_*sizeof(__half)); }
 }
 EncoderLayer::~EncoderLayer(){
 	for(const auto layer : layers_) delete layer;
 	layers_.clear();
+	cudaFree(residualGrad_);
 }
 __half* EncoderLayer::Forward(__half* data){
 	const auto* residual1 = data;
@@ -56,18 +59,20 @@ __half* EncoderLayer::Forward(__half* data){
 	return data;
 }
 __half* EncoderLayer::Backward(__half* grad){
-	const auto* residual2 = grad;
+	if(!residualGrad_){ throw std::runtime_error("EncoderLayer::Backward requires training mode"); }
+	const size_t gradBytes = outNCHW_*sizeof(__half);
+	checkCUDA(cudaMemcpy(residualGrad_, grad, gradBytes, cudaMemcpyDeviceToDevice));
 	grad = layers_[7]->Backward(grad);
 	grad = layers_[6]->Backward(grad);
 	grad = layers_[5]->Backward(grad);
 	grad = layers_[4]->Backward(grad);
 	grad = layers_[3]->Backward(grad);
-	AddTensor(mixBwd_, grad, mixBwd_, residual2, static_cast<int>(outNCHW_));
-	const auto* residual1 = grad;
+	AddTensor(mixBwd_, grad, mixBwd_, residualGrad_, static_cast<int>(outNCHW_));
+	checkCUDA(cudaMemcpy(residualGrad_, grad, gradBytes, cudaMemcpyDeviceToDevice));
 	grad = layers_[2]->Backward(grad);
 	grad = layers_[1]->Backward(grad);
 	grad = layers_[0]->Backward(grad);
-	AddTensor(mixBwd_, grad, mixBwd_, residual1, static_cast<int>(outNCHW_));
+	AddTensor(mixBwd_, grad, mixBwd_, residualGrad_, static_cast<int>(outNCHW_));
 	return grad;
 }
 void EncoderLayer::UpdateParameters(const float lr){ for(const auto layer : layers_){ layer->UpdateParameters(lr); } }

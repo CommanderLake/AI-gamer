@@ -20,6 +20,7 @@ private:
 	int batchSize_, tokens_, embedDim_, ffDim_;
 	int gradAccumLength_;
 	std::vector<Layer*> layers_;
+	__half* residualGrad_ = nullptr;
 	const float mixFwd_ = 1.0f;
 	const float mixBwd_ = 1.0f;
 };

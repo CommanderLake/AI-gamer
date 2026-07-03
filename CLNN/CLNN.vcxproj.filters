@@ -66,6 +66,9 @@
     <ClCompile Include="SigmoidLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SpatialToTokensLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="SwinBlockLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -147,6 +150,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SigmoidLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SpatialToTokensLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SwinBlockLayer.h">
