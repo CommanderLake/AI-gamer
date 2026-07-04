@@ -11,6 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AdaRMSNorm.cpp" />
     <ClCompile Include="AsinhLayer.cpp" />
     <ClCompile Include="ConvLayer.cpp" />
     <ClCompile Include="Conv1DLayer.cpp" />
@@ -36,12 +37,14 @@
     <ClCompile Include="SwinBlockLayer.cpp" />
     <ClCompile Include="SwinUnetLayer.cpp" />
     <ClCompile Include="SwishLayer.cpp" />
+    <ClCompile Include="TimestepEmbedding.cpp" />
     <ClCompile Include="TokensToSpatialLayer.cpp" />
     <ClCompile Include="Viewer.cpp" />
     <ClCompile Include="ViewerLayer.cpp" />
     <ClCompile Include="WmmaAttentionLayer.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AdaRMSNorm.h" />
     <ClInclude Include="APICommon.h" />
     <ClInclude Include="AsinhLayer.h" />
     <ClInclude Include="ConvLayer.h" />
@@ -69,12 +72,14 @@
     <ClInclude Include="SwinBlockLayer.h" />
     <ClInclude Include="SwinUnetLayer.h" />
     <ClInclude Include="SwishLayer.h" />
+    <ClInclude Include="TimestepEmbedding.h" />
     <ClInclude Include="TokensToSpatialLayer.h" />
     <ClInclude Include="Viewer.h" />
     <ClInclude Include="ViewerLayer.h" />
     <ClInclude Include="WmmaAttentionLayer.h" />
   </ItemGroup>
   <ItemGroup>
+    <CudaCompile Include="AdaRMSNorm.cu" />
     <CudaCompile Include="Activations.cu" />
     <CudaCompile Include="AttentionPool.cu" />
     <CudaCompile Include="Conversions.cu" />
@@ -89,6 +94,7 @@
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="RMSNorm.cu" />
     <CudaCompile Include="Scale.cu" />
+    <CudaCompile Include="TimestepEmbedding.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />
   </ItemGroup>
