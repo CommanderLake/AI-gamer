@@ -41,8 +41,8 @@ GroupNorm::~GroupNorm(){
 	cudaFree(mean_);
 	cudaFree(invStd_);
 	if(trainingAllocated_){
-		cudaFree(outGrad_);
 		cudaFree(workspace_);
+		cudaFree(outGrad_);
 		cudaFree(gradGamma_);
 		cudaFree(gradBeta_);
 		cudaFree(mGamma_);

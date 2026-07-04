@@ -1,5 +1,4 @@
 #include "RMSNorm.h"
-#include "HostCommon.h"
 #include "CuCommon.h"
 #include <stdexcept>
 #include <vector>
@@ -32,8 +31,8 @@ RMSNorm::~RMSNorm(){
 	cudaFree(gamma_);
 	cudaFree(invRms_);
 	if(trainingAllocated_){
-		cudaFree(outGrad_);
 		cudaFree(workspace_);
+		cudaFree(outGrad_);
 		cudaFree(gradGamma_);
 		cudaFree(mGamma_);
 		cudaFree(vGamma_);

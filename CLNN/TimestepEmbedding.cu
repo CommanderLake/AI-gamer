@@ -39,6 +39,40 @@ __global__ void TimestepEmbeddingHalfKernel(__half* __restrict__ out, const __ha
 		out[idx] = __float2half(value);
 	}
 }
+__global__ void TimestepEmbeddingBackwardKernel(float* __restrict__ gradTimesteps, const __half* __restrict__ grad, const float* __restrict__ timesteps, int batchSize, int embeddingDim, float maxPeriod){
+	const int b = blockIdx.x;
+	if(b >= batchSize) return;
+	const int tid = threadIdx.x;
+	const int warpId = tid >> 5;
+	const int laneId = tid & 31;
+	const int warpsPerBlock = (blockDim.x + 31) >> 5;
+	extern __shared__ unsigned char smem[];
+	auto* warpBuffer = reinterpret_cast<float*>(smem);
+	const int halfDim = embeddingDim/2;
+	const float timestep = timesteps[b];
+	float sum = 0.0f;
+	for(int d = tid; d < embeddingDim; d += blockDim.x){
+		float derivative = 0.0f;
+		if(d < halfDim){
+			const float freq = TimestepEmbeddingFreq(d, halfDim, maxPeriod);
+			derivative = -sinf(timestep*freq)*freq;
+		} else if(d < 2*halfDim){
+			const float freq = TimestepEmbeddingFreq(d - halfDim, halfDim, maxPeriod);
+			derivative = cosf(timestep*freq)*freq;
+		}
+		sum = fmaf(__half2float(grad[b*embeddingDim + d]), derivative, sum);
+	}
+#pragma unroll
+	for(int offset = 16; offset > 0; offset >>= 1){ sum += __shfl_down_sync(0xFFFFFFFF, sum, offset); }
+	if(laneId == 0){ warpBuffer[warpId] = sum; }
+	__syncthreads();
+	if(warpId == 0){
+		float blockSum = laneId < warpsPerBlock ? warpBuffer[laneId] : 0.0f;
+#pragma unroll
+		for(int offset = 16; offset > 0; offset >>= 1){ blockSum += __shfl_down_sync(0xFFFFFFFF, blockSum, offset); }
+		if(laneId == 0){ gradTimesteps[b] = blockSum; }
+	}
+}
 void TimestepEmbeddingForward(__half* out, const float* timesteps, int batchSize, int embeddingDim, float maxPeriod){
 	if(!out || !timesteps){
 		fprintf(stderr, "TimestepEmbeddingForward: Null pointer input\n");
@@ -65,5 +99,21 @@ void TimestepEmbeddingForwardHalf(__half* out, const __half* timesteps, int batc
 	size_t blocks, tpb = 256;
 	GetLaunchConfigGridStride(static_cast<size_t>(batchSize)*embeddingDim, blocks, tpb);
 	TimestepEmbeddingHalfKernel<<<static_cast<unsigned int>(blocks), static_cast<unsigned int>(tpb)>>>(out, timesteps, batchSize, embeddingDim, maxPeriod);
+	checkCUDA(cudaGetLastError());
+}
+void TimestepEmbeddingBackward(float* gradTimesteps, const __half* grad, const float* timesteps, int batchSize, int embeddingDim, float maxPeriod){
+	if(!gradTimesteps || !grad || !timesteps){
+		fprintf(stderr, "TimestepEmbeddingBackward: Null pointer input\n");
+		return;
+	}
+	if(batchSize <= 0 || embeddingDim <= 0 || maxPeriod <= 1.0f){
+		fprintf(stderr, "TimestepEmbeddingBackward: Invalid arguments batch=%d, dim=%d, maxPeriod=%f\n", batchSize, embeddingDim, maxPeriod);
+		return;
+	}
+	int threads = 32;
+	while(threads < embeddingDim && threads < 256){ threads <<= 1; }
+	const int warpsPerBlock = (threads + 31)/32;
+	const size_t smemSize = warpsPerBlock*sizeof(float);
+	TimestepEmbeddingBackwardKernel<<<batchSize, threads, smemSize>>>(gradTimesteps, grad, timesteps, batchSize, embeddingDim, maxPeriod);
 	checkCUDA(cudaGetLastError());
 }

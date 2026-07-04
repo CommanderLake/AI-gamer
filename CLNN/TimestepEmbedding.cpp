@@ -10,11 +10,13 @@ TimestepEmbedding::TimestepEmbedding(const int batchSize, const int embeddingDim
 	outNCHW_ = static_cast<size_t>(batchSize_)*embeddingDim_;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
 	CUDAMallocZero(&ownedTimesteps_, static_cast<size_t>(batchSize_)*sizeof(float));
+	CUDAMallocZero(&gradTimesteps_, static_cast<size_t>(batchSize_)*sizeof(float));
 	timesteps_ = ownedTimesteps_;
 }
 TimestepEmbedding::~TimestepEmbedding(){
 	cudaFree(outData_);
 	cudaFree(ownedTimesteps_);
+	cudaFree(gradTimesteps_);
 }
 void TimestepEmbedding::SetTimestepsDevice(const float* timesteps){
 	if(!timesteps){ throw std::invalid_argument("TimestepEmbedding received null device timesteps"); }
@@ -36,7 +38,12 @@ __half* TimestepEmbedding::Forward(__half* data){
 	return outData_;
 }
 __half* TimestepEmbedding::Backward(__half* grad){
+	if(grad == nullptr){ return nullptr; }
+	if(timesteps_){ TimestepEmbeddingBackward(gradTimesteps_, grad, timesteps_, batchSize_, embeddingDim_, maxPeriod_); }
 	return grad;
+}
+float* TimestepEmbedding::GetTimestepGrad(){
+	return gradTimesteps_;
 }
 size_t TimestepEmbedding::GetParameterSize(){
 	return 0;

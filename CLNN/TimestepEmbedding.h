@@ -8,6 +8,7 @@ public:
 	__half* Backward(__half* grad) override;
 	void SetTimestepsDevice(const float* timesteps);
 	void SetTimestepsHost(const float* timesteps);
+	float* GetTimestepGrad();
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
 private:
@@ -16,5 +17,6 @@ private:
 	float maxPeriod_;
 	__half* outData_ = nullptr;
 	float* ownedTimesteps_ = nullptr;
+	float* gradTimesteps_ = nullptr;
 	const float* timesteps_ = nullptr;
 };

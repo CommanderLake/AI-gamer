@@ -16,6 +16,7 @@
     <ClCompile Include="ConvLayer.cpp" />
     <ClCompile Include="Conv1DLayer.cpp" />
     <ClCompile Include="ConvScale.cpp" />
+    <ClCompile Include="CrossAttentionLayer.cpp" />
     <ClCompile Include="Dropout.cpp" />
     <ClCompile Include="DropPath.cpp" />
     <ClCompile Include="EncoderLayer.cpp" />
@@ -31,6 +32,7 @@
     <ClCompile Include="PatchExpandingLayer.cpp" />
     <ClCompile Include="PatchMergingLayer.cpp" />
     <ClCompile Include="ResizeLayer.cpp" />
+    <ClCompile Include="RotaryEmbedding.cpp" />
     <ClCompile Include="RMSNorm.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
     <ClCompile Include="SpatialToTokensLayer.cpp" />
@@ -50,6 +52,7 @@
     <ClInclude Include="ConvLayer.h" />
     <ClInclude Include="Conv1DLayer.h" />
     <ClInclude Include="ConvScale.h" />
+    <ClInclude Include="CrossAttentionLayer.h" />
     <ClInclude Include="CuCommon.h" />
     <ClInclude Include="Dropout.h" />
     <ClInclude Include="DropPath.h" />
@@ -66,6 +69,7 @@
     <ClInclude Include="PatchExpandingLayer.h" />
     <ClInclude Include="PatchMergingLayer.h" />
     <ClInclude Include="ResizeLayer.h" />
+    <ClInclude Include="RotaryEmbedding.h" />
     <ClInclude Include="RMSNorm.h" />
     <ClInclude Include="SigmoidLayer.h" />
     <ClInclude Include="SpatialToTokensLayer.h" />
@@ -83,6 +87,7 @@
     <CudaCompile Include="Activations.cu" />
     <CudaCompile Include="AttentionPool.cu" />
     <CudaCompile Include="Conversions.cu" />
+    <CudaCompile Include="CrossAttention.cu" />
     <CudaCompile Include="CuCommon.cpp" />
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="DropPath.cu" />
@@ -93,6 +98,7 @@
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="RMSNorm.cu" />
+    <CudaCompile Include="RotaryEmbedding.cu" />
     <CudaCompile Include="Scale.cu" />
     <CudaCompile Include="TimestepEmbedding.cu" />
     <CudaCompile Include="TokenTransforms.cu" />

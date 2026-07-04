@@ -30,6 +30,9 @@
     <ClCompile Include="ConvScale.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CrossAttentionLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Dropout.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -67,6 +70,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ResizeLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RotaryEmbedding.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RMSNorm.cpp">
@@ -108,12 +114,6 @@
     <ClCompile Include="HostCommon.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="AdaRMSNorm.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="TimestepEmbedding.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AdaRMSNorm.h">
@@ -129,6 +129,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ConvScale.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CrossAttentionLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Dropout.h">
@@ -173,6 +176,9 @@
     <ClInclude Include="ResizeLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RotaryEmbedding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="RMSNorm.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -215,18 +221,13 @@
     <ClInclude Include="APICommon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TimestepEmbedding.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="AdaRMSNorm.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="AdaRMSNorm.cu" />
     <CudaCompile Include="Activations.cu" />
     <CudaCompile Include="AttentionPool.cu" />
     <CudaCompile Include="Conversions.cu" />
+    <CudaCompile Include="CrossAttention.cu" />
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="DropPath.cu" />
     <CudaCompile Include="GroupNorm.cu" />
@@ -235,6 +236,7 @@
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="RMSNorm.cu" />
+    <CudaCompile Include="RotaryEmbedding.cu" />
     <CudaCompile Include="Scale.cu" />
     <CudaCompile Include="TimestepEmbedding.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
@@ -243,7 +245,5 @@
       <Filter>Source Files</Filter>
     </CudaCompile>
     <CudaCompile Include="Gemms.cu" />
-    <CudaCompile Include="AdaRMSNorm.cu" />
-    <CudaCompile Include="TimestepEmbedding.cu" />
   </ItemGroup>
 </Project>
