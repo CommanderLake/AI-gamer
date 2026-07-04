@@ -102,6 +102,12 @@
     <ClCompile Include="HostCommon.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="AdaRMSNorm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TimestepEmbedding.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AsinhLayer.h">
@@ -197,6 +203,12 @@
     <ClInclude Include="APICommon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TimestepEmbedding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AdaRMSNorm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="Activations.cu" />
@@ -217,5 +229,7 @@
       <Filter>Source Files</Filter>
     </CudaCompile>
     <CudaCompile Include="Gemms.cu" />
+    <CudaCompile Include="AdaRMSNorm.cu" />
+    <CudaCompile Include="TimestepEmbedding.cu" />
   </ItemGroup>
 </Project>

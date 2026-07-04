@@ -14,8 +14,11 @@ void GELUForward(const __half* dataIn, __half* dataOut, int size, cudaStream_t s
 void GELUBackward(__half* grad, const __half* dataIn, int size, cudaStream_t stream = nullptr);
 void AsinhForward(const __half* dataIn, __half* dataOut, int size, float alpha, cudaStream_t stream = nullptr);
 void AsinhBackward(__half* grad, const __half* activated, int size, float alpha, cudaStream_t stream = nullptr);
+void TimestepEmbeddingForward(__half* out, const float* timesteps, int batchSize, int embeddingDim, float maxPeriod);
+void TimestepEmbeddingForwardHalf(__half* out, const __half* timesteps, int batchSize, int embeddingDim, float maxPeriod);
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW, bool spatialMode);
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW, bool spatialMode);
+void AdaRMSNormForward(__half* y, const __half* x, const float* gamma, const __half* scale, const __half* shift, const __half* gate, float* invRms, int N, int C, int HW, int modulationBatchSize, int rowsPerModulation, float epsilon);
 void GroupNormForward(__half* y, const __half* x, const float* gamma, const float* beta, float* mean, float* invStd, int N, int C, int HW, int groups, float epsilon);
 void GroupNormBackward(__half* dx, const __half* dy, const __half* x, const float* gamma, float* dGamma, float* dBeta, const float* mean, const float* invStd, void* workspace, size_t workspaceSize, int N, int C, int HW, int groups);
 size_t GroupNormBackwardWorkspaceSize(int N, int groups);
