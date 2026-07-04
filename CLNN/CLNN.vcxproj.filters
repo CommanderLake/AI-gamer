@@ -45,6 +45,9 @@
     <ClCompile Include="GlobalPoolLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GroupNorm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="LayerNorm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -61,6 +64,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ResizeLayer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RMSNorm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SigmoidLayer.cpp">
@@ -128,6 +134,9 @@
     <ClInclude Include="GlobalPoolLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="GroupNorm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Layer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -147,6 +156,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ResizeLayer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RMSNorm.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SigmoidLayer.h">
@@ -192,10 +204,12 @@
     <CudaCompile Include="Conversions.cu" />
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="DropPath.cu" />
+    <CudaCompile Include="GroupNorm.cu" />
     <CudaCompile Include="LayerNorm.cu" />
     <CudaCompile Include="Loss.cu" />
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
+    <CudaCompile Include="RMSNorm.cu" />
     <CudaCompile Include="Scale.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />

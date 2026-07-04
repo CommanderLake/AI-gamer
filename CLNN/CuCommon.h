@@ -16,6 +16,12 @@ void AsinhForward(const __half* dataIn, __half* dataOut, int size, float alpha, 
 void AsinhBackward(__half* grad, const __half* activated, int size, float alpha, cudaStream_t stream = nullptr);
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW, bool spatialMode);
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW, bool spatialMode);
+void GroupNormForward(__half* y, const __half* x, const float* gamma, const float* beta, float* mean, float* invStd, int N, int C, int HW, int groups, float epsilon);
+void GroupNormBackward(__half* dx, const __half* dy, const __half* x, const float* gamma, float* dGamma, float* dBeta, const float* mean, const float* invStd, void* workspace, size_t workspaceSize, int N, int C, int HW, int groups);
+size_t GroupNormBackwardWorkspaceSize(int N, int groups);
+void RMSNormForward(__half* y, const __half* x, const float* gamma, float* invRms, int N, int C, int HW, bool spatialMode, float epsilon);
+void RMSNormBackward(__half* dx, const __half* dy, const __half* x, const float* gamma, float* dGamma, const float* invRms, void* workspace, size_t workspaceSize, int N, int C, int HW, bool spatialMode);
+size_t RMSNormBackwardWorkspaceSize(int N, int HW, bool spatialMode);
 void FeatureMapMosaic(const __half* dInput, unsigned char* dOutput, int H, int W, int inC, int mosaicW, int tileW, int tileH, int gridW, float scale, cudaStream_t stream = nullptr);
 bool WmmaAttention(const __half* Q, const __half* K, const __half* V, __half* Out, __half* AttentionWeights, const float* attentionMask, const float* relPosBias, const int* relPosIndex, int relPosSize, int batchSize, int tokens, int headDim, int heads, int maskBatchSize, int maskHeads);
 bool WmmaAttentionBackward(const __half* Q, const __half* K, const __half* V, const __half* dOut, __half* Att, __half* dQ, __half* dK, __half* dV, float* dAttWorkspace, size_t workspaceElements, int batchSize, int tokens, int headDim, int heads);

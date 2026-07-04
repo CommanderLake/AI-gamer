@@ -21,6 +21,7 @@
     <ClCompile Include="FCLayer.cpp" />
     <ClCompile Include="GELULayer.cpp" />
     <ClCompile Include="GlobalPoolLayer.cpp" />
+    <ClCompile Include="GroupNorm.cpp" />
     <ClCompile Include="LayerNorm.cpp" />
     <ClCompile Include="LeakyReLULayer.cpp" />
     <ClCompile Include="HostCommon.cpp" />
@@ -29,6 +30,7 @@
     <ClCompile Include="PatchExpandingLayer.cpp" />
     <ClCompile Include="PatchMergingLayer.cpp" />
     <ClCompile Include="ResizeLayer.cpp" />
+    <ClCompile Include="RMSNorm.cpp" />
     <ClCompile Include="SigmoidLayer.cpp" />
     <ClCompile Include="SpatialToTokensLayer.cpp" />
     <ClCompile Include="SwinBlockLayer.cpp" />
@@ -52,6 +54,7 @@
     <ClInclude Include="FCLayer.h" />
     <ClInclude Include="GELULayer.h" />
     <ClInclude Include="GlobalPoolLayer.h" />
+    <ClInclude Include="GroupNorm.h" />
     <ClInclude Include="Layer.h" />
     <ClInclude Include="LayerNorm.h" />
     <ClInclude Include="LeakyReLULayer.h" />
@@ -60,6 +63,7 @@
     <ClInclude Include="PatchExpandingLayer.h" />
     <ClInclude Include="PatchMergingLayer.h" />
     <ClInclude Include="ResizeLayer.h" />
+    <ClInclude Include="RMSNorm.h" />
     <ClInclude Include="SigmoidLayer.h" />
     <ClInclude Include="SpatialToTokensLayer.h" />
     <ClInclude Include="SwinBlockLayer.h" />
@@ -78,10 +82,12 @@
     <CudaCompile Include="CudaStuff.cu" />
     <CudaCompile Include="DropPath.cu" />
     <CudaCompile Include="Gemms.cu" />
+    <CudaCompile Include="GroupNorm.cu" />
     <CudaCompile Include="LayerNorm.cu" />
     <CudaCompile Include="Loss.cu" />
     <CudaCompile Include="Optimizers.cu" />
     <CudaCompile Include="PatchEmbedding.cu" />
+    <CudaCompile Include="RMSNorm.cu" />
     <CudaCompile Include="Scale.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />

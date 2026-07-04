@@ -29,32 +29,16 @@ EncoderLayer::~EncoderLayer(){
 }
 __half* EncoderLayer::Forward(__half* data){
 	const auto* residual1 = data;
-	//std::cout << "\n" << layers_[0]->layerName_ << " ";
 	data = layers_[0]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[0]->outNCHW_, "data");
-	//std::cout << "\n" << layers_[1]->layerName_ << " ";
 	data = layers_[1]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[1]->outNCHW_, "data");
-	//std::cout << "\n" << layers_[2]->layerName_ << " ";
 	data = layers_[2]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[2]->outNCHW_, "data");
-	//std::cout << "\n" << layers_[3]->layerName_ << " ";
 	AddTensor(mixFwd_, data, mixFwd_, residual1, static_cast<int>(outNCHW_));
 	const auto* residual2 = data;
 	data = layers_[3]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[3]->outNCHW_, "data");
-	//std::cout << "\n" << layers_[4]->layerName_ << " ";
 	data = layers_[4]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[4]->outNCHW_, "data");
-	//std::cout << "\n" << layers_[5]->layerName_ << " ";
 	data = layers_[5]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[5]->outNCHW_, "data");
-	//std::cout << "\n" << layers_[6]->layerName_ << " ";
 	data = layers_[6]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[6]->outNCHW_, "data");
-	//std::cout << "\n" << layers_[7]->layerName_ << " ";
 	data = layers_[7]->Forward(data);
-	//SummarizeHalfDevice(data, layers_[7]->outNCHW_, "data");
 	AddTensor(mixFwd_, data, mixFwd_, residual2, static_cast<int>(outNCHW_));
 	return data;
 }
