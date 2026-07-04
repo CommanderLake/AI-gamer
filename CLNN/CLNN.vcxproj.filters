@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AdaRMSNorm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="AsinhLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -84,6 +87,9 @@
     <ClCompile Include="SwishLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TimestepEmbedding.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="TokensToSpatialLayer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -110,6 +116,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AdaRMSNorm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="AsinhLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -182,6 +191,9 @@
     <ClInclude Include="SwishLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TimestepEmbedding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="TokensToSpatialLayer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -211,6 +223,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <CudaCompile Include="AdaRMSNorm.cu" />
     <CudaCompile Include="Activations.cu" />
     <CudaCompile Include="AttentionPool.cu" />
     <CudaCompile Include="Conversions.cu" />
@@ -223,6 +236,7 @@
     <CudaCompile Include="PatchEmbedding.cu" />
     <CudaCompile Include="RMSNorm.cu" />
     <CudaCompile Include="Scale.cu" />
+    <CudaCompile Include="TimestepEmbedding.cu" />
     <CudaCompile Include="TokenTransforms.cu" />
     <CudaCompile Include="WMMAAttention.cu" />
     <CudaCompile Include="CuCommon.cpp">
