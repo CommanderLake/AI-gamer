@@ -158,7 +158,7 @@ __half* CrossAttentionLayer::Forward(__half* queryData, const __half* contextDat
 __half* CrossAttentionLayer::Backward(__half* grad){
 	if(grad == nullptr){ throw std::invalid_argument("CrossAttentionLayer::Backward received null gradient"); }
 	if(!train_){ return grad; }
-	if(!trainingAllocated_){ AllocateTrainingBuffers(); }
+	if(!trainingAllocated_){ throw std::runtime_error("CrossAttentionLayer::Backward requires training buffers; construct with train=true"); }
 	if(inData_ == nullptr || contextInData_ == nullptr){ throw std::runtime_error("CrossAttentionLayer::Backward requires a previous Forward call"); }
 	const float* betaWeights = accumCount_++%gradAccumLength_ == 0 ? &zero_ : &one_;
 	checkCLNN(CLNNGemmEx(CLNN_OP_N, CLNN_OP_T, embedDim_, embedDim_, batchSize_*queryTokens_, &alphaWeights_, grad, CUDA_R_16F, embedDim_, attnOut_, CUDA_R_16F, embedDim_, betaWeights, gradOWeights_, CUDA_R_16F, embedDim_, CUDA_R_32F));
@@ -217,7 +217,7 @@ void CrossAttentionLayer::LoadParameters(std::ifstream& file, unsigned char* buf
 	cudaMemcpy(oWeights_, buffer, squareBytes, cudaMemcpyHostToDevice);
 }
 void CrossAttentionLayer::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
-	if(!train_ || !trainingAllocated_) return;
+	if(!trainingAllocated_) return;
 	const size_t squareBytes = squareProjectionElements_*sizeof(__half);
 	const size_t contextBytes = contextProjectionElements_*sizeof(__half);
 	cudaMemcpy(buffer, m_Q_, squareBytes, cudaMemcpyDeviceToHost);
@@ -239,8 +239,7 @@ void CrossAttentionLayer::SaveOptimizerState(std::ofstream& file, unsigned char*
 	file.write(reinterpret_cast<const char*>(&t_), sizeof(int));
 }
 void CrossAttentionLayer::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
-	if(!train_){ return; }
-	if(!trainingAllocated_){ AllocateTrainingBuffers(); }
+	if(!trainingAllocated_){ return; }
 	const size_t squareBytes = squareProjectionElements_*sizeof(__half);
 	const size_t contextBytes = contextProjectionElements_*sizeof(__half);
 	file.read(reinterpret_cast<char*>(buffer), squareBytes);
@@ -265,10 +264,10 @@ size_t CrossAttentionLayer::GetParameterSize(){
 	return weightCount_*sizeof(__half);
 }
 size_t CrossAttentionLayer::GetOptimizerStateSize(){
-	return train_ ? std::max(weightCount_*sizeof(__half), static_cast<size_t>(sizeof(int))) : 0;
+	return trainingAllocated_ ? std::max(weightCount_*sizeof(__half), static_cast<size_t>(sizeof(int))) : 0;
 }
 void CrossAttentionLayer::SetTrain(const bool enable){
-	if(enable && !trainingAllocated_){ AllocateTrainingBuffers(); }
+	if(enable && !trainingAllocated_){ throw std::runtime_error("CrossAttentionLayer cannot enable training when constructed for inference"); }
 	train_ = enable;
 }
 void CrossAttentionLayer::CollectAdamWTasks(std::vector<AdamWHalfTask>& halfTasks, std::vector<AdamWFloatTask>& floatTasks){

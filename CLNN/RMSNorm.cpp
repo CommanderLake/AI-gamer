@@ -39,12 +39,16 @@ RMSNorm::~RMSNorm(){
 	}
 }
 __half* RMSNorm::Forward(__half* data){
+	if(data == nullptr){ throw std::invalid_argument("RMSNorm::Forward received null input"); }
 	inData_ = data;
 	RMSNormForward(outData_, data, gamma_, invRms_, batchSize_, outC_, outHW_, spatialMode_, epsilon_);
 	return outData_;
 }
 __half* RMSNorm::Backward(__half* grad){
-	if(!train_ || !trainingAllocated_){ throw std::runtime_error("RMSNorm::Backward requires training mode"); }
+	if(grad == nullptr){ throw std::invalid_argument("RMSNorm::Backward received null gradient"); }
+	if(!train_){ return grad; }
+	if(!trainingAllocated_){ throw std::runtime_error("RMSNorm::Backward requires training buffers; construct with train=true"); }
+	if(inData_ == nullptr){ throw std::runtime_error("RMSNorm::Backward requires a previous Forward call"); }
 	RMSNormBackward(outGrad_, grad, inData_, gamma_, gradGamma_, invRms_, workspace_, workspaceSize_, batchSize_, outC_, outHW_, spatialMode_);
 	return outGrad_;
 }
@@ -81,7 +85,7 @@ size_t RMSNorm::GetParameterSize(){
 	return outC_*sizeof(float);
 }
 size_t RMSNorm::GetOptimizerStateSize(){
-	return 2*outC_*sizeof(float);
+	return trainingAllocated_ ? 2*outC_*sizeof(float) : 0;
 }
 void RMSNorm::SetTrain(const bool enable){
 	if(enable && !trainingAllocated_){ throw std::runtime_error("RMSNorm cannot enable training when constructed for inference"); }

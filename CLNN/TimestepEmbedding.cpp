@@ -9,12 +9,13 @@ TimestepEmbedding::TimestepEmbedding(const int batchSize, const int embeddingDim
 	train_ = false;
 	outNCHW_ = static_cast<size_t>(batchSize_)*embeddingDim_;
 	CUDAMallocZero(&outData_, outNCHW_*sizeof(__half));
+	CUDAMallocZero(&gradHalfTimesteps_, static_cast<size_t>(batchSize_)*sizeof(__half));
 	CUDAMallocZero(&ownedTimesteps_, static_cast<size_t>(batchSize_)*sizeof(float));
 	CUDAMallocZero(&gradTimesteps_, static_cast<size_t>(batchSize_)*sizeof(float));
-	timesteps_ = ownedTimesteps_;
 }
 TimestepEmbedding::~TimestepEmbedding(){
 	cudaFree(outData_);
+	cudaFree(gradHalfTimesteps_);
 	cudaFree(ownedTimesteps_);
 	cudaFree(gradTimesteps_);
 }
@@ -27,10 +28,19 @@ void TimestepEmbedding::SetTimestepsHost(const float* timesteps){
 	checkCUDA(cudaMemcpy(ownedTimesteps_, timesteps, static_cast<size_t>(batchSize_)*sizeof(float), cudaMemcpyHostToDevice));
 	timesteps_ = ownedTimesteps_;
 }
+void TimestepEmbedding::ClearTimesteps(){
+	timesteps_ = nullptr;
+}
 __half* TimestepEmbedding::Forward(__half* data){
 	if(timesteps_){
+		lastForwardUsedHalf_ = false;
+		lastFloatTimesteps_ = timesteps_;
+		lastHalfTimesteps_ = nullptr;
 		TimestepEmbeddingForward(outData_, timesteps_, batchSize_, embeddingDim_, maxPeriod_);
 	} else if(data){
+		lastForwardUsedHalf_ = true;
+		lastFloatTimesteps_ = nullptr;
+		lastHalfTimesteps_ = data;
 		TimestepEmbeddingForwardHalf(outData_, data, batchSize_, embeddingDim_, maxPeriod_);
 	} else{
 		throw std::runtime_error("TimestepEmbedding::Forward requires timesteps");
@@ -39,7 +49,12 @@ __half* TimestepEmbedding::Forward(__half* data){
 }
 __half* TimestepEmbedding::Backward(__half* grad){
 	if(grad == nullptr){ return nullptr; }
-	if(timesteps_){ TimestepEmbeddingBackward(gradTimesteps_, grad, timesteps_, batchSize_, embeddingDim_, maxPeriod_); }
+	if(lastForwardUsedHalf_){
+		if(lastHalfTimesteps_ == nullptr){ throw std::runtime_error("TimestepEmbedding::Backward requires a previous half-timestep Forward call"); }
+		TimestepEmbeddingBackwardHalf(gradHalfTimesteps_, grad, lastHalfTimesteps_, batchSize_, embeddingDim_, maxPeriod_);
+		return gradHalfTimesteps_;
+	}
+	if(lastFloatTimesteps_){ TimestepEmbeddingBackward(gradTimesteps_, grad, lastFloatTimesteps_, batchSize_, embeddingDim_, maxPeriod_); }
 	return grad;
 }
 float* TimestepEmbedding::GetTimestepGrad(){

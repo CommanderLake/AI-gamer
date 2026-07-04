@@ -17,6 +17,7 @@ void AsinhBackward(__half* grad, const __half* activated, int size, float alpha,
 void TimestepEmbeddingForward(__half* out, const float* timesteps, int batchSize, int embeddingDim, float maxPeriod);
 void TimestepEmbeddingForwardHalf(__half* out, const __half* timesteps, int batchSize, int embeddingDim, float maxPeriod);
 void TimestepEmbeddingBackward(float* gradTimesteps, const __half* grad, const float* timesteps, int batchSize, int embeddingDim, float maxPeriod);
+void TimestepEmbeddingBackwardHalf(__half* gradTimesteps, const __half* grad, const __half* timesteps, int batchSize, int embeddingDim, float maxPeriod);
 void RotaryEmbeddingForward(__half* out, const __half* in, const int* positionOffsets, int batchSize, int tokens, int embedDim, int numHeads, int rotaryDim, int basePosition, float theta, bool interleaved, bool inverse);
 void LayerNormForward(__half* y, const __half* x, const float* g, const float* b, float* mean, float* var, int N, int C, int HW, bool spatialMode);
 void LayerNormBackward(__half* dx, const __half* dy, const __half* x, const float* g, float* dG, float* dB, const float* mean, const float* var, void* workspace, size_t workspaceSize, int N, int C, int HW, bool spatialMode);

@@ -99,8 +99,7 @@ void AdaRMSNorm::SaveOptimizerState(std::ofstream& file, unsigned char* buffer){
 	file.write(reinterpret_cast<const char*>(&t_), sizeof(int));
 }
 void AdaRMSNorm::LoadOptimizerState(std::ifstream& file, unsigned char* buffer){
-	if(!train_){ return; }
-	if(!trainingAllocated_){ throw std::runtime_error("AdaRMSNorm cannot load optimizer state without training buffers"); }
+	if(!trainingAllocated_){ return; }
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));
 	cudaMemcpy(mGamma_, buffer, outC_*sizeof(float), cudaMemcpyHostToDevice);
 	file.read(reinterpret_cast<char*>(buffer), outC_*sizeof(float));

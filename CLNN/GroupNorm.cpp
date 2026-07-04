@@ -52,12 +52,16 @@ GroupNorm::~GroupNorm(){
 	}
 }
 __half* GroupNorm::Forward(__half* data){
+	if(data == nullptr){ throw std::invalid_argument("GroupNorm::Forward received null input"); }
 	inData_ = data;
 	GroupNormForward(outData_, data, gamma_, beta_, mean_, invStd_, batchSize_, outC_, outHW_, groups_, epsilon_);
 	return outData_;
 }
 __half* GroupNorm::Backward(__half* grad){
-	if(!train_ || !trainingAllocated_){ throw std::runtime_error("GroupNorm::Backward requires training mode"); }
+	if(grad == nullptr){ throw std::invalid_argument("GroupNorm::Backward received null gradient"); }
+	if(!train_){ return grad; }
+	if(!trainingAllocated_){ throw std::runtime_error("GroupNorm::Backward requires training buffers; construct with train=true"); }
+	if(inData_ == nullptr){ throw std::runtime_error("GroupNorm::Backward requires a previous Forward call"); }
 	GroupNormBackward(outGrad_, grad, inData_, gamma_, gradGamma_, gradBeta_, mean_, invStd_, workspace_, workspaceSize_, batchSize_, outC_, outHW_, groups_);
 	return outGrad_;
 }
@@ -107,7 +111,7 @@ size_t GroupNorm::GetParameterSize(){
 	return 2*outC_*sizeof(float);
 }
 size_t GroupNorm::GetOptimizerStateSize(){
-	return 4*outC_*sizeof(float);
+	return trainingAllocated_ ? 4*outC_*sizeof(float) : 0;
 }
 void GroupNorm::SetTrain(const bool enable){
 	if(enable && !trainingAllocated_){ throw std::runtime_error("GroupNorm cannot enable training when constructed for inference"); }

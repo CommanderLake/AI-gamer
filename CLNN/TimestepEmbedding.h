@@ -8,6 +8,7 @@ public:
 	__half* Backward(__half* grad) override;
 	void SetTimestepsDevice(const float* timesteps);
 	void SetTimestepsHost(const float* timesteps);
+	void ClearTimesteps();
 	float* GetTimestepGrad();
 	size_t GetParameterSize() override;
 	size_t GetOptimizerStateSize() override;
@@ -16,7 +17,11 @@ private:
 	int embeddingDim_;
 	float maxPeriod_;
 	__half* outData_ = nullptr;
+	__half* gradHalfTimesteps_ = nullptr;
 	float* ownedTimesteps_ = nullptr;
 	float* gradTimesteps_ = nullptr;
 	const float* timesteps_ = nullptr;
+	const float* lastFloatTimesteps_ = nullptr;
+	const __half* lastHalfTimesteps_ = nullptr;
+	bool lastForwardUsedHalf_ = false;
 };

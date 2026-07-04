@@ -36,10 +36,12 @@ void RotaryEmbedding::SetPositionOffsetsHost(const int* offsets){
 	positionOffsets_ = ownedPositionOffsets_;
 }
 __half* RotaryEmbedding::Forward(__half* data){
+	if(data == nullptr){ throw std::invalid_argument("RotaryEmbedding::Forward received null input"); }
 	RotaryEmbeddingForward(outData_, data, positionOffsets_, batchSize_, tokens_, embedDim_, numHeads_, rotaryDim_, basePosition_, theta_, interleaved_, false);
 	return outData_;
 }
 __half* RotaryEmbedding::Backward(__half* grad){
+	if(grad == nullptr){ throw std::invalid_argument("RotaryEmbedding::Backward received null gradient"); }
 	RotaryEmbeddingForward(outGrad_, grad, positionOffsets_, batchSize_, tokens_, embedDim_, numHeads_, rotaryDim_, basePosition_, theta_, interleaved_, true);
 	return outGrad_;
 }
